@@ -14,6 +14,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"sort"
@@ -78,6 +79,8 @@ type gooFYS struct {
 	nextHandleID fuseops.HandleID
 	dirHandles map[fuseops.HandleID]*DirHandle
 	nameToDir map[string]*DirHandle
+
+	fileHandles map[fuseops.HandleID]*FileHandle
 }
 
 func NewGooFYS(bucket string, uid uint32, gid uint32) fuse.Server {
@@ -114,6 +117,8 @@ func NewGooFYS(bucket string, uid uint32, gid uint32) fuse.Server {
 
 	fs.dirHandles = make(map[fuseops.HandleID]*DirHandle)
 	fs.nameToDir = make(map[string]*DirHandle)
+
+	fs.fileHandles = make(map[fuseops.HandleID]*FileHandle)
 
 	// Set up invariant checking.
 	fs.mu = syncutil.NewInvariantMutex(fs.checkInvariants)
@@ -468,5 +473,83 @@ func (fs *gooFYS) ReleaseDirHandle(
 	delete(fs.dirHandles, op.Handle)
 	delete(fs.nameToDir, *dh.FullName)
 
+	return
+}
+
+
+func (fs *gooFYS) OpenFile(
+	ctx context.Context,
+	op *fuseops.OpenFileOp) (err error) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	// Find the inode.
+	in := fs.getInodeOrDie(op.Inode)
+
+	// Allocate a handle.
+	handleID := fs.nextHandleID
+	fs.nextHandleID++
+
+	fs.fileHandles[handleID] = NewFileHandle(in)
+
+	op.Handle = handleID
+	op.KeepPageCache = true
+
+	return
+}
+
+func (fs *gooFYS) ReadFile(
+	ctx context.Context,
+	op *fuseops.ReadFileOp) (err error) {
+
+	fs.mu.Lock()
+	fh := fs.fileHandles[op.Handle]
+	fs.mu.Unlock()
+
+	bytes := fmt.Sprintf("%v-%v", op.Offset, op.Offset + int64(len(op.Dst)) - 1)
+
+	log.Printf("> ReadFile %v %v", *fh.FullName, bytes)
+
+	params := &s3.GetObjectInput{
+		Bucket:                     &fs.bucket,
+		Key:                        fh.FullName,
+		Range:                      &bytes,
+	}
+
+	resp, err := fs.s3.GetObject(params)
+	if err != nil {
+		return mapAwsError(err)
+	}
+
+	//log.Println(resp)
+
+	for op.BytesRead < len(op.Dst) {
+		nread, err := resp.Body.Read(op.Dst[op.BytesRead:])
+		op.BytesRead += nread
+
+		if err != nil {
+			if err != io.EOF {
+				return err
+			} else {
+				err = nil
+				break;
+			}
+		}
+	}
+
+	if op.BytesRead > len(op.Dst) {
+		op.BytesRead = len(op.Dst)
+	}
+
+	return
+}
+
+func (fs *gooFYS) ReleaseFileHandle(
+	ctx context.Context,
+	op *fuseops.ReleaseFileHandleOp) (err error) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	delete(fs.fileHandles, op.Handle)
 	return
 }

@@ -41,3 +41,12 @@ func (dh *DirHandle) IsDir(name *string) bool {
 
 	return en.Nlink == 2
 }
+
+type FileHandle struct {
+	Name *string
+	FullName *string
+}
+
+func NewFileHandle(in *Inode) *FileHandle {
+	return &FileHandle{ Name: in.Name, FullName: in.FullName };
+}
