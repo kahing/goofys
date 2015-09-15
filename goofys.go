@@ -541,9 +541,6 @@ func (fs *gooFYS) ReadFile(
 		}
 	}
 
-	log.Printf("<< ReadFile %v %v = %c %c %c %c", *fh.FullName, bytes,
-		op.Dst[0], op.Dst[1], op.Dst[2], op.Dst[3])
-
 	log.Printf("< ReadFile %v %v = %v", *fh.FullName, bytes, op.BytesRead)
 
 	return
