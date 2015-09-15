@@ -506,7 +506,9 @@ func (fs *gooFYS) ReadFile(
 	fh := fs.fileHandles[op.Handle]
 	fs.mu.Unlock()
 
-	bytes := fmt.Sprintf("%v-%v", op.Offset, op.Offset + int64(len(op.Dst)) - 1)
+	end := op.Offset + int64(len(op.Dst)) - 1
+	bytes := fmt.Sprintf("bytes=%v-%v", op.Offset, end)
+	toRead := len(op.Dst)
 
 	log.Printf("> ReadFile %v %v", *fh.FullName, bytes)
 
@@ -521,28 +523,40 @@ func (fs *gooFYS) ReadFile(
 		return mapAwsError(err)
 	}
 
-	//log.Println(resp)
+	toRead = int(*resp.ContentLength)
 
-	for op.BytesRead < len(op.Dst) {
-		nread, err := resp.Body.Read(op.Dst[op.BytesRead:])
+	for toRead > 0 {
+		buf := op.Dst[op.BytesRead : op.BytesRead + int(toRead)]
+
+		nread, err := resp.Body.Read(buf)
 		op.BytesRead += nread
+		toRead -= nread
 
 		if err != nil {
 			if err != io.EOF {
 				return err
 			} else {
-				err = nil
 				break;
 			}
 		}
 	}
 
-	if op.BytesRead > len(op.Dst) {
-		op.BytesRead = len(op.Dst)
-	}
+	log.Printf("<< ReadFile %v %v = %c %c %c %c", *fh.FullName, bytes,
+		op.Dst[0], op.Dst[1], op.Dst[2], op.Dst[3])
+
+	log.Printf("< ReadFile %v %v = %v", *fh.FullName, bytes, op.BytesRead)
 
 	return
 }
+
+func (fs *gooFYS) FlushFile(
+	ctx context.Context,
+	op *fuseops.FlushFileOp) (err error) {
+
+	// everything is readonly for now
+	return
+}
+
 
 func (fs *gooFYS) ReleaseFileHandle(
 	ctx context.Context,
