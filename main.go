@@ -26,6 +26,7 @@ import (
 	"github.com/codegangsta/cli"
 
 	"github.com/jacobsa/fuse"
+	"github.com/jacobsa/fuse/fuseutil"
 	"github.com/jacobsa/syncutil"
 )
 
@@ -80,7 +81,7 @@ func mount(
 		return
 	}
 
-	server := NewGooFYS(bucketName, uid, gid)
+	server := fuseutil.NewFileSystemServer(NewGoofys(bucketName, uid, gid))
 
 	// Mount the file system.
 	mountCfg := &fuse.MountConfig{

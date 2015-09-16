@@ -42,7 +42,7 @@ import (
 // does not have a on disk data cache, and consistency model is
 // close-to-open.
 
-type gooFYS struct {
+type Goofys struct {
 	fuseutil.NotImplementedFileSystem
 	bucket string
 	// The UID and GID that every inode receives.
@@ -83,9 +83,9 @@ type gooFYS struct {
 	fileHandles map[fuseops.HandleID]*FileHandle
 }
 
-func NewGooFYS(bucket string, uid uint32, gid uint32) fuse.Server {
+func NewGoofys(bucket string, uid uint32, gid uint32) *Goofys {
 	// Set up the basic struct.
-	fs := &gooFYS{
+	fs := &Goofys{
 		bucket: bucket,
 		uid:    uid,
 		gid:    gid,
@@ -110,7 +110,7 @@ func NewGooFYS(bucket string, uid uint32, gid uint32) fuse.Server {
 	fs.inodes[fuseops.RootInodeID] = &Inode{
 		Name: aws.String(""),
 		FullName: aws.String(""),
-		Id: fs.nextInodeID,
+		Id: fuseops.RootInodeID,
 		Attributes: fs.rootAttrs,
 	}
 	fs.nameToID = make(map[string]fuseops.InodeID)
@@ -123,11 +123,10 @@ func NewGooFYS(bucket string, uid uint32, gid uint32) fuse.Server {
 	// Set up invariant checking.
 	fs.mu = syncutil.NewInvariantMutex(fs.checkInvariants)
 
-
-	return fuseutil.NewFileSystemServer(fs)
+	return fs;
 }
 
-func (fs *gooFYS) checkInvariants() {
+func (fs *Goofys) checkInvariants() {
 	//////////////////////////////////
 	// inodes
 	//////////////////////////////////
@@ -143,7 +142,7 @@ func (fs *gooFYS) checkInvariants() {
 // Find the given inode. Panic if it doesn't exist.
 //
 // LOCKS_REQUIRED(fs.mu)
-func (fs *gooFYS) getInodeOrDie(id fuseops.InodeID) (inode *Inode) {
+func (fs *Goofys) getInodeOrDie(id fuseops.InodeID) (inode *Inode) {
 	inode = fs.inodes[id]
 	if inode == nil {
 		panic(fmt.Sprintf("Unknown inode: %v", id))
@@ -153,7 +152,7 @@ func (fs *gooFYS) getInodeOrDie(id fuseops.InodeID) (inode *Inode) {
 }
 
 
-func (fs *gooFYS) GetInodeAttributes(
+func (fs *Goofys) GetInodeAttributes(
 	ctx context.Context,
 	op *fuseops.GetInodeAttributesOp) (err error) {
 
@@ -197,7 +196,7 @@ func mapAwsError(err error) error {
 	}
 }
 
-func (fs *gooFYS) LookUpInode(
+func (fs *Goofys) LookUpInode(
 	ctx context.Context,
 	op *fuseops.LookUpInodeOp) (err error) {
 
@@ -282,7 +281,7 @@ func (fs *gooFYS) LookUpInode(
 }
 
 // LOCKS_EXCLUDED(fs.mu)
-func (fs *gooFYS) ForgetInode(
+func (fs *Goofys) ForgetInode(
 	ctx context.Context,
 	op *fuseops.ForgetInodeOp) (err error) {
 
@@ -298,7 +297,7 @@ func (fs *gooFYS) ForgetInode(
 	return
 }
 
-func (fs *gooFYS) OpenDir(
+func (fs *Goofys) OpenDir(
 	ctx context.Context,
 	op *fuseops.OpenDirOp) (err error) {
 	fs.mu.Lock()
@@ -344,7 +343,7 @@ func (p sortedDirents) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 
 // LOCKS_EXCLUDED(fs.mu)
-func (fs *gooFYS) ReadDir(
+func (fs *Goofys) ReadDir(
 	ctx context.Context,
 	op *fuseops.ReadDirOp) (err error) {
 
@@ -459,7 +458,7 @@ func (fs *gooFYS) ReadDir(
 }
 
 
-func (fs *gooFYS) ReleaseDirHandle(
+func (fs *Goofys) ReleaseDirHandle(
 	ctx context.Context,
 	op *fuseops.ReleaseDirHandleOp) (err error) {
 
@@ -477,7 +476,7 @@ func (fs *gooFYS) ReleaseDirHandle(
 }
 
 
-func (fs *gooFYS) OpenFile(
+func (fs *Goofys) OpenFile(
 	ctx context.Context,
 	op *fuseops.OpenFileOp) (err error) {
 	fs.mu.Lock()
@@ -498,7 +497,7 @@ func (fs *gooFYS) OpenFile(
 	return
 }
 
-func (fs *gooFYS) ReadFile(
+func (fs *Goofys) ReadFile(
 	ctx context.Context,
 	op *fuseops.ReadFileOp) (err error) {
 
@@ -546,7 +545,7 @@ func (fs *gooFYS) ReadFile(
 	return
 }
 
-func (fs *gooFYS) FlushFile(
+func (fs *Goofys) FlushFile(
 	ctx context.Context,
 	op *fuseops.FlushFileOp) (err error) {
 
@@ -555,7 +554,7 @@ func (fs *gooFYS) FlushFile(
 }
 
 
-func (fs *gooFYS) ReleaseFileHandle(
+func (fs *Goofys) ReleaseFileHandle(
 	ctx context.Context,
 	op *fuseops.ReleaseFileHandleOp) (err error) {
 	fs.mu.Lock()
