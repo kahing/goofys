@@ -83,7 +83,7 @@ type Goofys struct {
 	fileHandles map[fuseops.HandleID]*FileHandle
 }
 
-func NewGoofys(bucket string, uid uint32, gid uint32) *Goofys {
+func NewGoofys(bucket string, awsConfig *aws.Config, uid uint32, gid uint32) *Goofys {
 	// Set up the basic struct.
 	fs := &Goofys{
 		bucket: bucket,
@@ -92,7 +92,7 @@ func NewGoofys(bucket string, uid uint32, gid uint32) *Goofys {
 		umask:  0122,
 	}
 
-	fs.s3 = s3.New(&aws.Config{Region: aws.String("us-west-2")})
+	fs.s3 = s3.New(awsConfig)
 	now := time.Now()
 	fs.rootAttrs = fuseops.InodeAttributes{
 		Size: 4096,

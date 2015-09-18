@@ -23,6 +23,8 @@ import (
 
 	"golang.org/x/net/context"
 
+	"github.com/aws/aws-sdk-go/aws"
+
 	"github.com/codegangsta/cli"
 
 	"github.com/jacobsa/fuse"
@@ -81,7 +83,11 @@ func mount(
 		return
 	}
 
-	server := fuseutil.NewFileSystemServer(NewGoofys(bucketName, uid, gid))
+	awsConfig := &aws.Config{
+		Region: aws.String("us-west-2"),
+		//LogLevel: aws.LogLevel(aws.LogDebug),
+	}
+	server := fuseutil.NewFileSystemServer(NewGoofys(bucketName, awsConfig, uid, gid))
 
 	// Mount the file system.
 	mountCfg := &fuse.MountConfig{

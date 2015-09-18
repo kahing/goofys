@@ -14,14 +14,13 @@ package main
 
 import (
 	"bufio"
-	"log"
-	"fmt"
+	"bytes"
 	"net"
-	"net/http"
 	"io"
-	"os"
+	"math/rand"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -29,8 +28,15 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/service/s3"
+
+	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
+
+	"github.com/minio/minio/pkg/auth"
+	"github.com/minio/minio/pkg/server"
+	"github.com/minio/minio/pkg/server/api"
 
 	. "gopkg.in/check.v1"
 )
@@ -66,8 +72,7 @@ func currentGid() uint32 {
 type GoofysTest struct {
 	fs *Goofys
 	ctx context.Context
-	dir string
-	s3proxy S3Proxy
+	awsConfig *aws.Config
 	s3 *s3.S3
 }
 
@@ -83,66 +88,6 @@ func Test(t *testing.T) {
 
 var _ = Suite(&GoofysTest{})
 
-func (s3proxy *S3Proxy) Download(t *C) (err error) {
-	const url = "https://github.com/andrewgaul/s3proxy/releases/download/s3proxy-1.4.0/s3proxy"
-	const size = 7690941
-	fileName := "s3proxy"
-	s3proxy.jar = fileName
-
-	info, err := os.Stat(fileName)
-	if err == nil {
-		if info.Size() == size {
-			t.Logf("Already downloaded %v", fileName)
-			return
-		}
-	}
-
-	log.Printf("Downloading %v", fileName)
-
-	output, err := os.Create(fileName)
-	if err != nil {
-		t.Log("Error while creating", fileName, "-", err)
-		return
-	}
-
-	defer output.Close()
-
-	response, err := http.Get(url)
-	if err != nil {
-		t.Log("Error while downloading", url, "-", err)
-		return
-	}
-	defer response.Body.Close()
-
-	_, err = io.Copy(output, response.Body)
-	if err != nil {
-		t.Log("Error while downloading", url, "-", err)
-		return
-	}
-
-	t.Logf("Downloaded %v", fileName)
-	return
-}
-
-func (s3proxy *S3Proxy) GenerateConfig(t *C) {
-	dir := t.MkDir()
-	s3proxy.config = fmt.Sprintf("%s/%s", dir, "s3proxy.properties")
-	out, err := os.Create(s3proxy.config)
-	if err != nil {
-		t.Log("Error while creating", s3proxy.config, "-", err)
-		return
-	}
-
-	defer out.Close()
-	out.Write([]byte("s3proxy.endpoint=http://127.0.0.1:8080\n"))
-	out.Write([]byte("s3proxy.authorization=none\n"))
-	out.Write([]byte("jclouds.provider=transient\n"))
-	out.Write([]byte("jclouds.identity=local-identity\n"))
-	out.Write([]byte("jclouds.credential=local-credential\n"))
-
-	return
-}
-
 func logOutput(t *C, tag string, r io.ReadCloser) {
 	in := bufio.NewScanner(r)
 
@@ -151,57 +96,158 @@ func logOutput(t *C, tag string, r io.ReadCloser) {
 	}
 }
 
-func (s3proxy *S3Proxy) Exec(t *C) (err error) {
-	cmd := exec.Command("java", "-jar", s3proxy.jar, "--properties", s3proxy.config)
-	log.Println("Executing", cmd.Args)
-	pout, err := cmd.StdoutPipe()
-	t.Assert(err, IsNil)
-
-	perr, err := cmd.StderrPipe()
-	t.Assert(err, IsNil)
-
-	cmd.Start()
-
-	go logOutput(t, "s3proxy", pout)
-	go logOutput(t, "s3proxy.err", perr)
-
+func (s *GoofysTest) waitFor(t *C, addr string) (err error) {
 	// wait for it to listen on port
 	for i := 0; i < 10; i++ {
-		conn, err := net.Dial("tcp", "127.0.0.1:8080")
+		var conn net.Conn
+		conn, err = net.Dial("tcp", addr)
 		if err == nil {
 			// we are done!
 			conn.Close()
-			return err
+			return
 		} else {
 			t.Log("Cound not connect: %v", err)
 			time.Sleep(1 * time.Second)
 		}
 	}
 
-	cmd.Process.Kill()
+	return
+}
+
+func (s *GoofysTest) setupMinio(t *C, addr string) (accessKey string, secretKey string) {
+	accessKeyID, perr := auth.GenerateAccessKeyID()
+	t.Assert(perr, IsNil)
+	secretAccessKey, perr := auth.GenerateSecretAccessKey()
+	t.Assert(perr, IsNil)
+
+	accessKey = string(accessKeyID)
+	secretKey = string(secretAccessKey)
+
+	authConf := &auth.Config{}
+	authConf.Users = make(map[string]*auth.User)
+	authConf.Users[string(accessKeyID)] = &auth.User{
+		Name:            "testuser",
+		AccessKeyID:     accessKey,
+		SecretAccessKey: secretKey,
+	}
+	auth.SetAuthConfigPath(filepath.Join(t.MkDir(), "users.json"))
+	perr = auth.SaveConfig(authConf)
+	t.Assert(perr, IsNil)
+
+	go server.Start(api.Config{ Address: addr })
+
+	err := s.waitFor(t, addr)
+	t.Assert(err, IsNil)
+
 	return
 }
 
 func (s *GoofysTest) SetUpSuite(t *C) {
-	err := s.s3proxy.Download(t)
-	t.Assert(err, IsNil)
+	//addr := "play.minio.io:9000"
+	addr := "127.0.0.1:9000"
 
-	s.s3proxy.GenerateConfig(t)
+	accessKey, secretKey := s.setupMinio(t, addr)
 
-	err = s.s3proxy.Exec(t)
+	s.awsConfig = &aws.Config{
+		//Credentials: credentials.AnonymousCredentials,
+		Credentials: credentials.NewStaticCredentials(accessKey, secretKey, ""),
+		Region: aws.String("milkyway"),//aws.String("us-west-2"),
+		Endpoint: aws.String(addr),
+		DisableSSL: aws.Bool(true),
+		S3ForcePathStyle: aws.Bool(true),
+		MaxRetries: aws.Int(0),
+		Logger: t,
+		LogLevel: aws.LogLevel(aws.LogDebug),
+		//LogLevel: aws.LogLevel(aws.LogDebug | aws.LogDebugWithHTTPBody),
+	}
+	s.s3 = s3.New(s.awsConfig)
+
+	_, err := s.s3.ListBuckets(nil)
 	t.Assert(err, IsNil)
 }
 
 func (s *GoofysTest) TearDownSuite(t *C) {
-	if s.s3proxy.cmd != nil {
-		s.s3proxy.cmd.Process.Kill()
+}
+
+func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker) {
+	_, err := s.s3.CreateBucket(&s3.CreateBucketInput{
+		Bucket: &bucket,
+		//ACL: aws.String(s3.BucketCannedACLPrivate),
+	})
+	t.Assert(err, IsNil)
+
+	for path, r := range env {
+		if r == nil {
+			r = bytes.NewReader([]byte(""))
+		}
+
+		params := &s3.PutObjectInput{
+			Bucket: &bucket,
+			Key: &path,
+			Body: r,
+		}
+
+
+		_, err := s.s3.PutObject(params)
+		t.Assert(err, IsNil)
 	}
+
+	// double check
+	for path := range env {
+		params := &s3.HeadObjectInput{ Bucket: &bucket, Key: &path }
+		_, err := s.s3.HeadObject(params)
+		t.Assert(err, IsNil)
+	}
+
+	t.Log("setupEnv done")
+}
+
+
+// from https://stackoverflow.com/questions/22892120/how-to-generate-a-random-string-of-a-fixed-length-in-golang
+func RandStringBytesMaskImprSrc(n int) string {
+	const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	const (
+		letterIdxBits = 6                    // 6 bits to represent a letter index
+		letterIdxMask = 1<<letterIdxBits - 1 // All 1-bits, as many as letterIdxBits
+		letterIdxMax  = 63 / letterIdxBits   // # of letter indices fitting in 63 bits
+	)
+	src := rand.NewSource(time.Now().UnixNano())
+	b := make([]byte, n)
+	// A src.Int63() generates 63 random bits, enough for letterIdxMax characters!
+	for i, cache, remain := n-1, src.Int63(), letterIdxMax; i >= 0; {
+		if remain == 0 {
+			cache, remain = src.Int63(), letterIdxMax
+		}
+		if idx := int(cache & letterIdxMask); idx < len(letterBytes) {
+			b[i] = letterBytes[idx]
+			i--
+		}
+		cache >>= letterIdxBits
+		remain--
+	}
+
+	return string(b)
+}
+
+func (s *GoofysTest) setupDefaultEnv(t *C) (bucket string) {
+	env := map[string]io.ReadSeeker{
+		"file1": nil,
+		"file2": nil,
+		"dir1/file3": nil,
+		"dir2/dir3/file4": nil,
+		"empty_dir/": nil,
+	}
+
+	bucket = RandStringBytesMaskImprSrc(16)
+	s.setupEnv(t, bucket, env)
+	return bucket
 }
 
 func (s *GoofysTest) SetUpTest(t *C) {
-	s.fs = NewGoofys("goofys", currentUid(), currentGid())
+	bucket := s.setupDefaultEnv(t)
+
+	s.fs = NewGoofys(bucket, s.awsConfig, currentUid(), currentGid())
 	s.ctx = context.Background()
-	s.dir = t.MkDir()
 }
 
 func (s *GoofysTest) TestGetRootInode(t *C) {
@@ -214,4 +260,22 @@ func (s *GoofysTest) TestGetRootAttributes(t *C) {
 		Inode: fuseops.RootInodeID,
 	})
 	t.Assert(err, IsNil)
+}
+
+func (s *GoofysTest) TestLookUpInode(t *C) {
+	op := &fuseops.LookUpInodeOp{
+		Parent: fuseops.RootInodeID,
+		Name: "file1",
+	}
+	err := s.fs.LookUpInode(s.ctx, op)
+	t.Assert(err, IsNil)
+	defer s.fs.ForgetInode(s.ctx, &fuseops.ForgetInodeOp{ Inode: op.Entry.Child })
+
+	op = &fuseops.LookUpInodeOp{
+		Parent: fuseops.RootInodeID,
+		Name: "fileNotFound",
+	}
+	err = s.fs.LookUpInode(s.ctx, op)
+
+	t.Assert(err, Equals, fuse.ENOENT)
 }
