@@ -115,6 +115,7 @@ func NewGoofys(bucket string, awsConfig *aws.Config, uid uint32, gid uint32) *Go
 	}
 	fs.nameToID = make(map[string]fuseops.InodeID)
 
+	fs.nextHandleID = 1
 	fs.dirHandles = make(map[fuseops.HandleID]*DirHandle)
 	fs.nameToDir = make(map[string]*DirHandle)
 

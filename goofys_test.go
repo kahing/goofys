@@ -22,8 +22,10 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/net/context"
 
@@ -33,6 +35,7 @@ import (
 
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
+	"github.com/jacobsa/fuse/fuseutil"
 
 	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/minio/pkg/server"
@@ -262,20 +265,146 @@ func (s *GoofysTest) TestGetRootAttributes(t *C) {
 	t.Assert(err, IsNil)
 }
 
-func (s *GoofysTest) TestLookUpInode(t *C) {
+func (s *GoofysTest) ForgetInode(t *C, inode fuseops.InodeID) {
+	err := s.fs.ForgetInode(s.ctx, &fuseops.ForgetInodeOp{ Inode: inode })
+	t.Assert(err, IsNil)
+}
+
+func (s *GoofysTest) LookUpInode(t *C, dir string, name string) (fuseops.InodeID, error) {
+	var parent fuseops.InodeID
+	if len(dir) == 0 {
+		parent = fuseops.RootInodeID
+	} else {
+		var err error
+		idx := strings.LastIndex(dir, "/")
+		if idx == -1 {
+			parent, err = s.LookUpInode(t, "", dir)
+		} else {
+			dirName := dir[0:idx]
+			baseName := dir[idx:]
+			parent, err = s.LookUpInode(t, dirName, baseName)
+		}
+
+		if err != nil {
+			return 0, err
+		}
+		defer s.ForgetInode(t, parent)
+	}
+
 	op := &fuseops.LookUpInodeOp{
-		Parent: fuseops.RootInodeID,
-		Name: "file1",
+		Parent: parent,
+		Name: name,
 	}
 	err := s.fs.LookUpInode(s.ctx, op)
+	return op.Entry.Child, err
+}
+
+func (s *GoofysTest) TestLookUpInode(t *C) {
+	inode, err := s.LookUpInode(t, "", "file1")
 	t.Assert(err, IsNil)
-	defer s.fs.ForgetInode(s.ctx, &fuseops.ForgetInodeOp{ Inode: op.Entry.Child })
 
-	op = &fuseops.LookUpInodeOp{
-		Parent: fuseops.RootInodeID,
-		Name: "fileNotFound",
-	}
-	err = s.fs.LookUpInode(s.ctx, op)
+	defer s.ForgetInode(t, inode)
 
+	_, err = s.LookUpInode(t, "", "fileNotFound")
 	t.Assert(err, Equals, fuse.ENOENT)
+
+	// XXX not supported yet
+	// inode, err = s.LookUpInode(t, "dir1", "file3")
+	// t.Assert(err, IsNil)
+
+	// defer s.ForgetInode(t, inode)
+
+	// inode, err = s.LookUpInode(t, "dir2/dir3", "file4")
+	// t.Assert(err, IsNil)
+
+	// defer s.ForgetInode(t, inode)
+
+	// inode, err = s.LookUpInode(t, "", "empty_dir")
+	// t.Assert(err, IsNil)
+
+	// defer s.ForgetInode(t, inode)
+}
+
+func (s *GoofysTest) TestGetInodeAttributes(t *C) {
+	inode, err := s.LookUpInode(t, "", "file1")
+	t.Assert(err, IsNil)
+	defer s.ForgetInode(t, inode)
+
+	op := &fuseops.GetInodeAttributesOp{Inode: inode}
+	err = s.fs.GetInodeAttributes(s.ctx, op)
+	t.Assert(err, IsNil)
+	t.Assert(op.Attributes.Size, Equals, uint64(0))
+}
+
+func (s *GoofysTest) OpenDir(t *C, inode fuseops.InodeID) (fuseops.HandleID, error) {
+	op := &fuseops.OpenDirOp{Inode: inode}
+	err := s.fs.OpenDir(s.ctx, op)
+	return op.Handle, err
+}
+
+func ReadDirent(t *C, buf []byte) (*fuseutil.Dirent, []byte) {
+	type fuse_dirent struct {
+		ino     uint64
+		off     uint64
+		namelen uint32
+		type_   uint32
+		name    [0]byte
+	}
+	const direntAlignment = 8
+	const direntSize = 8 + 8 + 4 + 4
+
+	p := unsafe.Pointer(&buf[0])
+	var consumed uint32
+
+	de := (*fuse_dirent)(p)
+	consumed += direntSize
+
+	namebuf := make([]byte, de.namelen)
+	copy(namebuf, buf[consumed:consumed + de.namelen])
+	name := string(namebuf)
+	consumed += de.namelen
+
+	// Compute the number of bytes of padding we'll need to maintain alignment
+	// for the next entry.
+	var padLen int
+	if len(name) % direntAlignment != 0 {
+		padLen = direntAlignment - (len(name) % direntAlignment)
+		consumed += uint32(padLen)
+	}
+
+	return &fuseutil.Dirent{
+		Offset: fuseops.DirOffset(de.off),
+		Inode: fuseops.InodeID(de.ino),
+		Name: name,
+		Type: fuseutil.DirentType(de.type_),
+	}, buf[consumed:]
+}
+
+func (s *GoofysTest) TestListDir(t *C) {
+	dh, err := s.OpenDir(t, fuseops.RootInodeID)
+	t.Assert(err, IsNil)
+
+	defer s.fs.ReleaseDirHandle(s.ctx, &fuseops.ReleaseDirHandleOp{ Handle: dh })
+
+	op := &fuseops.ReadDirOp{ Handle: dh, Inode: fuseops.RootInodeID, Dst: make([]byte, 4096) }
+	err = s.fs.ReadDir(s.ctx, op)
+	t.Assert(op.BytesRead, Not(Equals), 0)
+
+	// XXX verify the entries. here fuse is too lowlevel and this requires us to
+	// deserialize op.Dst. See github.com/jacobsa/fuse/fuseutil/dirent.go
+	buf := op.Dst[:op.BytesRead]
+	res := make(map[string]*fuseutil.Dirent)
+	keys := []string{}
+
+	for len(buf) > 0 {
+		var de *fuseutil.Dirent
+		de, buf = ReadDirent(t, buf)
+		t.Assert(de.Inode, Not(Equals), fuseops.InodeID(0))
+		t.Assert(len(de.Name), Not(Equals), 0)
+
+		res[de.Name] = de
+		keys = append(keys, de.Name)
+	}
+
+	t.Assert(keys, DeepEquals, []string{ "dir1", "dir2", "empty_dir", "file1", "file2" })
 }
