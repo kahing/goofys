@@ -359,7 +359,7 @@ func (fs *Goofys) ReadDir(
 	}
 
 	if *dh.Name != *inode.Name {
-		panic(fmt.Sprintf("%v != %v", dh.Name, inode.Name))
+		panic(fmt.Sprintf("%v != %v", *dh.Name, *inode.Name))
 	}
 
 	log.Println("> ReadDir", *dh.Name, op.Offset)
@@ -401,13 +401,20 @@ func (fs *Goofys) ReadDir(
 		dh.Entries = make([]fuseutil.Dirent, 0, len(resp.CommonPrefixes) + len(resp.Contents))
 		
 		for _, dir := range resp.CommonPrefixes {
+			// strip trailing /
 			dirName := (*dir.Prefix)[0:len(*dir.Prefix)-1]
+			// strip previous prefix
+			dirName = dirName[len(*params.Prefix):]
 			dh.Entries = append(dh.Entries, makeDirEntry(&dirName, fuseutil.DT_Directory))
 			dh.NameToEntry[dirName] = fs.rootAttrs
 		}
 
 		for _, obj := range resp.Contents {
 			baseName := (*obj.Key)[len(prefix):]
+			if len(baseName) == 0 {
+				// this is a directory blob
+				continue
+			}
 			dh.Entries = append(dh.Entries, makeDirEntry(&baseName, fuseutil.DT_File))
 			dh.NameToEntry[baseName] = fuseops.InodeAttributes{
 				Size: uint64(*obj.Size),
