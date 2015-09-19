@@ -14,6 +14,9 @@ List of implemented fuse operations:
   * OpenDir
   * ReadDir
   * ReleaseDirHandle
+  * OpenFile
+  * ReadFile
+  * ReleaseFileHandle
 
 List of non-POSIX behaviors:
   * directory link count is always 2
