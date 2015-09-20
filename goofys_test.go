@@ -471,12 +471,10 @@ func (s *GoofysTest) ListDirRecursive(
 			t.Assert(err, IsNil)
 			defer s.ForgetInode(t, lookup.Entry.Child)
 
-			t.Logf("Recursing into %v %v ", prefix + de.Name + "/", de.Inode)
 			sub, subkeys := s.ListDirRecursive(t, lookup.Entry.Child, prefix + de.Name + "/")
 			tmp := append(*keys, (*subkeys)...)
 			keys = &tmp
 
-			t.Log(*subkeys)
 			if de.Name == "dir2" {
 				t.Assert((*sub)["dir2/dir3"], NotNil)
 			}
@@ -514,16 +512,32 @@ func (s *GoofysTest) OpenFile(t *C, inode fuseops.InodeID) (fuseops.HandleID, er
 func (s *GoofysTest) TestReadFiles(t *C) {
 	res, _ := s.ListDirRecursive(t, fuseops.RootInodeID, "")
 
-	for path, de := range *res {
-		fh, err := s.OpenFile(t, de.Inode)
-		t.Assert(err, IsNil)
-		defer s.fs.ReleaseFileHandle(s.ctx, &fuseops.ReleaseFileHandleOp{ Handle: fh })
+	for path, _ := range *res {
+		idx := strings.LastIndex(path, "/")
+		var inode fuseops.InodeID
+		var err error
+		if idx == -1 {
+			inode, err = s.LookUpInode(t, "", path)
+		} else {
+			dirName := path[0:idx]
+			baseName := path[idx:]
+			inode, err = s.LookUpInode(t, dirName, baseName)
+		}
+		if err == nil {
+			defer s.ForgetInode(t, inode)
+			t.Logf("LookupInode %v = %v, err = %v", path, inode, err)
 
-		op := &fuseops.ReadFileOp{ Handle: fh, Dst: make([]byte, 4096) }
-		err = s.fs.ReadFile(s.ctx, op)
-		t.Assert(err, IsNil)
+			fh, err := s.OpenFile(t, inode)
+			t.Assert(err, IsNil)
+			defer s.fs.ReleaseFileHandle(s.ctx, &fuseops.ReleaseFileHandleOp{ Handle: fh })
 
-		t.Assert(op.BytesRead, Equals, len(path))
-		t.Assert(string(op.Dst), Equals, path)
+			op := &fuseops.ReadFileOp{ Handle: fh, Dst: make([]byte, 4096) }
+			err = s.fs.ReadFile(s.ctx, op)
+			t.Assert(err, IsNil)
+
+			t.Assert(op.BytesRead, Equals, len(path))
+			buf := op.Dst[0:op.BytesRead]
+			t.Assert(string(buf), Equals, path)
+		}
 	}
 }
