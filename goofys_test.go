@@ -504,3 +504,26 @@ func (s *GoofysTest) TestListDirRecursive(t *C) {
 
 	t.Assert(*keys, DeepEquals, []string{ "dir1", "dir2", "empty_dir", "file1", "file2", "dir1/file3", "dir2/dir3", "dir2/dir3/file4" })
 }
+
+func (s *GoofysTest) OpenFile(t *C, inode fuseops.InodeID) (fuseops.HandleID, error) {
+	op := &fuseops.OpenFileOp{ Inode: inode }
+	err := s.fs.OpenFile(s.ctx, op)
+	return op.Handle, err
+}
+
+func (s *GoofysTest) TestReadFiles(t *C) {
+	res, _ := s.ListDirRecursive(t, fuseops.RootInodeID, "")
+
+	for path, de := range *res {
+		fh, err := s.OpenFile(t, de.Inode)
+		t.Assert(err, IsNil)
+		defer s.fs.ReleaseFileHandle(s.ctx, &fuseops.ReleaseFileHandleOp{ Handle: fh })
+
+		op := &fuseops.ReadFileOp{ Handle: fh, Dst: make([]byte, 4096) }
+		err = s.fs.ReadFile(s.ctx, op)
+		t.Assert(err, IsNil)
+
+		t.Assert(op.BytesRead, Equals, len(path))
+		t.Assert(string(op.Dst), Equals, path)
+	}
+}
