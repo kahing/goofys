@@ -544,6 +544,9 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 			t.Assert(string(buf), Equals, path)
 		}
 
+		// can't use defer here, because during
+		// GoofysTest.LookUpInode we forget the intermediate
+		// parent inodes already
 		s.ForgetInode(t, inode)
 	}
 }
