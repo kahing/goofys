@@ -184,18 +184,110 @@ func mapAwsError(err error) error {
 			case 404:
 				return fuse.ENOENT
 			default:
-				fmt.Printf("code=%v request=%v\n", reqErr.StatusCode(), reqErr.RequestID())
+				log.Printf("code=%v request=%v\n", reqErr.StatusCode(), reqErr.RequestID())
 				return reqErr
 			}
 		} else {
 			// Generic AWS Error with Code, Message, and original error (if any) 
-			fmt.Printf("code=%v msg=%v, err=%v\n", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
+			log.Printf("code=%v msg=%v, err=%v\n", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
 			return awsErr
 		}
 	} else {
 		return err
 	}
 }
+
+func (fs *Goofys) LookUpInodeNotDir(name *string, c chan s3.HeadObjectOutput, errc chan error) {
+	params := &s3.HeadObjectInput{ Bucket: &fs.bucket, Key: name }
+	resp, err := fs.s3.HeadObject(params)
+	if err != nil {
+		log.Printf("LookUpInode %v %v", *name, err)
+		errc <- mapAwsError(err)
+		return
+	}
+
+	log.Println(resp)
+	c <- *resp
+}
+
+func (fs *Goofys) LookUpInodeDir(name *string, c chan s3.ListObjectsOutput, errc chan error) {
+	params := &s3.ListObjectsInput{
+		Bucket:       &fs.bucket,
+		Delimiter:    aws.String("/"),
+		MaxKeys:      aws.Int64(1),
+		Prefix:       aws.String(*name + "/"),
+	}
+
+	resp, err := fs.s3.ListObjects(params)
+	if err != nil {
+		errc <- mapAwsError(err)
+		return
+	}
+
+	log.Println(resp)
+	c <- *resp
+}
+
+
+// returned inode has nil Id
+func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inode, err error) {
+	errObjectChan := make(chan error, 1)
+	objectChan := make(chan s3.HeadObjectOutput, 1)
+	errDirChan := make(chan error, 1)
+	dirChan := make(chan s3.ListObjectsOutput, 1)
+
+	go fs.LookUpInodeNotDir(&fullName, objectChan, errObjectChan)
+	go fs.LookUpInodeDir(&fullName, dirChan, errDirChan)
+
+	notFound := false
+
+	for {
+		select {
+		case resp := <- objectChan:
+			// XXX/TODO if both object and object/ exists, return dir
+			inode = &Inode{ Name: &name, FullName: &fullName }
+			inode.Attributes = fuseops.InodeAttributes{
+				Size: uint64(*resp.ContentLength),
+				Nlink: 1,
+				Mode: 0644,
+				Atime: *resp.LastModified,
+				Mtime: *resp.LastModified,
+				Ctime: *resp.LastModified,
+				Crtime: *resp.LastModified,
+				Uid:  fs.uid,
+				Gid:  fs.gid,
+			}
+			return
+		case err = <- errObjectChan:
+			if err == fuse.ENOENT {
+				if notFound {
+					return nil, err
+				} else {
+					notFound = true
+					err = nil
+				}
+			} else {
+				// XXX retry
+			}
+		case resp := <- dirChan:
+			if len(resp.CommonPrefixes) != 0 || len(resp.Contents) != 0 {
+				inode = &Inode{ Name: &name, FullName: &fullName }
+				inode.Attributes = fs.rootAttrs
+				return
+			} else {
+				// 404
+				if notFound {
+					return nil, fuse.ENOENT
+				} else {
+					notFound = true
+				}
+			}
+		case err = <- errDirChan:
+			// XXX retry
+		}
+	}
+}
+
 
 func (fs *Goofys) LookUpInode(
 	ctx context.Context,
@@ -208,7 +300,7 @@ func (fs *Goofys) LookUpInode(
 	if op.Parent == fuseops.RootInodeID {
 		fullName = op.Name
 	} else {
-		fullName = fmt.Sprintf("%v/%v", *parent.Name, op.Name)
+		fullName = fmt.Sprintf("%v/%v", *parent.FullName, op.Name)
 	}
 
 	log.Printf("> LookUpInode: %v\n", fullName)
@@ -245,31 +337,17 @@ func (fs *Goofys) LookUpInode(
 	} else {
 		fs.mu.Unlock()
 
-		params := &s3.HeadObjectInput{ Bucket: &fs.bucket, Key: &op.Name }
-		resp, err := fs.s3.HeadObject(params)
+		inode, err = fs.LookUpInodeMaybeDir(op.Name, fullName)
 		if err != nil {
-			log.Printf("LookUpInode %v %v", op.Name, err)
-			return mapAwsError(err)
+			return err
 		}
-
-		log.Println(resp)
+		log.Printf("< LookUpInode: %v from LookUpInodeMaybeDir\n", fullName)
 
 		fs.mu.Lock()
 		defer fs.mu.Unlock()
 
 		fs.nextInodeID++
-		inode = &Inode{ Name: &op.Name, FullName: &fullName, Id: fs.nextInodeID - 1 }
-		inode.Attributes = fuseops.InodeAttributes{
-			Size: uint64(*resp.ContentLength),
-			Nlink: 1,
-			Mode: 0644,
-			Atime: *resp.LastModified,
-			Mtime: *resp.LastModified,
-			Ctime: *resp.LastModified,
-			Crtime: *resp.LastModified,
-			Uid:  fs.uid,
-			Gid:  fs.gid,
-		}
+		inode.Id = fs.nextInodeID - 1
 	}
 
 	fs.inodes[inode.Id] = inode
@@ -289,8 +367,12 @@ func (fs *Goofys) ForgetInode(
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	name := *fs.inodes[op.Inode].FullName
-	log.Printf("ForgetInode %v", name)
+	inode, ok := fs.inodes[op.Inode]
+	if !ok {
+		panic(fmt.Sprintf("%v not found", op.Inode))
+	}
+	name := *inode.FullName
+	log.Printf("ForgetInode %v=%v", name, op.Inode)
 
 	delete(fs.inodes, op.Inode)
 	delete(fs.nameToID, name)

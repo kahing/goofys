@@ -18,6 +18,7 @@ import (
 	"net"
 	"io"
 	"math/rand"
+	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
@@ -271,7 +272,7 @@ func (s *GoofysTest) ForgetInode(t *C, inode fuseops.InodeID) {
 	t.Assert(err, IsNil)
 }
 
-func (s *GoofysTest) LookUpInode(t *C, dir string, name string) (fuseops.InodeID, error) {
+func (s *GoofysTest) LookUpInode(t *C, dir string, name string) (fuseops.InodeID, error, *fuseops.LookUpInodeOp) {
 	var parent fuseops.InodeID
 	if len(dir) == 0 {
 		parent = fuseops.RootInodeID
@@ -279,15 +280,15 @@ func (s *GoofysTest) LookUpInode(t *C, dir string, name string) (fuseops.InodeID
 		var err error
 		idx := strings.LastIndex(dir, "/")
 		if idx == -1 {
-			parent, err = s.LookUpInode(t, "", dir)
+			parent, err, _ = s.LookUpInode(t, "", dir)
 		} else {
 			dirName := dir[0:idx]
-			baseName := dir[idx:]
-			parent, err = s.LookUpInode(t, dirName, baseName)
+			baseName := dir[idx + 1:]
+			parent, err, _ = s.LookUpInode(t, dirName, baseName)
 		}
 
 		if err != nil {
-			return 0, err
+			return 0, err, nil
 		}
 		defer s.ForgetInode(t, parent)
 	}
@@ -297,37 +298,36 @@ func (s *GoofysTest) LookUpInode(t *C, dir string, name string) (fuseops.InodeID
 		Name: name,
 	}
 	err := s.fs.LookUpInode(s.ctx, op)
-	return op.Entry.Child, err
+	return op.Entry.Child, err, op
 }
 
 func (s *GoofysTest) TestLookUpInode(t *C) {
-	inode, err := s.LookUpInode(t, "", "file1")
+	inode, err, _ := s.LookUpInode(t, "", "file1")
 	t.Assert(err, IsNil)
 
 	defer s.ForgetInode(t, inode)
 
-	_, err = s.LookUpInode(t, "", "fileNotFound")
+	_, err, _ = s.LookUpInode(t, "", "fileNotFound")
 	t.Assert(err, Equals, fuse.ENOENT)
 
-	// XXX not supported yet
-	// inode, err = s.LookUpInode(t, "dir1", "file3")
-	// t.Assert(err, IsNil)
+	inode, err, _ = s.LookUpInode(t, "dir1", "file3")
+	t.Assert(err, IsNil)
 
-	// defer s.ForgetInode(t, inode)
+	defer s.ForgetInode(t, inode)
 
-	// inode, err = s.LookUpInode(t, "dir2/dir3", "file4")
-	// t.Assert(err, IsNil)
+	inode, err, _ = s.LookUpInode(t, "dir2/dir3", "file4")
+	t.Assert(err, IsNil)
 
-	// defer s.ForgetInode(t, inode)
+	defer s.ForgetInode(t, inode)
 
-	// inode, err = s.LookUpInode(t, "", "empty_dir")
-	// t.Assert(err, IsNil)
+	inode, err, _ = s.LookUpInode(t, "", "empty_dir")
+	t.Assert(err, IsNil)
 
-	// defer s.ForgetInode(t, inode)
+	defer s.ForgetInode(t, inode)
 }
 
 func (s *GoofysTest) TestGetInodeAttributes(t *C) {
-	inode, err := s.LookUpInode(t, "", "file1")
+	inode, err, _ := s.LookUpInode(t, "", "file1")
 	t.Assert(err, IsNil)
 	defer s.ForgetInode(t, inode)
 
@@ -510,22 +510,26 @@ func (s *GoofysTest) OpenFile(t *C, inode fuseops.InodeID) (fuseops.HandleID, er
 }
 
 func (s *GoofysTest) TestReadFiles(t *C) {
-	res, _ := s.ListDirRecursive(t, fuseops.RootInodeID, "")
+	_, keys := s.ListDirRecursive(t, fuseops.RootInodeID, "")
 
-	for path, _ := range *res {
+
+	for _, path := range *keys {
 		idx := strings.LastIndex(path, "/")
 		var inode fuseops.InodeID
 		var err error
+		var lookup *fuseops.LookUpInodeOp
+
 		if idx == -1 {
-			inode, err = s.LookUpInode(t, "", path)
+			inode, err, lookup = s.LookUpInode(t, "", path)
 		} else {
 			dirName := path[0:idx]
-			baseName := path[idx:]
-			inode, err = s.LookUpInode(t, dirName, baseName)
+			baseName := path[idx + 1:]
+			inode, err, lookup = s.LookUpInode(t, dirName, baseName)
 		}
-		if err == nil {
-			defer s.ForgetInode(t, inode)
-			t.Logf("LookupInode %v = %v, err = %v", path, inode, err)
+		t.Assert(err, IsNil)
+
+		t.Logf("LookupInode %v = %v", path, inode)
+		if lookup.Entry.Attributes.Mode & os.ModeDir == 0 {
 
 			fh, err := s.OpenFile(t, inode)
 			t.Assert(err, IsNil)
@@ -539,5 +543,7 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 			buf := op.Dst[0:op.BytesRead]
 			t.Assert(string(buf), Equals, path)
 		}
+
+		s.ForgetInode(t, inode)
 	}
 }
