@@ -653,3 +653,56 @@ func (fs *Goofys) ReleaseFileHandle(
 	delete(fs.fileHandles, op.Handle)
 	return
 }
+
+
+func (fs *Goofys) CreateFile(
+	ctx context.Context,
+	op *fuseops.CreateFileOp) (err error) {
+
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	parent := fs.getInodeOrDie(op.Parent)
+
+	var fullName string
+	if op.Parent == fuseops.RootInodeID {
+		fullName = op.Name
+	} else {
+		fullName = fmt.Sprintf("%v/%v", *parent.FullName, op.Name)
+	}
+
+	log.Printf("> CreateFile: %v\n", fullName)
+
+	fs.nextInodeID += 1
+	nextInode := fs.nextInodeID - 1
+
+	now := time.Now()
+	inode := &Inode{ Name: &op.Name, FullName: &fullName, Id: nextInode }
+	inode.Attributes = fuseops.InodeAttributes{
+		Size: 0,
+		Nlink: 1,
+		Mode: op.Mode,
+		Atime: now,
+		Mtime: now,
+		Ctime: now,
+		Crtime: now,
+		Uid:  fs.uid,
+		Gid:  fs.gid,
+	}
+
+	fs.inodes[inode.Id] = inode
+	fs.nameToID[fullName] = inode.Id
+	op.Entry.Child = inode.Id
+	op.Entry.Attributes = inode.Attributes
+	op.Entry.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
+
+	return
+}
+
+
+func (fs *Goofys) SetInodeAttributes(
+	ctx context.Context,
+	op *fuseops.SetInodeAttributesOp) (err error) {
+	// do nothing, we don't support any of the changes
+	return
+}
