@@ -550,3 +550,25 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 		s.ForgetInode(t, inode)
 	}
 }
+
+func (s *GoofysTest) TestCreateFiles(t *C) {
+	fileName := "testCreateFile"
+	createOp := &fuseops.CreateFileOp{ Parent: fuseops.RootInodeID, Name: fileName }
+	err := s.fs.CreateFile(s.ctx, createOp)
+	t.Assert(err, IsNil)
+
+	err = s.fs.FlushFile(s.ctx, &fuseops.FlushFileOp{ Inode: createOp.Entry.Child, Handle: createOp.Handle })
+	t.Assert(err, IsNil)
+
+	resp, err := s.s3.GetObject(&s3.GetObjectInput{ Bucket: &s.fs.bucket, Key: &fileName })
+	t.Assert(err, IsNil)
+	t.Assert(*resp.ContentLength, DeepEquals, int64(createOp.Entry.Attributes.Size))
+	resp.Body.Close()
+
+	err = s.fs.ForgetInode(s.ctx, &fuseops.ForgetInodeOp{ Inode: createOp.Entry.Child, N: 1})
+	t.Assert(err, IsNil)
+
+	inode, err, _ := s.LookUpInode(t, "", fileName)
+	t.Assert(err, IsNil)
+	defer s.ForgetInode(t, inode)
+}

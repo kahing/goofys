@@ -639,7 +639,32 @@ func (fs *Goofys) FlushFile(
 	ctx context.Context,
 	op *fuseops.FlushFileOp) (err error) {
 
-	// everything is readonly for now
+	fs.mu.Lock()
+	fh := fs.fileHandles[op.Handle]
+	fs.mu.Unlock()
+
+	log.Printf("FlushFile %v", fh.FullName)
+
+	// XXX lock the file handle
+	if fh.Dirty {
+		params := &s3.PutObjectInput{
+			Bucket: &fs.bucket,
+			Key: fh.FullName,
+			Body: nil,
+		}
+
+
+		resp, err := fs.s3.PutObject(params)
+
+		log.Println(resp)
+
+		if err == nil {
+			fh.Dirty = false
+		} else {
+			return mapAwsError(err)
+		}
+	}
+
 	return
 }
 
@@ -695,6 +720,16 @@ func (fs *Goofys) CreateFile(
 	op.Entry.Child = inode.Id
 	op.Entry.Attributes = inode.Attributes
 	op.Entry.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
+
+	// Allocate a handle.
+	handleID := fs.nextHandleID
+	fs.nextHandleID++
+
+	fh := NewFileHandle(inode)
+	fh.Dirty = true
+	fs.fileHandles[handleID] = fh
+
+	op.Handle = handleID
 
 	return
 }

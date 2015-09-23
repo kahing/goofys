@@ -45,6 +45,7 @@ func (dh *DirHandle) IsDir(name *string) bool {
 type FileHandle struct {
 	Name *string
 	FullName *string
+	Dirty bool
 }
 
 func NewFileHandle(in *Inode) *FileHandle {
