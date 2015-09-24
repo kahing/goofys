@@ -13,6 +13,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -643,14 +644,14 @@ func (fs *Goofys) FlushFile(
 	fh := fs.fileHandles[op.Handle]
 	fs.mu.Unlock()
 
-	log.Printf("FlushFile %v", fh.FullName)
+	log.Printf("FlushFile %v", *fh.FullName)
 
 	// XXX lock the file handle
 	if fh.Dirty {
 		params := &s3.PutObjectInput{
 			Bucket: &fs.bucket,
 			Key: fh.FullName,
-			Body: nil,
+			Body: bytes.NewReader(fh.Buf),
 		}
 
 
@@ -739,5 +740,44 @@ func (fs *Goofys) SetInodeAttributes(
 	ctx context.Context,
 	op *fuseops.SetInodeAttributesOp) (err error) {
 	// do nothing, we don't support any of the changes
+	return
+}
+
+func (fs *Goofys) WriteFile(
+	ctx context.Context,
+	op *fuseops.WriteFileOp) (err error) {
+
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	inode := fs.getInodeOrDie(op.Inode)
+	fh, ok := fs.fileHandles[op.Handle]
+	if !ok {
+		panic(fmt.Sprintf("WriteFile: can't find handle %v", op.Handle))
+	}
+
+	log.Printf("> WriteFile %v off=%v len=%v", *fh.FullName, op.Offset, len(op.Data))
+	const MaxInt = int(^uint(0) >> 1)
+
+	if (op.Offset + int64(len(op.Data)) > int64(MaxInt)) {
+		return fuse.EINVAL
+	}
+
+	last := int(op.Offset) + len(op.Data)
+	if last > cap(fh.Buf) {
+		log.Printf(">> WriteFile: enlarging buffer: %v -> %v", cap(fh.Buf), last * 2)
+		tmp := make([]byte, len(op.Data), last * 2)
+		copy(tmp, fh.Buf)
+		fh.Buf = tmp
+	}
+
+	if last > len(fh.Buf) {
+		fh.Buf = fh.Buf[0 : last]
+		inode.Attributes.Size = uint64(last)
+	}
+
+	copy(fh.Buf[op.Offset : last], op.Data)
+	fh.Dirty = true
+
 	return
 }

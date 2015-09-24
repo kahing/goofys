@@ -46,8 +46,10 @@ type FileHandle struct {
 	Name *string
 	FullName *string
 	Dirty bool
+	// TODO replace with something else when we do MPU for flushing
+	Buf []byte
 }
 
 func NewFileHandle(in *Inode) *FileHandle {
-	return &FileHandle{ Name: in.Name, FullName: in.FullName };
+	return &FileHandle{ Name: in.Name, FullName: in.FullName, Buf: make([]byte, 0, 4096) };
 }
