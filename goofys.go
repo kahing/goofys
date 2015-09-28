@@ -169,6 +169,7 @@ func (fs *Goofys) GetInodeAttributes(
 		if !ok {
 			log.Printf("GetInodeAttributes: %v %v\n", op.Inode, op)
 		} else {
+			log.Printf("GetInodeAttributes: %v %v\n", op.Inode, *inode.FullName)
 			op.Attributes = inode.Attributes
 			op.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
 		}
@@ -653,7 +654,6 @@ func (fs *Goofys) FlushFile(
 			Key: fh.FullName,
 			Body: bytes.NewReader(fh.Buf),
 		}
-
 
 		resp, err := fs.s3.PutObject(params)
 
