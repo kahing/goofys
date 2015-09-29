@@ -791,3 +791,33 @@ func (fs *Goofys) WriteFile(
 
 	return
 }
+
+func (fs *Goofys) Unlink(
+	ctx context.Context,
+	op *fuseops.UnlinkOp) (err error) {
+
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	parent := fs.getInodeOrDie(op.Parent)
+	var fullName string
+	if op.Parent == fuseops.RootInodeID {
+		fullName = op.Name
+	} else {
+		fullName = fmt.Sprintf("%v/%v", *parent.FullName, op.Name)
+	}
+
+	params := &s3.DeleteObjectInput{
+		Bucket:       &fs.bucket,
+		Key:          &fullName,
+	}
+
+	resp, err := fs.s3.DeleteObject(params)
+	if err != nil {
+		return mapAwsError(err)
+	}
+
+	log.Println(resp)
+
+	return
+}
