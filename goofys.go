@@ -295,65 +295,25 @@ func (fs *Goofys) LookUpInode(
 	ctx context.Context,
 	op *fuseops.LookUpInodeOp) (err error) {
 
-	fs.mu.Lock();
+	fs.mu.Lock()
 	parent := fs.getInodeOrDie(op.Parent)
+	fs.mu.Unlock()
 
-	var fullName string
-	if op.Parent == fuseops.RootInodeID {
-		fullName = op.Name
-	} else {
-		fullName = fmt.Sprintf("%v/%v", *parent.FullName, op.Name)
+	inode, err := parent.LookUp(fs, &op.Name)
+	if err != nil {
+		return err
 	}
 
-	log.Printf("> LookUpInode: %v\n", fullName)
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
 
-	var inode *Inode
-	id, ok := fs.nameToID[fullName]
-	if ok {
-		defer fs.mu.Unlock()
-
-		inode = fs.inodes[id]
-		op.Entry.Child = inode.Id
-		op.Entry.Attributes = inode.Attributes
-		op.Entry.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
-
-		log.Printf("< LookUpInode: %v from nameToID\n", fullName)
-		return
-	}
-
-	dh, ok := fs.nameToDir[*parent.Name]
-	if ok {
-		defer fs.mu.Unlock()
-		fs.nextInodeID++
-		inode = &Inode{ Name: &op.Name, FullName: &fullName, Id: fs.nextInodeID - 1 }
-
-		if dh.IsDir(&op.Name) {
-			log.Printf("< LookUpInode: %v dir\n", fullName)
-
-			inode.Attributes = fs.rootAttrs
-		} else {
-			log.Printf("< LookUpInode: %v from dh.NameToEntry\n", fullName)
-
-			inode.Attributes = dh.NameToEntry[op.Name]
-		}
-	} else {
-		fs.mu.Unlock()
-
-		inode, err = fs.LookUpInodeMaybeDir(op.Name, fullName)
-		if err != nil {
-			return err
-		}
-		log.Printf("< LookUpInode: %v from LookUpInodeMaybeDir\n", fullName)
-
-		fs.mu.Lock()
-		defer fs.mu.Unlock()
-
+	if inode.Id == 0 {
 		fs.nextInodeID++
 		inode.Id = fs.nextInodeID - 1
 	}
 
 	fs.inodes[inode.Id] = inode
-	fs.nameToID[fullName] = inode.Id
+	//fs.nameToID[fullName] = inode.Id
 	op.Entry.Child = inode.Id
 	op.Entry.Attributes = inode.Attributes
 	op.Entry.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
