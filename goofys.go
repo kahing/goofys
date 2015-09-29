@@ -459,7 +459,13 @@ func (fs *Goofys) ReadDir(
 		if dh.Marker != nil {
 			dh.Entries = nil
 			dh.BaseOffset += i
+			i = 0
 		}
+	}
+
+	if dh.BaseOffset > 5000 {
+		// XXX prevent infinite loop, raise the limit later
+		panic("too many results")
 	}
 
 	if dh.Entries == nil {
@@ -473,6 +479,7 @@ func (fs *Goofys) ReadDir(
 			Delimiter:    aws.String("/"),
 			Marker:       dh.Marker,
 			Prefix:       &prefix,
+			//MaxKeys:      aws.Int64(10),
 		}
 
 		resp, err := fs.s3.ListObjects(params)
@@ -522,26 +529,29 @@ func (fs *Goofys) ReadDir(
 		}
 
 
-		if *resp.IsTruncated && dh.Marker == nil {
+		if *resp.IsTruncated {
 			// do something with resp.NextMarker
 			dh.Marker = resp.NextMarker
+		} else {
+			dh.Marker = nil
 		}
 	}
 
-	if i > len(dh.Entries) {
-		err = fuse.EINVAL
+	if i == len(dh.Entries) {
+		// we've reached the end
 		return
+	} else if i > len(dh.Entries) {
+		return fuse.EINVAL
 	}
 
 
 	for ; i < len(dh.Entries); i++ {
 		e := &dh.Entries[i]
-		log.Printf("< ReadDir %v %v", *dh.Name, e.Name)
 		n := fuseutil.WriteDirent(op.Dst[op.BytesRead:], *e)
 		if n == 0 {
-			dh.Marker = &e.Name
 			break
 		}
+		log.Printf("< ReadDir %v %v", *dh.Name, e.Name)
 
 		op.BytesRead += n
 	}
