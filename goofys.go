@@ -13,12 +13,9 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"log"
 	"os"
-	"sort"
 	"time"
 
 	"golang.org/x/net/context"
@@ -75,11 +72,9 @@ type Goofys struct {
 	//
 	// GUARDED_BY(mu)
 	inodes map[fuseops.InodeID]*Inode
-	nameToID map[string]fuseops.InodeID 
 
 	nextHandleID fuseops.HandleID
 	dirHandles map[fuseops.HandleID]*DirHandle
-	nameToDir map[string]*DirHandle
 
 	fileHandles map[fuseops.HandleID]*FileHandle
 }
@@ -108,17 +103,14 @@ func NewGoofys(bucket string, awsConfig *aws.Config, uid uint32, gid uint32) *Go
 	}
 	fs.nextInodeID = fuseops.RootInodeID + 1
 	fs.inodes = make(map[fuseops.InodeID]*Inode)
-	fs.inodes[fuseops.RootInodeID] = &Inode{
-		Name: aws.String(""),
-		FullName: aws.String(""),
-		Id: fuseops.RootInodeID,
-		Attributes: fs.rootAttrs,
-	}
-	fs.nameToID = make(map[string]fuseops.InodeID)
+	root := NewInode(aws.String(""), aws.String(""))
+	root.Id = fuseops.RootInodeID
+	root.Attributes = &fs.rootAttrs
+
+	fs.inodes[fuseops.RootInodeID] = root
 
 	fs.nextHandleID = 1
 	fs.dirHandles = make(map[fuseops.HandleID]*DirHandle)
-	fs.nameToDir = make(map[string]*DirHandle)
 
 	fs.fileHandles = make(map[fuseops.HandleID]*FileHandle)
 
@@ -153,6 +145,9 @@ func (fs *Goofys) getInodeOrDie(id fuseops.InodeID) (inode *Inode) {
 	return
 }
 
+func (fs *Goofys) logFuse(op string, args ...interface{}) {
+	log.Printf("%v: %v", op, args)
+}
 
 func (fs *Goofys) GetInodeAttributes(
 	ctx context.Context,
@@ -167,10 +162,11 @@ func (fs *Goofys) GetInodeAttributes(
 
 		inode, ok := fs.inodes[op.Inode]
 		if !ok {
-			log.Printf("GetInodeAttributes: %v %v\n", op.Inode, op)
+			fs.logFuse("GetInodeAttributes", op.Inode, nil)
 		} else {
-			log.Printf("GetInodeAttributes: %v %v\n", op.Inode, *inode.FullName)
-			op.Attributes = inode.Attributes
+			fs.logFuse("GetInodeAttributes", op.Inode, *inode.FullName)
+
+			op.Attributes = *inode.Attributes
 			op.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
 		}
 	}
@@ -203,7 +199,6 @@ func (fs *Goofys) LookUpInodeNotDir(name *string, c chan s3.HeadObjectOutput, er
 	params := &s3.HeadObjectInput{ Bucket: &fs.bucket, Key: name }
 	resp, err := fs.s3.HeadObject(params)
 	if err != nil {
-		log.Printf("LookUpInode %v %v", *name, err)
 		errc <- mapAwsError(err)
 		return
 	}
@@ -230,16 +225,21 @@ func (fs *Goofys) LookUpInodeDir(name *string, c chan s3.ListObjectsOutput, errc
 	c <- *resp
 }
 
+func (fs *Goofys) allocateInodeId() (id fuseops.InodeID) {
+	id = fs.nextInodeID
+	fs.nextInodeID++
+	return
+}
 
 // returned inode has nil Id
-func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inode, err error) {
+func (fs *Goofys) LookUpInodeMaybeDir(name *string, fullName *string) (inode *Inode, err error) {
 	errObjectChan := make(chan error, 1)
 	objectChan := make(chan s3.HeadObjectOutput, 1)
 	errDirChan := make(chan error, 1)
 	dirChan := make(chan s3.ListObjectsOutput, 1)
 
-	go fs.LookUpInodeNotDir(&fullName, objectChan, errObjectChan)
-	go fs.LookUpInodeDir(&fullName, dirChan, errDirChan)
+	go fs.LookUpInodeNotDir(fullName, objectChan, errObjectChan)
+	go fs.LookUpInodeDir(fullName, dirChan, errDirChan)
 
 	notFound := false
 
@@ -247,8 +247,8 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 		select {
 		case resp := <- objectChan:
 			// XXX/TODO if both object and object/ exists, return dir
-			inode = &Inode{ Name: &name, FullName: &fullName }
-			inode.Attributes = fuseops.InodeAttributes{
+			inode = NewInode(name, fullName)
+			inode.Attributes = &fuseops.InodeAttributes{
 				Size: uint64(*resp.ContentLength),
 				Nlink: 1,
 				Mode: 0644,
@@ -273,8 +273,8 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 			}
 		case resp := <- dirChan:
 			if len(resp.CommonPrefixes) != 0 || len(resp.Contents) != 0 {
-				inode = &Inode{ Name: &name, FullName: &fullName }
-				inode.Attributes = fs.rootAttrs
+				inode = NewInode(name, fullName)
+				inode.Attributes = &fs.rootAttrs
 				return
 			} else {
 				// 404
@@ -289,7 +289,6 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 		}
 	}
 }
-
 
 func (fs *Goofys) LookUpInode(
 	ctx context.Context,
@@ -307,16 +306,13 @@ func (fs *Goofys) LookUpInode(
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	if inode.Id == 0 {
-		fs.nextInodeID++
-		inode.Id = fs.nextInodeID - 1
-	}
+	inode.Id = fs.allocateInodeId()
 
 	fs.inodes[inode.Id] = inode
-	//fs.nameToID[fullName] = inode.Id
 	op.Entry.Child = inode.Id
-	op.Entry.Attributes = inode.Attributes
+	op.Entry.Attributes = *inode.Attributes
 	op.Entry.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
+	op.Entry.EntryExpiration = time.Now().Add(365 * 24 * time.Hour)
 
 	return
 }
@@ -329,15 +325,12 @@ func (fs *Goofys) ForgetInode(
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	inode, ok := fs.inodes[op.Inode]
-	if !ok {
-		panic(fmt.Sprintf("%v not found", op.Inode))
-	}
-	name := *inode.FullName
-	log.Printf("ForgetInode %v=%v", name, op.Inode)
+	// XXX deal with ref counts
+	inode := fs.getInodeOrDie(op.Inode)
+
+	fs.logFuse("ForgetInode", *inode.FullName, op.Inode, op.N)
 
 	delete(fs.inodes, op.Inode)
-	delete(fs.nameToID, name)
 
 	return
 }
@@ -346,46 +339,24 @@ func (fs *Goofys) OpenDir(
 	ctx context.Context,
 	op *fuseops.OpenDirOp) (err error) {
 	fs.mu.Lock()
-	defer fs.mu.Unlock()
 
-	// Make sure the inode still exists and is a directory. If not, something has
-	// screwed up because the VFS layer shouldn't have let us forget the inode
-	// before opening it.
-	// Allocate a handle.
 	handleID := fs.nextHandleID
 	fs.nextHandleID++
 
-	in, ok := fs.inodes[op.Inode]
-	if (!ok) {
-		panic(fmt.Sprintf("Could not find inode: %v", op.Inode))
-	}
+	in := fs.getInodeOrDie(op.Inode)
+	fs.mu.Unlock()
+
 	// XXX/is this a dir?
+	dh := in.OpenDir()
 
-	dirName := in.FullName
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
 
-	log.Printf("OpenDir: %v", *dirName)
-
-	dh := &DirHandle{ Name: in.Name, FullName: dirName }
-	dh.NameToEntry = make(map[string]fuseops.InodeAttributes)
 	fs.dirHandles[handleID] = dh
-	fs.nameToDir[*dirName] = dh
-
 	op.Handle = handleID
 
 	return
 }
-
-func makeDirEntry(name *string, t fuseutil.DirentType) fuseutil.Dirent {
-	return fuseutil.Dirent{ Name: *name, Type: t, Inode: fuseops.RootInodeID + 1 }
-}
-
-// Dirents, sorted by name.
-type sortedDirents []fuseutil.Dirent
-
-func (p sortedDirents) Len() int           { return len(p) }
-func (p sortedDirents) Less(i, j int) bool { return p[i].Name < p[j].Name }
-func (p sortedDirents) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
-
 
 // LOCKS_EXCLUDED(fs.mu)
 func (fs *Goofys) ReadDir(
@@ -395,123 +366,29 @@ func (fs *Goofys) ReadDir(
 	// Find the handle.
 	fs.mu.Lock()
 	dh := fs.dirHandles[op.Handle]
-	inode := fs.inodes[op.Inode]
+	//inode := fs.inodes[op.Inode]
 	fs.mu.Unlock()
 
-	if dh == nil || inode == nil {
-		panic(fmt.Sprintf("dh=%v inode=%v", dh, inode))
+	if dh == nil {
+		panic(fmt.Sprintf("can't find dh=%v", op.Handle))
 	}
 
-	if *dh.Name != *inode.Name {
-		panic(fmt.Sprintf("%v != %v", *dh.Name, *inode.Name))
-	}
+	log.Println("> ReadDir", *dh.inode.FullName, op.Offset)
 
-	log.Println("> ReadDir", *dh.Name, op.Offset)
-
-	// If the request is for offset zero, we assume that either this is the first
-	// call or rewinddir has been called. Reset state.
-	if op.Offset == 0 {
-		dh.Entries = nil
-	}
-
-	i := int(op.Offset) - dh.BaseOffset
-	if i >= len(dh.Entries) {
-		if dh.Marker != nil {
-			dh.Entries = nil
-			dh.BaseOffset += i
-			i = 0
-		}
-	}
-
-	if dh.BaseOffset > 5000 {
-		// XXX prevent infinite loop, raise the limit later
-		panic("too many results")
-	}
-
-	if dh.Entries == nil {
-		prefix := *dh.FullName
-		if len(prefix) != 0 {
-			prefix += "/"
-		}
-
-		params := &s3.ListObjectsInput{
-			Bucket:       &fs.bucket,
-			Delimiter:    aws.String("/"),
-			Marker:       dh.Marker,
-			Prefix:       &prefix,
-			//MaxKeys:      aws.Int64(10),
-		}
-
-		resp, err := fs.s3.ListObjects(params)
+	for i := op.Offset; ; i++ {
+		e, err := dh.ReadDir(fs, i)
 		if err != nil {
-			return mapAwsError(err)
+			return err
+		}
+		if e == nil {
+			break
 		}
 
-		log.Println(resp)
-
-		dh.Entries = make([]fuseutil.Dirent, 0, len(resp.CommonPrefixes) + len(resp.Contents))
-		
-		for _, dir := range resp.CommonPrefixes {
-			// strip trailing /
-			dirName := (*dir.Prefix)[0:len(*dir.Prefix)-1]
-			// strip previous prefix
-			dirName = dirName[len(*params.Prefix):]
-			dh.Entries = append(dh.Entries, makeDirEntry(&dirName, fuseutil.DT_Directory))
-			dh.NameToEntry[dirName] = fs.rootAttrs
-		}
-
-		for _, obj := range resp.Contents {
-			baseName := (*obj.Key)[len(prefix):]
-			if len(baseName) == 0 {
-				// this is a directory blob
-				continue
-			}
-			dh.Entries = append(dh.Entries, makeDirEntry(&baseName, fuseutil.DT_File))
-			dh.NameToEntry[baseName] = fuseops.InodeAttributes{
-				Size: uint64(*obj.Size),
-				Nlink: 1,
-				Mode: 0644,
-				Atime: *obj.LastModified,
-				Mtime: *obj.LastModified,
-				Ctime: *obj.LastModified,
-				Crtime: *obj.LastModified,
-				Uid:  fs.uid,
-				Gid:  fs.gid,
-			}
-		}
-
-		sort.Sort(sortedDirents(dh.Entries))
-
-		// Fix up offset fields.
-		for i := 0; i < len(dh.Entries); i++ {
-			en := &dh.Entries[i]
-			en.Offset = fuseops.DirOffset(i + dh.BaseOffset) + 1
-		}
-
-
-		if *resp.IsTruncated {
-			// do something with resp.NextMarker
-			dh.Marker = resp.NextMarker
-		} else {
-			dh.Marker = nil
-		}
-	}
-
-	if i == len(dh.Entries) {
-		// we've reached the end
-		return
-	} else if i > len(dh.Entries) {
-		return fuse.EINVAL
-	}
-
-
-	for ; i < len(dh.Entries); i++ {
-		e := &dh.Entries[i]
 		n := fuseutil.WriteDirent(op.Dst[op.BytesRead:], *e)
 		if n == 0 {
 			break
 		}
-		log.Printf("< ReadDir %v %v", *dh.Name, e.Name)
+		log.Printf("< ReadDir %v %v", *dh.inode.FullName, e.Name)
 
 		op.BytesRead += n
 	}
@@ -529,10 +406,10 @@ func (fs *Goofys) ReleaseDirHandle(
 	defer fs.mu.Unlock()
 
 	dh := fs.dirHandles[op.Handle]
-	log.Printf("ReleaseDirHandle %v", *dh.FullName)
+	dh.CloseDir(fs)
+	log.Printf("ReleaseDirHandle %v", *dh.inode.FullName)
 
 	delete(fs.dirHandles, op.Handle)
-	delete(fs.nameToDir, *dh.FullName)
 
 	return
 }
@@ -542,16 +419,18 @@ func (fs *Goofys) OpenFile(
 	ctx context.Context,
 	op *fuseops.OpenFileOp) (err error) {
 	fs.mu.Lock()
+	in := fs.getInodeOrDie(op.Inode)
+	fs.mu.Unlock()
+
+	fh := in.OpenFile(fs)
+
+	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	// Find the inode.
-	in := fs.getInodeOrDie(op.Inode)
-
-	// Allocate a handle.
 	handleID := fs.nextHandleID
 	fs.nextHandleID++
 
-	fs.fileHandles[handleID] = NewFileHandle(in)
+	fs.fileHandles[handleID] = fh
 
 	op.Handle = handleID
 	op.KeepPageCache = true
@@ -567,42 +446,7 @@ func (fs *Goofys) ReadFile(
 	fh := fs.fileHandles[op.Handle]
 	fs.mu.Unlock()
 
-	end := op.Offset + int64(len(op.Dst)) - 1
-	bytes := fmt.Sprintf("bytes=%v-%v", op.Offset, end)
-	toRead := len(op.Dst)
-
-	log.Printf("> ReadFile %v %v", *fh.FullName, bytes)
-
-	params := &s3.GetObjectInput{
-		Bucket:                     &fs.bucket,
-		Key:                        fh.FullName,
-		Range:                      &bytes,
-	}
-
-	resp, err := fs.s3.GetObject(params)
-	if err != nil {
-		return mapAwsError(err)
-	}
-
-	toRead = int(*resp.ContentLength)
-
-	for toRead > 0 {
-		buf := op.Dst[op.BytesRead : op.BytesRead + int(toRead)]
-
-		nread, err := resp.Body.Read(buf)
-		op.BytesRead += nread
-		toRead -= nread
-
-		if err != nil {
-			if err != io.EOF {
-				return err
-			} else {
-				break;
-			}
-		}
-	}
-
-	log.Printf("< ReadFile %v %v = %v", *fh.FullName, bytes, op.BytesRead)
+	op.BytesRead, err = fh.ReadFile(fs, op.Offset, op.Dst)
 
 	return
 }
@@ -615,26 +459,7 @@ func (fs *Goofys) FlushFile(
 	fh := fs.fileHandles[op.Handle]
 	fs.mu.Unlock()
 
-	log.Printf("FlushFile %v", *fh.FullName)
-
-	// XXX lock the file handle
-	if fh.Dirty {
-		params := &s3.PutObjectInput{
-			Bucket: &fs.bucket,
-			Key: fh.FullName,
-			Body: bytes.NewReader(fh.Buf),
-		}
-
-		resp, err := fs.s3.PutObject(params)
-
-		log.Println(resp)
-
-		if err == nil {
-			fh.Dirty = false
-		} else {
-			return mapAwsError(err)
-		}
-	}
+	err = fh.FlushFile(fs)
 
 	return
 }
@@ -656,48 +481,26 @@ func (fs *Goofys) CreateFile(
 	op *fuseops.CreateFileOp) (err error) {
 
 	fs.mu.Lock()
+	parent := fs.getInodeOrDie(op.Parent)
+	nextInode := fs.nextInodeID
+	fs.nextInodeID++
+	fs.mu.Unlock()
+
+	inode, fh := parent.Create(fs, &op.Name, nextInode, op.Mode)
+
+	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	parent := fs.getInodeOrDie(op.Parent)
-
-	var fullName string
-	if op.Parent == fuseops.RootInodeID {
-		fullName = op.Name
-	} else {
-		fullName = fmt.Sprintf("%v/%v", *parent.FullName, op.Name)
-	}
-
-	log.Printf("> CreateFile: %v\n", fullName)
-
-	fs.nextInodeID += 1
-	nextInode := fs.nextInodeID - 1
-
-	now := time.Now()
-	inode := &Inode{ Name: &op.Name, FullName: &fullName, Id: nextInode }
-	inode.Attributes = fuseops.InodeAttributes{
-		Size: 0,
-		Nlink: 1,
-		Mode: op.Mode,
-		Atime: now,
-		Mtime: now,
-		Ctime: now,
-		Crtime: now,
-		Uid:  fs.uid,
-		Gid:  fs.gid,
-	}
-
 	fs.inodes[inode.Id] = inode
-	fs.nameToID[fullName] = inode.Id
 	op.Entry.Child = inode.Id
-	op.Entry.Attributes = inode.Attributes
+	op.Entry.Attributes = *inode.Attributes
 	op.Entry.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
+	op.Entry.EntryExpiration = time.Now().Add(365 * 24 * time.Hour)
 
 	// Allocate a handle.
 	handleID := fs.nextHandleID
 	fs.nextHandleID++
 
-	fh := NewFileHandle(inode)
-	fh.Dirty = true
 	fs.fileHandles[handleID] = fh
 
 	op.Handle = handleID
@@ -720,34 +523,12 @@ func (fs *Goofys) WriteFile(
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	inode := fs.getInodeOrDie(op.Inode)
 	fh, ok := fs.fileHandles[op.Handle]
 	if !ok {
 		panic(fmt.Sprintf("WriteFile: can't find handle %v", op.Handle))
 	}
 
-	log.Printf("> WriteFile %v off=%v len=%v", *fh.FullName, op.Offset, len(op.Data))
-	const MaxInt = int(^uint(0) >> 1)
-
-	if (op.Offset + int64(len(op.Data)) > int64(MaxInt)) {
-		return fuse.EINVAL
-	}
-
-	last := int(op.Offset) + len(op.Data)
-	if last > cap(fh.Buf) {
-		log.Printf(">> WriteFile: enlarging buffer: %v -> %v", cap(fh.Buf), last * 2)
-		tmp := make([]byte, len(op.Data), last * 2)
-		copy(tmp, fh.Buf)
-		fh.Buf = tmp
-	}
-
-	if last > len(fh.Buf) {
-		fh.Buf = fh.Buf[0 : last]
-		inode.Attributes.Size = uint64(last)
-	}
-
-	copy(fh.Buf[op.Offset : last], op.Data)
-	fh.Dirty = true
+	err = fh.WriteFile(fs, op.Offset, op.Data)
 
 	return
 }
@@ -757,27 +538,9 @@ func (fs *Goofys) Unlink(
 	op *fuseops.UnlinkOp) (err error) {
 
 	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
 	parent := fs.getInodeOrDie(op.Parent)
-	var fullName string
-	if op.Parent == fuseops.RootInodeID {
-		fullName = op.Name
-	} else {
-		fullName = fmt.Sprintf("%v/%v", *parent.FullName, op.Name)
-	}
+	fs.mu.Unlock()
 
-	params := &s3.DeleteObjectInput{
-		Bucket:       &fs.bucket,
-		Key:          &fullName,
-	}
-
-	resp, err := fs.s3.DeleteObject(params)
-	if err != nil {
-		return mapAwsError(err)
-	}
-
-	log.Println(resp)
-
+	err = parent.Unlink(fs, &op.Name)
 	return
 }
