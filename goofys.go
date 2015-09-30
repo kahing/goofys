@@ -302,6 +302,7 @@ func (fs *Goofys) LookUpInode(
 
 		fs.mu.Lock()
 		inode.Id = fs.allocateInodeId()
+		fs.inodesCache[*inode.FullName] = inode
 	}
 
 	fs.inodes[inode.Id] = inode
@@ -330,6 +331,7 @@ func (fs *Goofys) ForgetInode(
 		defer fs.mu.Unlock()
 
 		delete(fs.inodes, op.Inode)
+		delete(fs.inodesCache, *inode.FullName)
 	}
 
 	return
