@@ -155,23 +155,13 @@ func (fs *Goofys) GetInodeAttributes(
 	ctx context.Context,
 	op *fuseops.GetInodeAttributesOp) (err error) {
 
-	if op.Inode == fuseops.RootInodeID {
-		op.Attributes = fs.rootAttrs
-		op.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
-	} else {
-		fs.mu.Lock()
-		defer fs.mu.Unlock()
+	fs.mu.Lock()
+	inode := fs.getInodeOrDie(op.Inode)
+	fs.mu.Unlock()
 
-		inode, ok := fs.inodes[op.Inode]
-		if !ok {
-			fs.logFuse("GetInodeAttributes", op.Inode, nil)
-		} else {
-			fs.logFuse("GetInodeAttributes", op.Inode, *inode.FullName)
-
-			op.Attributes = *inode.Attributes
-			op.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
-		}
-	}
+	attr, err := inode.GetAttributes(fs)
+	op.Attributes = *attr
+	op.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
 
 	return
 }
@@ -416,7 +406,7 @@ func (fs *Goofys) ReleaseDirHandle(
 	defer fs.mu.Unlock()
 
 	dh := fs.dirHandles[op.Handle]
-	dh.CloseDir(fs)
+	dh.CloseDir()
 	log.Printf("ReleaseDirHandle %v", *dh.inode.FullName)
 
 	delete(fs.dirHandles, op.Handle)
@@ -492,14 +482,17 @@ func (fs *Goofys) CreateFile(
 
 	fs.mu.Lock()
 	parent := fs.getInodeOrDie(op.Parent)
-	nextInode := fs.nextInodeID
-	fs.nextInodeID++
 	fs.mu.Unlock()
 
-	inode, fh := parent.Create(fs, &op.Name, nextInode, op.Mode)
+	inode, fh := parent.Create(fs, &op.Name)
 
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
+
+	nextInode := fs.nextInodeID
+	fs.nextInodeID++
+
+	inode.Id = nextInode
 
 	fs.inodes[inode.Id] = inode
 	op.Entry.Child = inode.Id

@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"os"
 	"sort"
 	"sync"
 	"time"
@@ -178,9 +177,7 @@ func (parent *Inode) Unlink(fs *Goofys, name *string) (err error) {
 
 func (parent *Inode) Create(
 	fs *Goofys,
-	name *string,
-	id fuseops.InodeID,
-	mode os.FileMode) (inode *Inode, fh *FileHandle) {
+	name *string) (inode *Inode, fh *FileHandle) {
 
 	parent.logFuse("Inode.Create", *name)
 
@@ -191,11 +188,10 @@ func (parent *Inode) Create(
 
 	now := time.Now()
 	inode = NewInode(name, fullName)
-	inode.Id = id
 	inode.Attributes = &fuseops.InodeAttributes{
 		Size: 0,
 		Nlink: 1,
-		Mode: mode,
+		Mode: 0644,
 		Atime: now,
 		Mtime: now,
 		Ctime: now,
@@ -208,6 +204,12 @@ func (parent *Inode) Create(
 	fh.Dirty = true
 
 	return
+}
+
+func (inode *Inode) GetAttributes(fs *Goofys) (*fuseops.InodeAttributes, error) {
+	// XXX refresh attributes
+	inode.logFuse("GetAttributes")
+	return inode.Attributes, nil
 }
 
 func (inode *Inode) OpenFile(fs *Goofys) *FileHandle {
@@ -434,7 +436,7 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 	return &dh.Entries[i], nil
 }
 
-func (dh *DirHandle) CloseDir(fs *Goofys) error {
+func (dh *DirHandle) CloseDir() error {
 	inode := dh.inode
 
 	inode.mu.Lock()

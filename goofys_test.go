@@ -18,7 +18,6 @@ import (
 	"net"
 	"io"
 	"math/rand"
-	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
@@ -26,7 +25,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unsafe"
 
 	"golang.org/x/net/context"
 
@@ -255,15 +253,17 @@ func (s *GoofysTest) SetUpTest(t *C) {
 	s.ctx = context.Background()
 }
 
+func (s *GoofysTest) getRoot(t *C) *Inode {
+	return s.fs.inodes[fuseops.RootInodeID]
+}
+
 func (s *GoofysTest) TestGetRootInode(t *C) {
-	root := s.fs.getInodeOrDie(fuseops.RootInodeID)
+	root := s.getRoot(t)
 	t.Assert(root.Id, Equals, fuseops.InodeID(fuseops.RootInodeID))
 }
 
 func (s *GoofysTest) TestGetRootAttributes(t *C) {
-	err := s.fs.GetInodeAttributes(s.ctx, &fuseops.GetInodeAttributesOp{
-		Inode: fuseops.RootInodeID,
-	})
+	_, err := s.getRoot(t).GetAttributes(s.fs)
 	t.Assert(err, IsNil)
 }
 
@@ -272,303 +272,147 @@ func (s *GoofysTest) ForgetInode(t *C, inode fuseops.InodeID) {
 	t.Assert(err, IsNil)
 }
 
-func (s *GoofysTest) LookUpInode(t *C, dir string, name string) (fuseops.InodeID, error, *fuseops.LookUpInodeOp) {
-	var parent fuseops.InodeID
-	if len(dir) == 0 {
-		parent = fuseops.RootInodeID
-	} else {
-		var err error
-		idx := strings.LastIndex(dir, "/")
+func (s *GoofysTest) LookUpInode(t *C, name string) (in *Inode, err error) {
+	parent := s.getRoot(t)
+
+	for {
+		idx := strings.Index(name, "/")
 		if idx == -1 {
-			parent, err, _ = s.LookUpInode(t, "", dir)
-		} else {
-			dirName := dir[0:idx]
-			baseName := dir[idx + 1:]
-			parent, err, _ = s.LookUpInode(t, dirName, baseName)
+			break
 		}
 
+		dirName := name[0:idx]
+		name = name[idx + 1:]
+
+		parent, err = parent.LookUp(s.fs, &dirName)
 		if err != nil {
-			return 0, err, nil
+			return
 		}
-		defer s.ForgetInode(t, parent)
 	}
 
-	op := &fuseops.LookUpInodeOp{
-		Parent: parent,
-		Name: name,
-	}
-	err := s.fs.LookUpInode(s.ctx, op)
-	return op.Entry.Child, err, op
+	in, err = parent.LookUp(s.fs, &name)
+	return
 }
 
 func (s *GoofysTest) TestLookUpInode(t *C) {
-	inode, err, _ := s.LookUpInode(t, "", "file1")
+	_, err := s.LookUpInode(t, "file1")
 	t.Assert(err, IsNil)
 
-	defer s.ForgetInode(t, inode)
-
-	_, err, _ = s.LookUpInode(t, "", "fileNotFound")
+	_, err = s.LookUpInode(t, "fileNotFound")
 	t.Assert(err, Equals, fuse.ENOENT)
 
-	inode, err, _ = s.LookUpInode(t, "dir1", "file3")
+	_, err = s.LookUpInode(t, "dir1/file3")
 	t.Assert(err, IsNil)
 
-	defer s.ForgetInode(t, inode)
-
-	inode, err, _ = s.LookUpInode(t, "dir2/dir3", "file4")
+	_, err = s.LookUpInode(t, "dir2/dir3/file4")
 	t.Assert(err, IsNil)
 
-	defer s.ForgetInode(t, inode)
-
-	inode, err, _ = s.LookUpInode(t, "", "empty_dir")
+	_, err = s.LookUpInode(t, "empty_dir")
 	t.Assert(err, IsNil)
-
-	defer s.ForgetInode(t, inode)
 }
 
 func (s *GoofysTest) TestGetInodeAttributes(t *C) {
-	inode, err, _ := s.LookUpInode(t, "", "file1")
-	t.Assert(err, IsNil)
-	defer s.ForgetInode(t, inode)
-
-	op := &fuseops.GetInodeAttributesOp{Inode: inode}
-	err = s.fs.GetInodeAttributes(s.ctx, op)
-	t.Assert(err, IsNil)
-	t.Assert(op.Attributes.Size, Equals, uint64(len("file1")))
-}
-
-func (s *GoofysTest) OpenDir(t *C, inode fuseops.InodeID) (fuseops.HandleID, error) {
-	op := &fuseops.OpenDirOp{Inode: inode}
-	err := s.fs.OpenDir(s.ctx, op)
-	return op.Handle, err
-}
-
-func ReadDirent(t *C, buf []byte) (*fuseutil.Dirent, []byte) {
-	type fuse_dirent struct {
-		ino     uint64
-		off     uint64
-		namelen uint32
-		type_   uint32
-		name    [0]byte
-	}
-	const direntAlignment = 8
-	const direntSize = 8 + 8 + 4 + 4
-
-	p := unsafe.Pointer(&buf[0])
-	var consumed uint32
-
-	de := (*fuse_dirent)(p)
-	consumed += direntSize
-
-	namebuf := make([]byte, de.namelen)
-	copy(namebuf, buf[consumed:consumed + de.namelen])
-	name := string(namebuf)
-	consumed += de.namelen
-
-	// Compute the number of bytes of padding we'll need to maintain alignment
-	// for the next entry.
-	var padLen int
-	if len(name) % direntAlignment != 0 {
-		padLen = direntAlignment - (len(name) % direntAlignment)
-		consumed += uint32(padLen)
-	}
-
-	return &fuseutil.Dirent{
-		Offset: fuseops.DirOffset(de.off),
-		Inode: fuseops.InodeID(de.ino),
-		Name: name,
-		Type: fuseutil.DirentType(de.type_),
-	}, buf[consumed:]
-}
-
-func (s *GoofysTest) ListDir(
-	t *C,
-	inode fuseops.InodeID,
-	prefix string) (*map[string]*fuseutil.Dirent, *[]string, fuseops.HandleID) {
-
-	dh, err := s.OpenDir(t, inode)
+	inode, err := s.getRoot(t).LookUp(s.fs, aws.String("file1"))
 	t.Assert(err, IsNil)
 
-	op := &fuseops.ReadDirOp{ Handle: dh, Inode: inode, Dst: make([]byte, 4096) }
-	err = s.fs.ReadDir(s.ctx, op)
-
-	// XXX verify the entries. here fuse is too lowlevel and this requires us to
-	// deserialize op.Dst. See github.com/jacobsa/fuse/fuseutil/dirent.go
-	buf := op.Dst[:op.BytesRead]
-	res := make(map[string]*fuseutil.Dirent)
-	keys := []string{}
-
-	for len(buf) > 0 {
-		var de *fuseutil.Dirent
-		de, buf = ReadDirent(t, buf)
-		t.Assert(de.Inode, Not(Equals), fuseops.InodeID(0))
-		t.Assert(len(de.Name), Not(Equals), 0)
-
-		name := prefix + de.Name
-
-		res[name] = de
-		keys = append(keys, name)
-	}
-
-	return &res, &keys, dh
+	attr, err := inode.GetAttributes(s.fs)
+	t.Assert(err, IsNil)
+	t.Assert(attr.Size, Equals, uint64(len("file1")))
 }
 
-func (s *GoofysTest) TestListDir(t *C) {
+func (s *GoofysTest) readDirFully(t *C, dh *DirHandle) (entries []fuseutil.Dirent) {
+	for i := fuseops.DirOffset(0); ; i++ {
+		en, err := dh.ReadDir(s.fs, i)
+		t.Assert(err, IsNil)
+
+		if en == nil {
+			return
+		}
+
+		entries = append(entries, *en)
+	}
+}
+
+func namesOf(entries []fuseutil.Dirent) (names []string) {
+	for _, en := range entries {
+		names = append(names, en.Name)
+	}
+	return
+}
+
+func (s *GoofysTest) assertEntries(t *C, in *Inode, names []string) {
+	dh := in.OpenDir()
+	defer dh.CloseDir()
+
+	t.Assert(namesOf(s.readDirFully(t, dh)), DeepEquals, names)
+}
+
+func (s *GoofysTest) TestReadDir(t *C) {
 	// test listing /
-	_, keys, dh := s.ListDir(t, fuseops.RootInodeID, "")
-	defer s.fs.ReleaseDirHandle(s.ctx, &fuseops.ReleaseDirHandleOp{ Handle: dh })
+	dh := s.getRoot(t).OpenDir()
+	defer dh.CloseDir()
 
-	t.Assert(*keys, DeepEquals, []string{ "dir1", "dir2", "empty_dir", "file1", "file2" })
+	s.assertEntries(t, s.getRoot(t), []string{ "dir1", "dir2", "empty_dir", "file1", "file2" })
 
 	// test listing dir1/
-	lookup := &fuseops.LookUpInodeOp{ Parent: fuseops.RootInodeID, Name: "dir1" }
-	err := s.fs.LookUpInode(s.ctx, lookup)
+	in, err := s.LookUpInode(t, "dir1")
 	t.Assert(err, IsNil)
-	defer s.ForgetInode(t, lookup.Entry.Child)
-
-	_, keys, dh = s.ListDir(t, lookup.Entry.Child, "dir1/")
-	defer s.fs.ReleaseDirHandle(s.ctx, &fuseops.ReleaseDirHandleOp{ Handle: dh })
-	t.Assert(*keys, DeepEquals, []string{ "dir1/file3" })
+	s.assertEntries(t, in, []string{ "file3" })
 
 	// test listing dir2/
-	lookup = &fuseops.LookUpInodeOp{ Parent: fuseops.RootInodeID, Name: "dir2" }
-	err = s.fs.LookUpInode(s.ctx, lookup)
+	in, err = s.LookUpInode(t, "dir2")
 	t.Assert(err, IsNil)
-	defer s.ForgetInode(t, lookup.Entry.Child)
-
-	_, keys, dh = s.ListDir(t, lookup.Entry.Child, "dir2/")
-	defer s.fs.ReleaseDirHandle(s.ctx, &fuseops.ReleaseDirHandleOp{ Handle: dh })
-	t.Assert(*keys, DeepEquals, []string{ "dir2/dir3" })
+	s.assertEntries(t, in, []string{ "dir3" })
 
 	// test listing dir2/dir3/
-	lookup = &fuseops.LookUpInodeOp{ Parent: lookup.Entry.Child, Name: "dir3" }
-	err = s.fs.LookUpInode(s.ctx, lookup)
+	in, err = in.LookUp(s.fs, aws.String("dir3"))
 	t.Assert(err, IsNil)
-	defer s.ForgetInode(t, lookup.Entry.Child)
-
-	_, keys, dh = s.ListDir(t, lookup.Entry.Child, "dir2/dir3/")
-	defer s.fs.ReleaseDirHandle(s.ctx, &fuseops.ReleaseDirHandleOp{ Handle: dh })
-	t.Assert(*keys, DeepEquals, []string{ "dir2/dir3/file4" })
-}
-
-func (s *GoofysTest) ListDirRecursive(
-	t *C,
-	inode fuseops.InodeID,
-	prefix string) (*map[string]*fuseutil.Dirent, *[]string) {
-
-	res, keys, dh := s.ListDir(t, inode, prefix)
-	defer s.fs.ReleaseDirHandle(s.ctx, &fuseops.ReleaseDirHandleOp{ Handle: dh })
-
-	nkeys := len(*keys)
-	for i := 0; i < nkeys; i++ {
-		path := (*keys)[i]
-		de := (*res)[path]
-
-		switch de.Type {
-		case fuseutil.DT_Directory:
-			lookup := &fuseops.LookUpInodeOp{ Parent: inode, Name: de.Name }
-			err := s.fs.LookUpInode(s.ctx, lookup)
-			t.Assert(err, IsNil)
-			defer s.ForgetInode(t, lookup.Entry.Child)
-
-			sub, subkeys := s.ListDirRecursive(t, lookup.Entry.Child, prefix + de.Name + "/")
-			tmp := append(*keys, (*subkeys)...)
-			keys = &tmp
-
-			if de.Name == "dir2" {
-				t.Assert((*sub)["dir2/dir3"], NotNil)
-			}
-
-			for p, v := range *sub {
-				t.Assert(p, Matches, prefix + de.Name + ".*")
-				(*res)[p] = v
-			}
-		}
-	}
-
-	return res, keys
-}
-
-func (s *GoofysTest) TestListDirRecursive(t *C) {
-	res, keys := s.ListDirRecursive(t, fuseops.RootInodeID, "")
-
-	for expected := range s.env {
-		if expected[len(expected) - 1] == '/' {
-			expected = expected[0 : len(expected) - 1]
-		}
-
-		t.Assert((*res)[expected], NotNil)
-	}
-
-	t.Assert(*keys, DeepEquals, []string{ "dir1", "dir2", "empty_dir", "file1", "file2", "dir1/file3", "dir2/dir3", "dir2/dir3/file4" })
-}
-
-func (s *GoofysTest) OpenFile(t *C, inode fuseops.InodeID) (fuseops.HandleID, error) {
-	op := &fuseops.OpenFileOp{ Inode: inode }
-	err := s.fs.OpenFile(s.ctx, op)
-	return op.Handle, err
+	s.assertEntries(t, in, []string{ "file4" })
 }
 
 func (s *GoofysTest) TestReadFiles(t *C) {
-	_, keys := s.ListDirRecursive(t, fuseops.RootInodeID, "")
+	parent := s.getRoot(t)
+	dh := parent.OpenDir()
+	defer dh.CloseDir()
 
-
-	for _, path := range *keys {
-		idx := strings.LastIndex(path, "/")
-		var inode fuseops.InodeID
-		var err error
-		var lookup *fuseops.LookUpInodeOp
-
-		if idx == -1 {
-			inode, err, lookup = s.LookUpInode(t, "", path)
-		} else {
-			dirName := path[0:idx]
-			baseName := path[idx + 1:]
-			inode, err, lookup = s.LookUpInode(t, dirName, baseName)
-		}
+	for i := fuseops.DirOffset(0); ; i++ {
+		en, err := dh.ReadDir(s.fs, i)
 		t.Assert(err, IsNil)
 
-		t.Logf("LookupInode %v = %v", path, inode)
-		if lookup.Entry.Attributes.Mode & os.ModeDir == 0 {
-
-			fh, err := s.OpenFile(t, inode)
-			t.Assert(err, IsNil)
-			defer s.fs.ReleaseFileHandle(s.ctx, &fuseops.ReleaseFileHandleOp{ Handle: fh })
-
-			op := &fuseops.ReadFileOp{ Handle: fh, Dst: make([]byte, 4096) }
-			err = s.fs.ReadFile(s.ctx, op)
-			t.Assert(err, IsNil)
-
-			t.Assert(op.BytesRead, Equals, len(path))
-			buf := op.Dst[0:op.BytesRead]
-			t.Assert(string(buf), Equals, path)
+		if en == nil {
+			break
 		}
 
-		// can't use defer here, because during
-		// GoofysTest.LookUpInode we forget the intermediate
-		// parent inodes already
-		s.ForgetInode(t, inode)
+		if en.Type == fuseutil.DT_File {
+			in, err := parent.LookUp(s.fs, &en.Name)
+			t.Assert(err, IsNil)
+
+			fh := in.OpenFile(s.fs)
+			buf := make([]byte, 4096)
+
+			nread, err := fh.ReadFile(s.fs, 0, buf)
+			t.Assert(nread, Equals, len(en.Name))
+			buf = buf[0 : nread]
+			t.Assert(string(buf), Equals, en.Name)
+		} else {
+
+		}
 	}
 }
 
 func (s *GoofysTest) TestCreateFiles(t *C) {
 	fileName := "testCreateFile"
-	createOp := &fuseops.CreateFileOp{ Parent: fuseops.RootInodeID, Name: fileName }
-	err := s.fs.CreateFile(s.ctx, createOp)
-	t.Assert(err, IsNil)
 
-	err = s.fs.FlushFile(s.ctx, &fuseops.FlushFileOp{ Inode: createOp.Entry.Child, Handle: createOp.Handle })
+	_, fh := s.getRoot(t).Create(s.fs, &fileName)
+
+	err := fh.FlushFile(s.fs)
 	t.Assert(err, IsNil)
 
 	resp, err := s.s3.GetObject(&s3.GetObjectInput{ Bucket: &s.fs.bucket, Key: &fileName })
 	t.Assert(err, IsNil)
-	t.Assert(*resp.ContentLength, DeepEquals, int64(createOp.Entry.Attributes.Size))
+	t.Assert(*resp.ContentLength, DeepEquals, int64(0))
 	resp.Body.Close()
 
-	err = s.fs.ForgetInode(s.ctx, &fuseops.ForgetInodeOp{ Inode: createOp.Entry.Child, N: 1})
+	_, err = s.getRoot(t).LookUp(s.fs, &fileName)
 	t.Assert(err, IsNil)
-
-	inode, err, _ := s.LookUpInode(t, "", fileName)
-	t.Assert(err, IsNil)
-	defer s.ForgetInode(t, inode)
 }
