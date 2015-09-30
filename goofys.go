@@ -72,6 +72,7 @@ type Goofys struct {
 	//
 	// GUARDED_BY(mu)
 	inodes map[fuseops.InodeID]*Inode
+	inodesCache map[string]*Inode // fullname to inode
 
 	nextHandleID fuseops.HandleID
 	dirHandles map[fuseops.HandleID]*DirHandle
@@ -108,6 +109,7 @@ func NewGoofys(bucket string, awsConfig *aws.Config, uid uint32, gid uint32) *Go
 	root.Attributes = &fs.rootAttrs
 
 	fs.inodes[fuseops.RootInodeID] = root
+	fs.inodesCache = make(map[string]*Inode)
 
 	fs.nextHandleID = 1
 	fs.dirHandles = make(map[fuseops.HandleID]*DirHandle)
@@ -295,24 +297,29 @@ func (fs *Goofys) LookUpInode(
 	op *fuseops.LookUpInodeOp) (err error) {
 
 	fs.mu.Lock()
+
 	parent := fs.getInodeOrDie(op.Parent)
-	fs.mu.Unlock()
+	inode, ok := fs.inodesCache[*parent.getChildName(&op.Name)]
+	if ok {
+		defer inode.Ref()
+	} else {
+		fs.mu.Unlock()
 
-	inode, err := parent.LookUp(fs, &op.Name)
-	if err != nil {
-		return err
+		inode, err = parent.LookUp(fs, &op.Name)
+		if err != nil {
+			return err
+		}
+
+		fs.mu.Lock()
+		inode.Id = fs.allocateInodeId()
 	}
-
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
-	inode.Id = fs.allocateInodeId()
 
 	fs.inodes[inode.Id] = inode
 	op.Entry.Child = inode.Id
 	op.Entry.Attributes = *inode.Attributes
 	op.Entry.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
 	op.Entry.EntryExpiration = time.Now().Add(365 * 24 * time.Hour)
+	fs.mu.Unlock()
 
 	return
 }
@@ -323,14 +330,17 @@ func (fs *Goofys) ForgetInode(
 	op *fuseops.ForgetInodeOp) (err error) {
 
 	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
-	// XXX deal with ref counts
 	inode := fs.getInodeOrDie(op.Inode)
+	fs.mu.Unlock()
 
-	fs.logFuse("ForgetInode", *inode.FullName, op.Inode, op.N)
+	stale := inode.DeRef(op.N)
 
-	delete(fs.inodes, op.Inode)
+	if (stale) {
+		fs.mu.Lock()
+		defer fs.mu.Unlock()
+
+		delete(fs.inodes, op.Inode)
+	}
 
 	return
 }

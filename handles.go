@@ -38,13 +38,21 @@ type Inode struct {
 
 	mu sync.Mutex // everything below is protected by mu
 	handles map[*DirHandle]bool // value is ignored
+	refcnt uint64
 }
 
 
 func NewInode(name *string, fullName *string) (inode *Inode) {
 	inode = &Inode{ Name: name, FullName: fullName }
 	inode.handles = make(map[*DirHandle]bool)
+	inode.refcnt = 1
 	return
+}
+
+func (inode *Inode) Ref() {
+	inode.mu.Lock()
+	defer inode.mu.Unlock()
+	inode.refcnt++
 }
 
 type DirHandle struct {
@@ -52,7 +60,7 @@ type DirHandle struct {
 
 	mu sync.Mutex // everything below is protected by mu
 	Entries []fuseutil.Dirent
-	NameToEntry map[string]fuseops.InodeAttributes
+	NameToEntry map[string]fuseops.InodeAttributes // XXX use a smaller struct
 	Marker *string
 	BaseOffset int
 }
@@ -88,9 +96,16 @@ func (inode *Inode) logFuse(op string, args ...interface{}) {
 	log.Printf("%v: [%v] %v", op, *inode.FullName, args)
 }
 
-func (parent *Inode) lookupFromOpenHandles(fs *Goofys, name *string) (inode *Inode) {
+// LOCKS_REQUIRED(parent.mu)
+func (parent *Inode) lookupFromDirHandles(name *string) (inode *Inode) {
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
+
+	defer func() {
+		if inode != nil {
+			inode.Ref()
+		}
+	}()
 
 	for dh := range parent.handles {
 		attr, ok := dh.NameToEntry[*name]
@@ -107,7 +122,7 @@ func (parent *Inode) lookupFromOpenHandles(fs *Goofys, name *string) (inode *Ino
 func (parent *Inode) LookUp(fs *Goofys, name *string) (inode *Inode, err error) {
 	parent.logFuse("Inode.LookUp", *name)
 
-	inode = parent.lookupFromOpenHandles(fs, name)
+	inode = parent.lookupFromDirHandles(name)
 	if inode != nil {
 		return
 	}
@@ -127,6 +142,21 @@ func (parent *Inode) getChildName(name *string) *string {
 		fullName := fmt.Sprintf("%v/%v", *parent.FullName, *name)
 		return &fullName
 	}
+}
+
+func (inode *Inode) DeRef(n uint64) (stale bool) {
+	inode.logFuse("ForgetInode", n)
+
+	inode.mu.Lock()
+	defer inode.mu.Unlock()
+
+	if inode.refcnt < n {
+		panic(fmt.Sprintf("deref %v from %v", n, inode.refcnt))
+	}
+
+	inode.refcnt -= n
+
+	return inode.refcnt == 0
 }
 
 func (parent *Inode) Unlink(fs *Goofys, name *string) (err error) {
