@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -433,20 +434,22 @@ func (s *GoofysTest) TestUnlink(t *C) {
 	t.Assert(err, Equals, fuse.ENOENT)
 }
 
-func (s *GoofysTest) TestWriteLargeFile(t *C) {
-	fileName := "testLargeFile"
-
+func (s *GoofysTest) testWriteFile(t *C, fileName string, size int64) {
 	_, fh := s.getRoot(t).Create(s.fs, &fileName)
 
-	const size = 21 * 1024 * 1024
 	const write_size = 128 * 1024
-	const num_writes = size / write_size
 
 	buf := [write_size]byte{}
+	nwritten := int64(0)
 
-	for i := 0; i < num_writes; i++ {
-		err := fh.WriteFile(s.fs, int64(i * write_size), buf[:])
+	for nwritten < size {
+		towrite := int64(write_size)
+		if nwritten + towrite > size {
+			towrite = size - nwritten
+		}
+		err := fh.WriteFile(s.fs, nwritten, buf[:towrite])
 		t.Assert(err, IsNil)
+		nwritten += towrite
 	}
 
 	err := fh.FlushFile(s.fs)
@@ -454,5 +457,24 @@ func (s *GoofysTest) TestWriteLargeFile(t *C) {
 
 	resp, err := s.s3.HeadObject(&s3.HeadObjectInput{ Bucket: &s.fs.bucket, Key: &fileName })
 	t.Assert(err, IsNil)
-	t.Assert(*resp.ContentLength, DeepEquals, int64(size))
+	t.Assert(*resp.ContentLength, DeepEquals, size)
+}
+
+func (s *GoofysTest) TestWriteLargeFile(t *C) {
+	s.testWriteFile(t, "testLargeFile", 21 * 1024 * 1024)
+}
+
+func (s *GoofysTest) TestWriteManyFilesFile(t *C) {
+	var files sync.WaitGroup
+
+	for i := 0; i < 21; i++ {
+		files.Add(1)
+		fileName := "testLargeFile" + strconv.Itoa(i)
+		go func() {
+			defer files.Done()
+			s.testWriteFile(t, fileName, 1)
+		}()
+	}
+
+	files.Wait()
 }
