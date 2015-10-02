@@ -409,9 +409,10 @@ func (s *GoofysTest) TestCreateFiles(t *C) {
 	t.Assert(err, IsNil)
 
 	resp, err := s.s3.GetObject(&s3.GetObjectInput{ Bucket: &s.fs.bucket, Key: &fileName })
+	defer resp.Body.Close()
+
 	t.Assert(err, IsNil)
 	t.Assert(*resp.ContentLength, DeepEquals, int64(0))
-	resp.Body.Close()
 
 	_, err = s.getRoot(t).LookUp(s.fs, &fileName)
 	t.Assert(err, IsNil)
@@ -430,4 +431,28 @@ func (s *GoofysTest) TestUnlink(t *C) {
 
 	err = s.getRoot(t).Unlink(s.fs, &fileName)
 	t.Assert(err, Equals, fuse.ENOENT)
+}
+
+func (s *GoofysTest) TestWriteLargeFile(t *C) {
+	fileName := "testLargeFile"
+
+	_, fh := s.getRoot(t).Create(s.fs, &fileName)
+
+	const size = 11 * 1024 * 1024
+	const write_size = 128 * 1024
+	const num_writes = size / write_size
+
+	buf := [write_size]byte{}
+
+	for i := 0; i < num_writes; i++ {
+		err := fh.WriteFile(s.fs, int64(i * write_size), buf[:])
+		t.Assert(err, IsNil)
+	}
+
+	err := fh.FlushFile(s.fs)
+	t.Assert(err, IsNil)
+
+	resp, err := s.s3.HeadObject(&s3.HeadObjectInput{ Bucket: &s.fs.bucket, Key: &fileName })
+	t.Assert(err, IsNil)
+	t.Assert(*resp.ContentLength, DeepEquals, int64(size))
 }
