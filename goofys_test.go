@@ -416,3 +416,18 @@ func (s *GoofysTest) TestCreateFiles(t *C) {
 	_, err = s.getRoot(t).LookUp(s.fs, &fileName)
 	t.Assert(err, IsNil)
 }
+
+func (s *GoofysTest) TestUnlink(t *C) {
+	t.Skip("minio doesn't support unlink")
+	fileName := "file1"
+
+	err := s.getRoot(t).Unlink(s.fs, &fileName)
+	t.Assert(err, IsNil)
+
+	// make sure that it's gone from s3
+	_, err = s.s3.GetObject(&s3.GetObjectInput{ Bucket: &s.fs.bucket, Key: &fileName })
+	t.Assert(mapAwsError(err), Equals, fuse.ENOENT)
+
+	err = s.getRoot(t).Unlink(s.fs, &fileName)
+	t.Assert(err, Equals, fuse.ENOENT)
+}
