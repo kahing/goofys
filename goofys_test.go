@@ -469,7 +469,7 @@ func (s *GoofysTest) TestWriteManyFilesFile(t *C) {
 
 	for i := 0; i < 21; i++ {
 		files.Add(1)
-		fileName := "testLargeFile" + strconv.Itoa(i)
+		fileName := "testSmallFile" + strconv.Itoa(i)
 		go func() {
 			defer files.Done()
 			s.testWriteFile(t, fileName, 1)
