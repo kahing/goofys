@@ -135,6 +135,8 @@ func NewGoofys(bucket string, awsConfig *aws.Config, uid uint32, gid uint32) *Go
 		Crtime: now,
 		Uid:  uid,
 		Gid:  gid,
+		Blocks: 8,
+		BlockSize: 512,
 	}
 
 	fs.bufferPool = NewBufferPool(100 * 1024 * 1024, 20 * 1024 * 1024)
@@ -325,6 +327,8 @@ func (fs *Goofys) LookUpInodeMaybeDir(name *string, fullName *string) (inode *In
 				Crtime: *resp.LastModified,
 				Uid:  fs.uid,
 				Gid:  fs.gid,
+				Blocks: uint64(*resp.ContentLength + 512 - 1) / ^uint64(512 - 1),
+				BlockSize: 512,
 			}
 			return
 		case err = <- errObjectChan:
