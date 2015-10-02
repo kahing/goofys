@@ -333,11 +333,11 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 		fh.initWrite(fs)
 	}
 
-	if cap(fh.buf) == 0 {
-		fh.buf = fh.poolHandle.Request()
-	}
-
 	for {
+		if cap(fh.buf) == 0 {
+			fh.buf = fh.poolHandle.Request()
+		}
+
 		nCopied := fh.poolHandle.Copy(&fh.buf, data)
 		fh.nextWriteOffset += int64(nCopied)
 
@@ -364,7 +364,6 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 			break
 		}
 
-		fh.buf = fh.poolHandle.Request()
 		data = data[nCopied:]
 	}
 
