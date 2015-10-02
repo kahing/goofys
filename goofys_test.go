@@ -438,7 +438,7 @@ func (s *GoofysTest) TestWriteLargeFile(t *C) {
 
 	_, fh := s.getRoot(t).Create(s.fs, &fileName)
 
-	const size = 11 * 1024 * 1024
+	const size = 21 * 1024 * 1024
 	const write_size = 128 * 1024
 	const num_writes = size / write_size
 

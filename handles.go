@@ -261,6 +261,8 @@ func (fh *FileHandle) initMPU(fs *Goofys) {
 }
 
 func (fh *FileHandle) mpuPartNoSpawn(fs *Goofys, buf []byte, part int) (err error) {
+	defer fh.poolHandle.Free(buf)
+
 	params := &s3.UploadPartInput{
 		Bucket:               &fs.bucket,
 		Key:                  fh.inode.FullName,
@@ -276,7 +278,12 @@ func (fh *FileHandle) mpuPartNoSpawn(fs *Goofys, buf []byte, part int) (err erro
 		return mapAwsError(err)
 	}
 
-	fh.etags[part - 1] = resp.ETag
+	en := &fh.etags[part - 1]
+
+	if *en != nil {
+		panic(fmt.Sprintf("etags for part %v already set: %v", part, **en))
+	}
+	*en = resp.ETag
 	return
 }
 
