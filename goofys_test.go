@@ -434,12 +434,10 @@ func (s *GoofysTest) TestUnlink(t *C) {
 	t.Assert(err, Equals, fuse.ENOENT)
 }
 
-func (s *GoofysTest) testWriteFile(t *C, fileName string, size int64) {
+func (s *GoofysTest) testWriteFile(t *C, fileName string, size int64, write_size int) {
 	_, fh := s.getRoot(t).Create(s.fs, &fileName)
 
-	const write_size = 128 * 1024
-
-	buf := [write_size]byte{}
+	buf := make([]byte, write_size)
 	nwritten := int64(0)
 
 	for nwritten < size {
@@ -461,7 +459,7 @@ func (s *GoofysTest) testWriteFile(t *C, fileName string, size int64) {
 }
 
 func (s *GoofysTest) TestWriteLargeFile(t *C) {
-	s.testWriteFile(t, "testLargeFile", 21 * 1024 * 1024)
+	s.testWriteFile(t, "testLargeFile", 21 * 1024 * 1024, 128 * 1024)
 }
 
 func (s *GoofysTest) TestWriteManyFilesFile(t *C) {
@@ -472,9 +470,13 @@ func (s *GoofysTest) TestWriteManyFilesFile(t *C) {
 		fileName := "testSmallFile" + strconv.Itoa(i)
 		go func() {
 			defer files.Done()
-			s.testWriteFile(t, fileName, 1)
+			s.testWriteFile(t, fileName, 1, 128 * 1024)
 		}()
 	}
 
 	files.Wait()
+}
+
+func (s *GoofysTest) testWriteFileNonAlign(t *C) {
+	s.testWriteFile(t, "testWriteFileNonAlign", 6 * 1024 * 1024, 128 * 1024 + 1)
 }
