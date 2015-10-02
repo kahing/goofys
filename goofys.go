@@ -101,6 +101,8 @@ func NewGoofys(bucket string, awsConfig *aws.Config, uid uint32, gid uint32) *Go
 		Crtime: now,
 		Uid:  uid,
 		Gid:  gid,
+		Blocks: 8,
+		BlockSize: 512,
 	}
 	fs.nextInodeID = fuseops.RootInodeID + 1
 	fs.inodes = make(map[fuseops.InodeID]*Inode)
@@ -250,6 +252,8 @@ func (fs *Goofys) LookUpInodeMaybeDir(name *string, fullName *string) (inode *In
 				Crtime: *resp.LastModified,
 				Uid:  fs.uid,
 				Gid:  fs.gid,
+				Blocks: uint64(*resp.ContentLength) / 512,
+				BlockSize: 512,
 			}
 			return
 		case err = <- errObjectChan:
