@@ -51,6 +51,8 @@ type Goofys struct {
 	s3 *s3.S3
 	rootAttrs fuseops.InodeAttributes;
 
+	bufferPool *BufferPool
+
 	// A lock protecting the state of the file system struct itself (distinct
 	// from per-inode locks). Make sure to see the notes on lock ordering above.
 	mu syncutil.InvariantMutex
@@ -102,6 +104,9 @@ func NewGoofys(bucket string, awsConfig *aws.Config, uid uint32, gid uint32) *Go
 		Uid:  uid,
 		Gid:  gid,
 	}
+
+	fs.bufferPool = NewBufferPool(100 * 1024 * 1024, 20 * 1024 * 1024)
+
 	fs.nextInodeID = fuseops.RootInodeID + 1
 	fs.inodes = make(map[fuseops.InodeID]*Inode)
 	root := NewInode(aws.String(""), aws.String(""))

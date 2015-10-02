@@ -82,13 +82,22 @@ func (dh *DirHandle) IsDir(name *string) bool {
 type FileHandle struct {
 	inode *Inode
 
-	Dirty bool
-	// TODO replace with something else when we do MPU for flushing
-	Buf []byte
+	mpuWG sync.WaitGroup
+
+	mu sync.Mutex
+	mpuId *string
+	nextWriteOffset int64
+
+	poolHandle *BufferPoolHandle
+	buf []byte
+
+	etags []*string
+	lastWriteError error
 }
 
 func NewFileHandle(in *Inode) *FileHandle {
-	return &FileHandle{ inode: in, Buf: make([]byte, 0, 4096) };
+	fh := &FileHandle{ inode: in };
+	return fh
 }
 
 func (inode *Inode) logFuse(op string, args ...interface{}) {
@@ -201,7 +210,9 @@ func (parent *Inode) Create(
 	}
 
 	fh = NewFileHandle(inode)
-	fh.Dirty = true
+	fh.poolHandle = fs.bufferPool.NewPoolHandle()
+	fh.mpuWG.Add(1)
+	go fh.initMPU(fs)
 
 	return
 }
@@ -216,30 +227,126 @@ func (inode *Inode) OpenFile(fs *Goofys) *FileHandle {
 	return NewFileHandle(inode)
 }
 
+func (fh *FileHandle) initMPU(fs *Goofys) {
+	defer func() {
+		fh.mpuWG.Done()
+	}()
+
+	params := &s3.CreateMultipartUploadInput{
+		Bucket:             &fs.bucket,
+		Key:                fh.inode.FullName,
+	}
+
+	resp, err := fs.s3.CreateMultipartUpload(params)
+	fh.mu.Lock()
+	defer fh.mu.Unlock()
+
+	if err != nil {
+		fh.lastWriteError = mapAwsError(err)
+	}
+
+	log.Println(resp)
+
+	fh.mpuId = resp.UploadId
+	fh.etags = make([]*string, 10000) // at most 10K parts
+	return
+}
+
+func (fh *FileHandle) mpuPartNoSpawn(fs *Goofys, buf []byte, part int) (err error) {
+	params := &s3.UploadPartInput{
+		Bucket:               &fs.bucket,
+		Key:                  fh.inode.FullName,
+		PartNumber:           aws.Int64(int64(part)),
+		UploadId:             fh.mpuId,
+		Body:                 bytes.NewReader(buf),
+	}
+
+	log.Println(params)
+
+	resp, err := fs.s3.UploadPart(params)
+	if err != nil {
+		return mapAwsError(err)
+	}
+
+	fh.etags[part - 1] = resp.ETag
+	return
+}
+
+func (fh *FileHandle) mpuPart(fs *Goofys, buf []byte, part int) {
+	defer func() {
+		fh.mpuWG.Done()
+	}()
+
+	err := fh.mpuPartNoSpawn(fs, buf, part)
+	if err != nil {
+		fh.mu.Lock()
+		defer fh.mu.Unlock()
+
+		if fh.lastWriteError == nil {
+			fh.lastWriteError = mapAwsError(err)
+		}
+	}
+}
+
 func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err error) {
 	fh.inode.logFuse("WriteFile", offset, len(data))
 
-	const MaxInt = int(^uint(0) >> 1)
+	fh.mu.Lock()
+	defer fh.mu.Unlock()
 
-	if (offset + int64(len(data)) > int64(MaxInt)) {
-		return fuse.EINVAL
+	if fh.lastWriteError != nil {
+		return fh.lastWriteError
 	}
 
-	last := int(offset) + len(data)
-	if last > cap(fh.Buf) {
-		//log.Printf(">> WriteFile: enlarging buffer: %v -> %v", cap(fh.Buf), last * 2)
-		tmp := make([]byte, len(data), last * 2)
-		copy(tmp, fh.Buf)
-		fh.Buf = tmp
+	if offset != fh.nextWriteOffset {
+		fh.inode.logFuse("WriteFile: only sequential writes supported", fh.nextWriteOffset, offset)
+		fh.lastWriteError = fuse.EINVAL
+		return fh.lastWriteError
 	}
 
-	if last > len(fh.Buf) {
-		fh.Buf = fh.Buf[0 : last]
-		fh.inode.Attributes.Size = uint64(last)
+	if offset == 0 && fh.poolHandle == nil {
+		fh.poolHandle = fs.bufferPool.NewPoolHandle()
+
+		fh.mpuWG.Add(1)
+		go fh.initMPU(fs)
 	}
 
-	copy(fh.Buf[offset : last], data)
-	fh.Dirty = true
+	if cap(fh.buf) == 0 {
+		fh.buf = fh.poolHandle.Request()
+	}
+
+	for {
+		nCopied := fh.poolHandle.Copy(&fh.buf, data)
+		fh.nextWriteOffset += int64(nCopied)
+
+		if len(fh.buf) == cap(fh.buf) {
+			// we filled this buffer, upload this part
+			if fh.mpuId == nil {
+				fh.mu.Unlock()
+				fh.mpuWG.Wait() // wait for initMPU
+				fh.mu.Lock()
+
+				if fh.lastWriteError != nil {
+					return fh.lastWriteError
+				}
+			}
+
+			page := int(offset / BUF_SIZE)
+			buf := fh.buf
+			fh.buf = nil
+			fh.mpuWG.Add(1)
+			go fh.mpuPart(fs, buf, page + 1)
+		}
+
+		if nCopied == len(data) {
+			break
+		}
+
+		fh.buf = fh.poolHandle.Request()
+		data = data[nCopied:]
+	}
+
+	fh.inode.Attributes.Size = uint64(offset + int64(len(data)))
 
 	return
 }
@@ -287,24 +394,87 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 	fh.inode.logFuse("FlushFile")
 
-	// XXX lock the file handle
-	if fh.Dirty {
-		params := &s3.PutObjectInput{
-			Bucket: &fs.bucket,
-			Key: fh.inode.FullName,
-			Body: bytes.NewReader(fh.Buf),
+	// abort mpu on error
+	defer func() {
+		if err != nil && fh.mpuId != nil {
+			fh.inode.logFuse("FlushFile", err)
+
+			go func() {
+				params := &s3.AbortMultipartUploadInput{
+					Bucket:       &fs.bucket,
+					Key:          fh.inode.FullName,
+					UploadId:     fh.mpuId,
+				}
+
+				fh.mpuId = nil
+				resp, _ := fs.s3.AbortMultipartUpload(params)
+				log.Println(resp)
+			}()
 		}
+	}()
 
-		resp, err := fs.s3.PutObject(params)
+	fh.mpuWG.Wait()
 
-		log.Println(resp)
+	fh.mu.Lock()
+	defer fh.mu.Unlock()
 
-		if err == nil {
-			fh.Dirty = false
-		} else {
-			return mapAwsError(err)
+	if fh.lastWriteError != nil {
+		return fh.lastWriteError
+	}
+
+	if fh.mpuId == nil {
+		return
+	}
+
+	nParts := int(fh.nextWriteOffset / BUF_SIZE)
+	if fh.nextWriteOffset != 0 {
+		nParts++
+	}
+
+	if nParts == 0 {
+		// s3 doesn't support mpu with 0 parts, upload an
+		// empty part
+		nParts = 1
+		err = fh.mpuPartNoSpawn(fs, []byte{}, 1)
+		if err != nil {
+			return
+		}
+	} else {
+		if fh.buf != nil {
+			// upload last part
+			err = fh.mpuPartNoSpawn(fs, fh.buf, nParts)
+			if err != nil {
+				return
+			}
 		}
 	}
+
+	parts := make([]*s3.CompletedPart, nParts)
+	for i := 0; i < nParts; i++ {
+		parts[i] = &s3.CompletedPart{
+			ETag:       fh.etags[i],
+			PartNumber: aws.Int64(int64(i + 1)),
+		}
+	}
+
+	params := &s3.CompleteMultipartUploadInput{
+		Bucket:           &fs.bucket,
+		Key:              fh.inode.FullName,
+		UploadId:         fh.mpuId,
+		MultipartUpload:  &s3.CompletedMultipartUpload{
+			Parts:            parts,
+		},
+	}
+
+	log.Println(params)
+
+	fh.mpuId = nil
+	resp, err := fs.s3.CompleteMultipartUpload(params)
+	if err != nil {
+		return mapAwsError(err)
+	}
+
+	log.Println(resp)
 
 	return
 }
