@@ -82,7 +82,9 @@ func (dh *DirHandle) IsDir(name *string) bool {
 type FileHandle struct {
 	inode *Inode
 
+	writeInit sync.Once
 	mpuWG sync.WaitGroup
+	etags []*string
 
 	mu sync.Mutex
 	mpuId *string
@@ -91,7 +93,6 @@ type FileHandle struct {
 	poolHandle *BufferPoolHandle
 	buf []byte
 
-	etags []*string
 	lastWriteError error
 }
 
@@ -211,8 +212,7 @@ func (parent *Inode) Create(
 
 	fh = NewFileHandle(inode)
 	fh.poolHandle = fs.bufferPool.NewPoolHandle()
-	fh.mpuWG.Add(1)
-	go fh.initMPU(fs)
+	fh.initWrite(fs)
 
 	return
 }
@@ -227,6 +227,13 @@ func (inode *Inode) OpenFile(fs *Goofys) *FileHandle {
 	return NewFileHandle(inode)
 }
 
+func (fh *FileHandle) initWrite(fs *Goofys) {
+	fh.writeInit.Do(func() {
+		fh.mpuWG.Add(1)
+		go fh.initMPU(fs)
+	})
+}
+
 func (fh *FileHandle) initMPU(fs *Goofys) {
 	defer func() {
 		fh.mpuWG.Done()
@@ -238,6 +245,7 @@ func (fh *FileHandle) initMPU(fs *Goofys) {
 	}
 
 	resp, err := fs.s3.CreateMultipartUpload(params)
+
 	fh.mu.Lock()
 	defer fh.mu.Unlock()
 
@@ -277,6 +285,15 @@ func (fh *FileHandle) mpuPart(fs *Goofys, buf []byte, part int) {
 		fh.mpuWG.Done()
 	}()
 
+	// maybe wait for CreateMultipartUpload
+	if fh.mpuId == nil {
+		fh.mpuWG.Wait()
+		// initMPU might have errored
+		if (fh.mpuId == nil) {
+			return
+		}
+	}
+
 	err := fh.mpuPartNoSpawn(fs, buf, part)
 	if err != nil {
 		fh.mu.Lock()
@@ -304,11 +321,9 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 		return fh.lastWriteError
 	}
 
-	if offset == 0 && fh.poolHandle == nil {
+	if offset == 0 {
 		fh.poolHandle = fs.bufferPool.NewPoolHandle()
-
-		fh.mpuWG.Add(1)
-		go fh.initMPU(fs)
+		fh.initWrite(fs)
 	}
 
 	if cap(fh.buf) == 0 {
@@ -469,6 +484,9 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 	log.Println(params)
 
 	fh.mpuId = nil
+	fh.writeInit = sync.Once{}
+	fh.nextWriteOffset = 0
+
 	resp, err := fs.s3.CompleteMultipartUpload(params)
 	if err != nil {
 		return mapAwsError(err)
