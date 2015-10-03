@@ -87,7 +87,12 @@ func mount(
 		Region: aws.String("us-west-2"),
 		//LogLevel: aws.LogLevel(aws.LogDebug),
 	}
-	server := fuseutil.NewFileSystemServer(NewGoofys(bucketName, awsConfig, uid, gid))
+	goofys := NewGoofys(bucketName, awsConfig, uid, gid)
+	if goofys == nil {
+		err = fmt.Errorf("Mount: initialization failed")
+		return
+	}
+	server := fuseutil.NewFileSystemServer(goofys)
 
 	// Mount the file system.
 	mountCfg := &fuse.MountConfig{

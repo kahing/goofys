@@ -48,6 +48,7 @@ type Goofys struct {
 	gid uint32
 	umask uint32
 
+	awsConfig *aws.Config
 	s3 *s3.S3
 	rootAttrs fuseops.InodeAttributes;
 
@@ -91,7 +92,33 @@ func NewGoofys(bucket string, awsConfig *aws.Config, uid uint32, gid uint32) *Go
 		umask:  0122,
 	}
 
+	fs.awsConfig = awsConfig
 	fs.s3 = s3.New(awsConfig)
+
+	params := &s3.GetBucketLocationInput{ Bucket: &bucket }
+	resp, err := fs.s3.GetBucketLocation(params)
+	var fromRegion, toRegion string
+	if err != nil {
+		fromRegion, toRegion = parseRegionError(err)
+	} else {
+		log.Println(resp)
+		if resp.LocationConstraint == nil {
+			toRegion = "us-east-1"
+		} else {
+			toRegion = *resp.LocationConstraint
+		}
+
+		fromRegion = *awsConfig.Region
+	}
+	log.Printf("Switching from region '%v' to '%v'", fromRegion, toRegion)
+	awsConfig.Region = &toRegion
+	fs.s3 = s3.New(awsConfig)
+	_, err = fs.s3.GetBucketLocation(params)
+	if err != nil {
+		log.Println(err)
+		return nil
+	}
+
 	now := time.Now()
 	fs.rootAttrs = fuseops.InodeAttributes{
 		Size: 4096,
@@ -189,6 +216,26 @@ func (fs *Goofys) GetInodeAttributes(
 	return
 }
 
+const REGION_ERROR_MSG = "The authorization header is malformed; the region %s is wrong; expecting %s"
+
+func parseRegionError(err error) (fromRegion, toRegion string) {
+	if reqErr, ok := err.(awserr.RequestFailure); ok {
+		log.Printf("code=%v msg=%v request=%v\n", reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
+		// A service error occurred
+		if reqErr.StatusCode() == 400 && reqErr.Code() == "AuthorizationHeaderMalformed" {
+			n, scanErr := fmt.Sscanf(reqErr.Message(), REGION_ERROR_MSG, &fromRegion, &toRegion)
+			if n != 2 || scanErr != nil {
+				fmt.Println(n, scanErr)
+				return
+			}
+			fromRegion = fromRegion[1:len(fromRegion)-1]
+			toRegion = toRegion[1:len(toRegion)-1]
+			return
+		}
+	}
+	return
+}
+
 func mapAwsError(err error) error {
 	if awsErr, ok := err.(awserr.Error); ok {
 		if reqErr, ok := err.(awserr.RequestFailure); ok {
@@ -197,7 +244,7 @@ func mapAwsError(err error) error {
 			case 404:
 				return fuse.ENOENT
 			default:
-				log.Printf("code=%v request=%v\n", reqErr.StatusCode(), reqErr.RequestID())
+				log.Printf("code=%v msg=%v request=%v\n", reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
 				return reqErr
 			}
 		} else {
