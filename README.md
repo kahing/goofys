@@ -7,20 +7,30 @@ S3 or would translate into more than one round-trip would either fail
 (rename non-empty dir) or faked (no per-file permission). goofys does
 not have a on disk data cache, and consistency model is close-to-open.
 
-List of implemented fuse operations:
-  * GetInodeAttributes
-  * LookUpInode
-  * ForgetInode
-  * OpenDir
-  * ReadDir
-  * ReleaseDirHandle
-  * OpenFile
-  * ReadFile
-  * ReleaseFileHandle
+List of not yet implemented fuse operations:
+  * in terms of syscalls
+    * mkdir
+    * readlink
+    * rename
+    * rmdir
+    * statfs
+    * fsync
+    * chmod/utimes/ftruncate
+  * in terms of fuse functions
+    * Mkdir
+    * ReadSymlink
+    * Rename
+    * RmDir
+    * StatFS
+    * SyncFile
+    * SetInodeAttributes
 
 List of non-POSIX behaviors:
-  * directory link count is always 2
-  * regular file link count is always 1
+  * only sequential writes supported
+  * does not support appending to a file yet
+  * file mode is always 0644 for regular files and 0700 for directories
+  * file owner is always the user running goofys
+  * ctime, atime is always the same as mtime
 
 Goofys uses the same [fuse binding](https://github.com/jacobsa/fuse)
 as [gcsfuse](https://github.com/GoogleCloudPlatform/gcsfuse/). Some
