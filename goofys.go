@@ -476,6 +476,18 @@ func (fs *Goofys) ReadFile(
 	return
 }
 
+func (fs *Goofys) SyncFile(
+	ctx context.Context,
+	op *fuseops.SyncFileOp) (err error) {
+
+	fs.mu.Lock()
+	fh := fs.fileHandles[op.Handle]
+	fs.mu.Unlock()
+
+	err = fh.FlushFile(fs)
+	return
+}
+
 func (fs *Goofys) FlushFile(
 	ctx context.Context,
 	op *fuseops.FlushFileOp) (err error) {

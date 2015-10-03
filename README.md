@@ -6,9 +6,9 @@ Goofys allows you to mount an `S3` bucket as a filey system.
 
 It's a Filey System instead of a File System because it makes minimal
 effort at being POSIX compliant. Particularly things that are
-difficult to support on S3 or would translate into more than one
+difficult to support on `S3` or would translate into more than one
 round-trip would either fail (random writes) or faked (no
-per-file permission). goofys does not have a on disk data cache, and
+per-file permission). Goofys does not have a on disk data cache, and
 consistency model is close-to-open.
 
 # License
@@ -31,14 +31,12 @@ List of not yet implemented fuse operations:
     * `readlink`
     * `rename`
     * `rmdir`
-    * `fsync`
     * `chmod`/`utimes`/`ftruncate`
   * in terms of fuse functions
     * `Mkdir`
     * `ReadSymlink`
     * `Rename`
     * `RmDir`
-    * `SyncFile`
     * `SetInodeAttributes`
 
 List of non-`POSIX` behaviors:
