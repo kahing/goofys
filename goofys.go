@@ -156,6 +156,24 @@ func (fs *Goofys) logFuse(op string, args ...interface{}) {
 	log.Printf("%v: %v", op, args)
 }
 
+func (fs *Goofys) StatFS(
+	ctx context.Context,
+	op *fuseops.StatFSOp) (err error) {
+
+	const BLOCK_SIZE = 4096
+	const TOTAL_SPACE = 1 * 1024 * 1024 * 1024 * 1024 * 1024 // 1PB
+	const TOTAL_BLOCKS = TOTAL_SPACE / BLOCK_SIZE
+	const INODES = 1 * 1000 * 1000 * 1000 // 1 billion
+	op.BlockSize = BLOCK_SIZE
+	op.Blocks = TOTAL_BLOCKS
+	op.BlocksFree = TOTAL_BLOCKS
+	op.BlocksAvailable = TOTAL_BLOCKS
+	op.IoSize = 1 * 1024 * 1024 // 1MB
+	op.Inodes = INODES
+	op.InodesFree = INODES
+	return
+}
+
 func (fs *Goofys) GetInodeAttributes(
 	ctx context.Context,
 	op *fuseops.GetInodeAttributesOp) (err error) {

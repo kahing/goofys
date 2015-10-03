@@ -31,7 +31,6 @@ List of not yet implemented fuse operations:
     * `readlink`
     * `rename`
     * `rmdir`
-    * `statfs`
     * `fsync`
     * `chmod`/`utimes`/`ftruncate`
   * in terms of fuse functions
@@ -39,7 +38,6 @@ List of not yet implemented fuse operations:
     * `ReadSymlink`
     * `Rename`
     * `RmDir`
-    * `StatFS`
     * `SyncFile`
     * `SetInodeAttributes`
 
