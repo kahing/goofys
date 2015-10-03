@@ -22,7 +22,7 @@ import (
 	"github.com/codegangsta/cli"
 )
 
-// Set up custom help text for gcsfuse; in particular the usage section.
+// Set up custom help text for goofys; in particular the usage section.
 func init() {
 	cli.AppHelpTemplate = `NAME:
    {{.Name}} - {{.Usage}}
@@ -52,7 +52,7 @@ func newApp() (app *cli.App) {
 	app = &cli.App{
 		Name:     "goofys",
 		Version:  "0.0.1",
-		Usage:    "Mount a GCS bucket locally",
+		Usage:    "Mount an S3 bucket locally",
 		HideHelp: true,
 		Writer:   os.Stderr,
 		Flags: []cli.Flag{
@@ -102,15 +102,8 @@ func newApp() (app *cli.App) {
 			},
 
 			/////////////////////////
-			// GCS
+			// Goofys
 			/////////////////////////
-
-			cli.StringFlag{
-				Name:  "key-file",
-				Value: "",
-				Usage: "Path to JSON key file for use with GCS. " +
-					"(default: none, Google application default credentials used)",
-			},
 
 			cli.Float64Flag{
 				Name:  "limit-bytes-per-sec",
@@ -143,13 +136,6 @@ func newApp() (app *cli.App) {
 					"inodes.",
 			},
 
-			cli.StringFlag{
-				Name:  "temp-dir",
-				Value: "",
-				Usage: "Temporary directory for local GCS object copies. " +
-					"(default: system default, likely /tmp)",
-			},
-
 			/////////////////////////
 			// Debugging
 			/////////////////////////
@@ -157,16 +143,6 @@ func newApp() (app *cli.App) {
 			cli.BoolFlag{
 				Name:  "debug_fuse",
 				Usage: "Enable fuse-related debugging output.",
-			},
-
-			cli.BoolFlag{
-				Name:  "debug_gcs",
-				Usage: "Print GCS request and timing information.",
-			},
-
-			cli.BoolFlag{
-				Name:  "debug_http",
-				Usage: "Dump HTTP requests and responses to/from GCS.",
 			},
 
 			cli.BoolFlag{
@@ -188,20 +164,16 @@ type flagStorage struct {
 	Gid          int64
 	ImplicitDirs bool
 
-	// GCS
-	KeyFile                            string
+	// Goofys
 	EgressBandwidthLimitBytesPerSecond float64
 	OpRateLimitHz                      float64
 
 	// Tuning
 	StatCacheTTL time.Duration
 	TypeCacheTTL time.Duration
-	TempDir      string
 
 	// Debugging
 	DebugFuse       bool
-	DebugGCS        bool
-	DebugHTTP       bool
 	DebugInvariants bool
 }
 
@@ -216,21 +188,17 @@ func populateFlags(c *cli.Context) (flags *flagStorage) {
 		Uid:          int64(c.Int("uid")),
 		Gid:          int64(c.Int("gid")),
 
-		// GCS,
-		KeyFile: c.String("key-file"),
+		// Goofys,
 		EgressBandwidthLimitBytesPerSecond: c.Float64("limit-bytes-per-sec"),
 		OpRateLimitHz:                      c.Float64("limit-ops-per-sec"),
 
 		// Tuning,
 		StatCacheTTL: c.Duration("stat-cache-ttl"),
 		TypeCacheTTL: c.Duration("type-cache-ttl"),
-		TempDir:      c.String("temp-dir"),
 		ImplicitDirs: c.Bool("implicit-dirs"),
 
 		// Debugging,
 		DebugFuse:       c.Bool("debug_fuse"),
-		DebugGCS:        c.Bool("debug_gcs"),
-		DebugHTTP:       c.Bool("debug_http"),
 		DebugInvariants: c.Bool("debug_invariants"),
 	}
 
