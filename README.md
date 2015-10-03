@@ -44,6 +44,8 @@ References:
   * Data is stored on [Amazon S3](https://aws.amazon.com/s3/)
   * [Amazon SDK for Go](https://github.com/aws/aws-sdk-go)
   * Other related fuse filesystems
-    * [s3fs](https://github.com/s3fs-fuse/s3fs-fuse)
-    * [gcsfuse](https://github.com/googlecloudplatform/gcsfuse)
+    * [s3fs](https://github.com/s3fs-fuse/s3fs-fuse): another popular filesystem for S3
+    * [gcsfuse](https://github.com/googlecloudplatform/gcsfuse):
+      filesystem for
+      [Google Cloud Storage](https://cloud.google.com/storage/)
   * [Minio Server](https://github.com/minio/minio) is used for `go test`
