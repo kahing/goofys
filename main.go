@@ -78,11 +78,6 @@ func mount(
 		gid = uint32(flags.Gid)
 	}
 
-	if err != nil {
-		err = fmt.Errorf("setUpBucket: %v", err)
-		return
-	}
-
 	awsConfig := &aws.Config{
 		Region: aws.String("us-west-2"),
 		//LogLevel: aws.LogLevel(aws.LogDebug),
