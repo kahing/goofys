@@ -373,7 +373,7 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 }
 
 func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
-	if uint64(offset) == fh.inode.Attributes.Size {
+	if uint64(offset) >= fh.inode.Attributes.Size {
 		// nothing to read
 		return
 	}
