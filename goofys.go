@@ -110,13 +110,18 @@ func NewGoofys(bucket string, awsConfig *aws.Config, uid uint32, gid uint32) *Go
 
 		fromRegion = *awsConfig.Region
 	}
-	log.Printf("Switching from region '%v' to '%v'", fromRegion, toRegion)
-	awsConfig.Region = &toRegion
-	fs.s3 = s3.New(awsConfig)
-	_, err = fs.s3.GetBucketLocation(params)
-	if err != nil {
-		log.Println(err)
-		return nil
+
+	if len(toRegion) != 0 {
+		log.Printf("Switching from region '%v' to '%v'", fromRegion, toRegion)
+		awsConfig.Region = &toRegion
+		fs.s3 = s3.New(awsConfig)
+		_, err = fs.s3.GetBucketLocation(params)
+		if err != nil {
+			log.Println(err)
+			return nil
+		}
+	} else {
+		log.Printf("Unable to detect bucket region, staying at '%v'", *awsConfig.Region)
 	}
 
 	now := time.Now()
