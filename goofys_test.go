@@ -240,6 +240,7 @@ func (s *GoofysTest) setupDefaultEnv(t *C) (bucket string) {
 		"dir1/file3": nil,
 		"dir2/dir3/file4": nil,
 		"empty_dir/": nil,
+		"zero": bytes.NewReader([]byte{}),
 	}
 
 	bucket = RandStringBytesMaskImprSrc(16)
@@ -392,9 +393,13 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 			buf := make([]byte, 4096)
 
 			nread, err := fh.ReadFile(s.fs, 0, buf)
-			t.Assert(nread, Equals, len(en.Name))
-			buf = buf[0 : nread]
-			t.Assert(string(buf), Equals, en.Name)
+			if en.Name == "zero" {
+				t.Assert(nread, Equals, 0)
+			} else {
+				t.Assert(nread, Equals, len(en.Name))
+				buf = buf[0 : nread]
+				t.Assert(string(buf), Equals, en.Name)
+			}
 		} else {
 
 		}
