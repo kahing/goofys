@@ -208,6 +208,8 @@ func (parent *Inode) Create(
 		Crtime: now,
 		Uid:  fs.uid,
 		Gid:  fs.gid,
+		Blocks: 0,
+		BlockSize: 512,
 	}
 
 	fh = NewFileHandle(inode)
@@ -606,6 +608,8 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 				Crtime: *obj.LastModified,
 				Uid:  fs.uid,
 				Gid:  fs.gid,
+				Blocks: uint64(*obj.Size) / 512,
+				BlockSize: 512,
 			}
 		}
 
