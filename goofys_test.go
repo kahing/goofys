@@ -354,7 +354,7 @@ func (s *GoofysTest) TestReadDir(t *C) {
 	dh := s.getRoot(t).OpenDir()
 	defer dh.CloseDir()
 
-	s.assertEntries(t, s.getRoot(t), []string{ "dir1", "dir2", "empty_dir", "file1", "file2" })
+	s.assertEntries(t, s.getRoot(t), []string{ "dir1", "dir2", "empty_dir", "file1", "file2", "zero" })
 
 	// test listing dir1/
 	in, err := s.LookUpInode(t, "dir1")
