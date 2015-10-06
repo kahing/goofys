@@ -27,16 +27,12 @@ under Apache License 2.0.
 
 List of not yet implemented fuse operations:
   * in terms of syscalls
-    * `mkdir`
     * `readlink`
     * `rename`
-    * `rmdir`
     * `chmod`/`utimes`/`ftruncate`
   * in terms of fuse functions
-    * `Mkdir`
     * `ReadSymlink`
     * `Rename`
-    * `RmDir`
     * `SetInodeAttributes`
 
 List of non-`POSIX` behaviors:
