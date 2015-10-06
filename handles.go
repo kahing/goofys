@@ -217,6 +217,36 @@ func (parent *Inode) Create(
 	return
 }
 
+func (parent *Inode) MkDir(
+	fs *Goofys,
+	name *string) (inode *Inode, err error) {
+
+	parent.logFuse("Inode.MkDir", *name)
+
+	fullName := parent.getChildName(name)
+	*fullName += "/"
+
+	params := &s3.PutObjectInput{
+		Bucket: &fs.bucket,
+		Key: fullName,
+		Body: nil,
+	}
+	_, err = fs.s3.PutObject(params)
+	if err != nil {
+		err = mapAwsError(err)
+		return
+	}
+
+	parent.mu.Lock()
+	defer parent.mu.Unlock()
+
+
+	inode = NewInode(name, fullName)
+	inode.Attributes = &fs.rootAttrs
+
+	return
+}
+
 func (inode *Inode) GetAttributes(fs *Goofys) (*fuseops.InodeAttributes, error) {
 	// XXX refresh attributes
 	inode.logFuse("GetAttributes")

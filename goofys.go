@@ -491,7 +491,6 @@ func (fs *Goofys) ReleaseDirHandle(
 	return
 }
 
-
 func (fs *Goofys) OpenFile(
 	ctx context.Context,
 	op *fuseops.OpenFileOp) (err error) {
@@ -600,6 +599,36 @@ func (fs *Goofys) CreateFile(
 	return
 }
 
+func (fs *Goofys) MkDir(
+	ctx context.Context,
+	op *fuseops.MkDirOp) (err error) {
+
+	fs.mu.Lock()
+	parent := fs.getInodeOrDie(op.Parent)
+	fs.mu.Unlock()
+
+	// ignore op.Mode for now
+	inode, err := parent.MkDir(fs, &op.Name)
+	if err != nil {
+		return err
+	}
+
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	nextInode := fs.nextInodeID
+	fs.nextInodeID++
+
+	inode.Id = nextInode
+
+	fs.inodes[inode.Id] = inode
+	op.Entry.Child = inode.Id
+	op.Entry.Attributes = *inode.Attributes
+	op.Entry.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
+	op.Entry.EntryExpiration = time.Now().Add(365 * 24 * time.Hour)
+
+	return
+}
 
 func (fs *Goofys) SetInodeAttributes(
 	ctx context.Context,

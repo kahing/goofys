@@ -485,3 +485,24 @@ func (s *GoofysTest) TestWriteManyFilesFile(t *C) {
 func (s *GoofysTest) testWriteFileNonAlign(t *C) {
 	s.testWriteFile(t, "testWriteFileNonAlign", 6 * 1024 * 1024, 128 * 1024 + 1)
 }
+
+func (s *GoofysTest) TestMkDir(t *C) {
+	_, err := s.LookUpInode(t, "new_dir/file")
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	dirName := "new_dir"
+	inode, err := s.getRoot(t).MkDir(s.fs, &dirName)
+	t.Assert(err, IsNil)
+
+	_, err = s.LookUpInode(t, "new_dir")
+	t.Assert(err, IsNil)
+
+	fileName := "file"
+	_, fh := inode.Create(s.fs, &fileName)
+
+	err = fh.FlushFile(s.fs)
+	t.Assert(err, IsNil)
+
+	_, err = s.LookUpInode(t, "new_dir/file")
+	t.Assert(err, IsNil)
+}
