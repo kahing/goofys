@@ -353,11 +353,11 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 				}
 			}
 
-			page := int(offset / BUF_SIZE)
+			page := int(fh.nextWriteOffset / BUF_SIZE)
 			buf := fh.buf
 			fh.buf = nil
 			fh.mpuWG.Add(1)
-			go fh.mpuPart(fs, buf, page + 1)
+			go fh.mpuPart(fs, buf, page)
 		}
 
 		if nCopied == len(data) {
