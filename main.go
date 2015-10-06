@@ -70,19 +70,19 @@ func mount(
 		return
 	}
 
-	if flags.Uid >= 0 {
-		uid = uint32(flags.Uid)
+	if flags.Uid < 0 {
+		flags.Uid = uid
 	}
 
-	if flags.Gid >= 0 {
-		gid = uint32(flags.Gid)
+	if flags.Gid < 0 {
+		flags.Gid = gid
 	}
 
 	awsConfig := &aws.Config{
 		Region: aws.String("us-west-2"),
 		//LogLevel: aws.LogLevel(aws.LogDebug),
 	}
-	goofys := NewGoofys(bucketName, awsConfig, uid, gid)
+	goofys := NewGoofys(bucketName, awsConfig, flags)
 	if goofys == nil {
 		err = fmt.Errorf("Mount: initialization failed")
 		return

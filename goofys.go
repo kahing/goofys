@@ -43,7 +43,9 @@ import (
 type Goofys struct {
 	fuseutil.NotImplementedFileSystem
 	bucket string
-	// The UID and GID that every inode receives.
+
+	flags *flagStorage
+
 	uid uint32
 	gid uint32
 	umask uint32
@@ -83,13 +85,16 @@ type Goofys struct {
 	fileHandles map[fuseops.HandleID]*FileHandle
 }
 
-func NewGoofys(bucket string, awsConfig *aws.Config, uid uint32, gid uint32) *Goofys {
+func NewGoofys(bucket string, awsConfig *aws.Config, flags *flagStorage) *Goofys {
 	// Set up the basic struct.
 	fs := &Goofys{
 		bucket: bucket,
-		uid:    uid,
-		gid:    gid,
+		flags: flags,
 		umask:  0122,
+	}
+
+	if flags.DebugS3 {
+		awsConfig.LogLevel = aws.LogLevel(aws.LogDebug)
 	}
 
 	fs.awsConfig = awsConfig
@@ -101,7 +106,8 @@ func NewGoofys(bucket string, awsConfig *aws.Config, uid uint32, gid uint32) *Go
 	if err != nil {
 		fromRegion, toRegion = parseRegionError(err)
 	} else {
-		log.Println(resp)
+		fs.logS3(resp)
+
 		if resp.LocationConstraint == nil {
 			toRegion = "us-east-1"
 		} else {
@@ -111,7 +117,7 @@ func NewGoofys(bucket string, awsConfig *aws.Config, uid uint32, gid uint32) *Go
 		fromRegion = *awsConfig.Region
 	}
 
-	if len(toRegion) != 0 {
+	if len(toRegion) != 0 && fromRegion != toRegion {
 		log.Printf("Switching from region '%v' to '%v'", fromRegion, toRegion)
 		awsConfig.Region = &toRegion
 		fs.s3 = s3.New(awsConfig)
@@ -120,7 +126,7 @@ func NewGoofys(bucket string, awsConfig *aws.Config, uid uint32, gid uint32) *Go
 			log.Println(err)
 			return nil
 		}
-	} else {
+	} else if *awsConfig.Region != "milkyway" {
 		log.Printf("Unable to detect bucket region, staying at '%v'", *awsConfig.Region)
 	}
 
@@ -133,15 +139,15 @@ func NewGoofys(bucket string, awsConfig *aws.Config, uid uint32, gid uint32) *Go
 		Mtime: now,
 		Ctime: now,
 		Crtime: now,
-		Uid:  uid,
-		Gid:  gid,
+		Uid:  fs.flags.Uid,
+		Gid:  fs.flags.Gid,
 	}
 
 	fs.bufferPool = NewBufferPool(100 * 1024 * 1024, 20 * 1024 * 1024)
 
 	fs.nextInodeID = fuseops.RootInodeID + 1
 	fs.inodes = make(map[fuseops.InodeID]*Inode)
-	root := NewInode(aws.String(""), aws.String(""))
+	root := NewInode(aws.String(""), aws.String(""), flags)
 	root.Id = fuseops.RootInodeID
 	root.Attributes = &fs.rootAttrs
 
@@ -185,7 +191,15 @@ func (fs *Goofys) getInodeOrDie(id fuseops.InodeID) (inode *Inode) {
 }
 
 func (fs *Goofys) logFuse(op string, args ...interface{}) {
-	log.Printf("%v: %v", op, args)
+	if fs.flags.DebugFuse {
+		log.Printf("%v: %v", op, args)
+	}
+}
+
+func (fs *Goofys) logS3(resp ...interface{}) {
+	if fs.flags.DebugS3 {
+		log.Println(resp)
+	}
 }
 
 func (fs *Goofys) StatFS(
@@ -225,7 +239,6 @@ const REGION_ERROR_MSG = "The authorization header is malformed; the region %s i
 
 func parseRegionError(err error) (fromRegion, toRegion string) {
 	if reqErr, ok := err.(awserr.RequestFailure); ok {
-		log.Printf("code=%v msg=%v request=%v\n", reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
 		// A service error occurred
 		if reqErr.StatusCode() == 400 && reqErr.Code() == "AuthorizationHeaderMalformed" {
 			n, scanErr := fmt.Sscanf(reqErr.Message(), REGION_ERROR_MSG, &fromRegion, &toRegion)
@@ -236,6 +249,12 @@ func parseRegionError(err error) (fromRegion, toRegion string) {
 			fromRegion = fromRegion[1:len(fromRegion)-1]
 			toRegion = toRegion[1:len(toRegion)-1]
 			return
+		} else if reqErr.StatusCode() == 501 {
+			// method not implemented,
+			// do nothing, use existing region
+		} else {
+			log.Printf("code=%v msg=%v request=%v\n",
+				reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
 		}
 	}
 	return
@@ -270,7 +289,7 @@ func (fs *Goofys) LookUpInodeNotDir(name *string, c chan s3.HeadObjectOutput, er
 		return
 	}
 
-	log.Println(resp)
+	fs.logS3(resp)
 	c <- *resp
 }
 
@@ -288,7 +307,7 @@ func (fs *Goofys) LookUpInodeDir(name *string, c chan s3.ListObjectsOutput, errc
 		return
 	}
 
-	log.Println(resp)
+	fs.logS3(resp)
 	c <- *resp
 }
 
@@ -314,7 +333,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name *string, fullName *string) (inode *In
 		select {
 		case resp := <- objectChan:
 			// XXX/TODO if both object and object/ exists, return dir
-			inode = NewInode(name, fullName)
+			inode = NewInode(name, fullName, fs.flags)
 			inode.Attributes = &fuseops.InodeAttributes{
 				Size: uint64(*resp.ContentLength),
 				Nlink: 1,
@@ -323,8 +342,8 @@ func (fs *Goofys) LookUpInodeMaybeDir(name *string, fullName *string) (inode *In
 				Mtime: *resp.LastModified,
 				Ctime: *resp.LastModified,
 				Crtime: *resp.LastModified,
-				Uid:  fs.uid,
-				Gid:  fs.gid,
+				Uid:  fs.flags.Uid,
+				Gid:  fs.flags.Gid,
 			}
 			return
 		case err = <- errObjectChan:
@@ -340,7 +359,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name *string, fullName *string) (inode *In
 			}
 		case resp := <- dirChan:
 			if len(resp.CommonPrefixes) != 0 || len(resp.Contents) != 0 {
-				inode = NewInode(name, fullName)
+				inode = NewInode(name, fullName, fs.flags)
 				inode.Attributes = &fs.rootAttrs
 				return
 			} else {

@@ -251,8 +251,9 @@ func (s *GoofysTest) setupDefaultEnv(t *C) (bucket string) {
 func (s *GoofysTest) SetUpTest(t *C) {
 	bucket := s.setupDefaultEnv(t)
 
-	s.fs = NewGoofys(bucket, s.awsConfig, currentUid(), currentGid())
 	s.ctx = context.Background()
+	flags := &flagStorage{}
+	s.fs = NewGoofys(bucket, s.awsConfig, flags)
 }
 
 func (s *GoofysTest) getRoot(t *C) *Inode {

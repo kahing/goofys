@@ -33,6 +33,7 @@ type Inode struct {
 	Id fuseops.InodeID
 	Name *string
 	FullName *string
+	flags *flagStorage
 	Attributes *fuseops.InodeAttributes
 
 	mu sync.Mutex // everything below is protected by mu
@@ -41,8 +42,8 @@ type Inode struct {
 }
 
 
-func NewInode(name *string, fullName *string) (inode *Inode) {
-	inode = &Inode{ Name: name, FullName: fullName }
+func NewInode(name *string, fullName *string, flags *flagStorage) (inode *Inode) {
+	inode = &Inode{ Name: name, FullName: fullName, flags: flags }
 	inode.handles = make(map[*DirHandle]bool)
 	inode.refcnt = 1
 	return
@@ -102,7 +103,9 @@ func NewFileHandle(in *Inode) *FileHandle {
 }
 
 func (inode *Inode) logFuse(op string, args ...interface{}) {
-	log.Printf("%v: [%v] %v", op, *inode.FullName, args)
+	if inode.flags.DebugFuse {
+		log.Printf("%v: [%v] %v", op, *inode.FullName, args)
+	}
 }
 
 // LOCKS_REQUIRED(parent.mu)
@@ -119,7 +122,7 @@ func (parent *Inode) lookupFromDirHandles(name *string) (inode *Inode) {
 	for dh := range parent.handles {
 		attr, ok := dh.NameToEntry[*name]
 		if ok {
-			inode = NewInode(name, parent.getChildName(name))
+			inode = NewInode(name, parent.getChildName(name), parent.flags)
 			inode.Attributes = &attr
 			return
 		}
@@ -181,7 +184,8 @@ func (parent *Inode) Unlink(fs *Goofys, name *string) (err error) {
 		return mapAwsError(err)
 	}
 
-	log.Println(resp)
+	fs.logS3(resp)
+
 	return
 }
 
@@ -189,7 +193,7 @@ func (parent *Inode) Create(
 	fs *Goofys,
 	name *string) (inode *Inode, fh *FileHandle) {
 
-	parent.logFuse("Inode.Create", *name)
+	parent.logFuse("Create", *name)
 
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
@@ -197,7 +201,7 @@ func (parent *Inode) Create(
 	fullName := parent.getChildName(name)
 
 	now := time.Now()
-	inode = NewInode(name, fullName)
+	inode = NewInode(name, fullName, parent.flags)
 	inode.Attributes = &fuseops.InodeAttributes{
 		Size: 0,
 		Nlink: 1,
@@ -221,7 +225,7 @@ func (parent *Inode) MkDir(
 	fs *Goofys,
 	name *string) (inode *Inode, err error) {
 
-	parent.logFuse("Inode.MkDir", *name)
+	parent.logFuse("MkDir", *name)
 
 	fullName := parent.getChildName(name)
 	*fullName += "/"
@@ -241,7 +245,7 @@ func (parent *Inode) MkDir(
 	defer parent.mu.Unlock()
 
 
-	inode = NewInode(name, fullName)
+	inode = NewInode(name, fullName, parent.flags)
 	inode.Attributes = &fs.rootAttrs
 
 	return
@@ -328,7 +332,7 @@ func (fh *FileHandle) initMPU(fs *Goofys) {
 		fh.lastWriteError = mapAwsError(err)
 	}
 
-	log.Println(resp)
+	fs.logS3(resp)
 
 	fh.mpuId = resp.UploadId
 	fh.etags = make([]*string, 10000) // at most 10K parts
@@ -346,7 +350,7 @@ func (fh *FileHandle) mpuPartNoSpawn(fs *Goofys, buf []byte, part int) (err erro
 		Body:                 bytes.NewReader(buf),
 	}
 
-	log.Println(params)
+	fs.logS3(params)
 
 	resp, err := fs.s3.UploadPart(params)
 	if err != nil {
@@ -509,7 +513,7 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 
 				fh.mpuId = nil
 				resp, _ := fs.s3.AbortMultipartUpload(params)
-				log.Println(resp)
+				fs.logS3(resp)
 			}()
 		}
 	}()
@@ -567,7 +571,7 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 		},
 	}
 
-	log.Println(params)
+	fs.logS3(params)
 
 	fh.mpuId = nil
 	fh.writeInit = sync.Once{}
@@ -578,7 +582,7 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 		return mapAwsError(err)
 	}
 
-	log.Println(resp)
+	fs.logS3(resp)
 
 	return
 }
@@ -651,7 +655,7 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 			return nil, mapAwsError(err)
 		}
 
-		log.Println(resp)
+		fs.logS3(resp)
 
 		dh.Entries = make([]fuseutil.Dirent, 0, len(resp.CommonPrefixes) + len(resp.Contents))
 		
@@ -679,8 +683,8 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 				Mtime: *obj.LastModified,
 				Ctime: *obj.LastModified,
 				Crtime: *obj.LastModified,
-				Uid:  fs.uid,
-				Gid:  fs.gid,
+				Uid:  fs.flags.Uid,
+				Gid:  fs.flags.Gid,
 			}
 		}
 

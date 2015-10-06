@@ -149,6 +149,11 @@ func newApp() (app *cli.App) {
 				Name:  "debug_invariants",
 				Usage: "Panic when internal invariants are violated.",
 			},
+
+			cli.BoolFlag{
+				Name:  "debug_s3",
+				Usage: "Enable S3-related debugging output.",
+			},
 		},
 	}
 
@@ -160,8 +165,8 @@ type flagStorage struct {
 	MountOptions map[string]string
 	DirMode      os.FileMode
 	FileMode     os.FileMode
-	Uid          int64
-	Gid          int64
+	Uid          uint32
+	Gid          uint32
 	ImplicitDirs bool
 
 	// Goofys
@@ -175,6 +180,7 @@ type flagStorage struct {
 	// Debugging
 	DebugFuse       bool
 	DebugInvariants bool
+	DebugS3         bool
 }
 
 // Add the flags accepted by run to the supplied flag set, returning the
@@ -185,8 +191,8 @@ func populateFlags(c *cli.Context) (flags *flagStorage) {
 		MountOptions: make(map[string]string),
 		DirMode:      os.FileMode(c.Int("dir-mode")),
 		FileMode:     os.FileMode(c.Int("file-mode")),
-		Uid:          int64(c.Int("uid")),
-		Gid:          int64(c.Int("gid")),
+		Uid:          uint32(c.Int("uid")),
+		Gid:          uint32(c.Int("gid")),
 
 		// Goofys,
 		EgressBandwidthLimitBytesPerSecond: c.Float64("limit-bytes-per-sec"),
@@ -200,6 +206,7 @@ func populateFlags(c *cli.Context) (flags *flagStorage) {
 		// Debugging,
 		DebugFuse:       c.Bool("debug_fuse"),
 		DebugInvariants: c.Bool("debug_invariants"),
+		DebugS3:         c.Bool("debug_s3"),
 	}
 
 /*
