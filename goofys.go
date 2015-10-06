@@ -630,6 +630,18 @@ func (fs *Goofys) MkDir(
 	return
 }
 
+func (fs *Goofys) RmDir(
+	ctx context.Context,
+	op *fuseops.RmDirOp) (err error) {
+
+	fs.mu.Lock()
+	parent := fs.getInodeOrDie(op.Parent)
+	fs.mu.Unlock()
+
+	err = parent.RmDir(fs, &op.Name)
+	return
+}
+
 func (fs *Goofys) SetInodeAttributes(
 	ctx context.Context,
 	op *fuseops.SetInodeAttributesOp) (err error) {

@@ -506,3 +506,22 @@ func (s *GoofysTest) TestMkDir(t *C) {
 	_, err = s.LookUpInode(t, "new_dir/file")
 	t.Assert(err, IsNil)
 }
+
+func (s *GoofysTest) TestRmDir(t *C) {
+
+	root := s.getRoot(t)
+
+	dir := "dir1"
+	err := root.RmDir(s.fs, &dir)
+	t.Assert(err, Equals, fuse.ENOTEMPTY)
+
+	dir = "dir2"
+	err = root.RmDir(s.fs, &dir)
+	t.Assert(err, Equals, fuse.ENOTEMPTY)
+
+	t.Skip("minio doesn't support unlink")
+	dir = "empty_dir"
+	err = root.RmDir(s.fs, &dir)
+	t.Assert(err, IsNil)
+
+}

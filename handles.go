@@ -247,6 +247,51 @@ func (parent *Inode) MkDir(
 	return
 }
 
+func (parent *Inode) RmDir(
+	fs *Goofys,
+	name *string) (err error) {
+
+	fullName := parent.getChildName(name)
+	*fullName += "/"
+
+	params := &s3.ListObjectsInput{
+		Bucket:       &fs.bucket,
+		Delimiter:    aws.String("/"),
+		MaxKeys:      aws.Int64(1),
+		Prefix:       fullName,
+	}
+
+	resp, err := fs.s3.ListObjects(params)
+	if err != nil {
+		return mapAwsError(err)
+	}
+
+	if len(resp.CommonPrefixes) > 0 || len(resp.Contents) > 1 {
+		err = fuse.ENOTEMPTY
+		return
+	} else if len(resp.Contents) == 1 {
+		if *resp.Contents[0].Key != *fullName {
+			err = fuse.ENOTEMPTY
+			return
+		} else {
+			params := &s3.DeleteObjectInput{
+				Bucket:       &fs.bucket,
+				Key:          fullName,
+			}
+
+			_, err = fs.s3.DeleteObject(params)
+			if err != nil {
+				return mapAwsError(err)
+			}
+
+			return
+		}
+	} else {
+		err = fuse.ENOENT
+		return
+	}
+}
+
 func (inode *Inode) GetAttributes(fs *Goofys) (*fuseops.InodeAttributes, error) {
 	// XXX refresh attributes
 	inode.logFuse("GetAttributes")
