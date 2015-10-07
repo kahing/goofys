@@ -95,6 +95,9 @@ type FileHandle struct {
 	buf []byte
 
 	lastWriteError error
+
+	reader io.ReadCloser
+	readBufOffset int64
 }
 
 func NewFileHandle(in *Inode) *FileHandle {
@@ -453,17 +456,76 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 	return
 }
 
+func tryReadAll(r io.ReadCloser, buf []byte) (bytesRead int, err error) {
+	toRead := len(buf)
+	for toRead > 0 {
+		buf := buf[bytesRead : bytesRead + int(toRead)]
+
+		nread, err := r.Read(buf)
+		bytesRead += nread
+		toRead -= nread
+
+		if err != nil {
+			if err == io.EOF {
+				err = nil
+			}
+			return bytesRead, err
+		}
+	}
+
+	return
+}
+
 func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
+	fh.inode.logFuse("ReadFile", offset, len(buf), fh.readBufOffset)
+	if fh.inode.flags.DebugFuse {
+		defer func() {
+			fh.inode.logFuse("< ReadFile", bytesRead)
+		}()
+	}
+
 	if uint64(offset) >= fh.inode.Attributes.Size {
 		// nothing to read
 		return
 	}
 
-	end := uint64(offset) + uint64(len(buf)) - 1
-	bytes := fmt.Sprintf("bytes=%v-%v", offset, end)
-	toRead := len(buf)
+	if fh.reader != nil {
+		// try to service read from existing stream
+		if offset == fh.readBufOffset {
+			nread, err := tryReadAll(fh.reader, buf)
 
-	fh.inode.logFuse("ReadFile", bytes)
+			if nread == len(buf) {
+				fh.readBufOffset += int64(nread)
+				return nread, err
+			} else {
+				offset += int64(nread)
+				fh.readBufOffset = offset
+				bytesRead += nread
+				buf = buf[nread:]
+			}
+		} else {
+			// XXX out of order read, maybe disable prefetching
+			fh.inode.logFuse("out of order read", offset, fh.readBufOffset)
+			fh.readBufOffset = offset
+			fh.reader = nil
+		}
+	}
+
+	if uint64(offset) == fh.inode.Attributes.Size {
+		// nothing more to read
+		return
+	}
+
+	reqLen := 5 * 1024 * 1024
+	if reqLen < len(buf) {
+		reqLen = len(buf)
+	}
+
+	end := uint64(offset) + uint64(reqLen) - 1
+	if end >= fh.inode.Attributes.Size {
+		end = fh.inode.Attributes.Size - 1
+	}
+	bytes := fmt.Sprintf("bytes=%v-%v", offset, end)
 
 	params := &s3.GetObjectInput{
 		Bucket:                     &fs.bucket,
@@ -476,25 +538,12 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 		return 0, mapAwsError(err)
 	}
 
-	toRead = int(*resp.ContentLength)
+	reqLen = int(*resp.ContentLength)
+	fh.reader = resp.Body
 
-	for toRead > 0 {
-		buf := buf[bytesRead : bytesRead + int(toRead)]
+	bytesRead, err = tryReadAll(resp.Body, buf)
+	fh.readBufOffset += int64(bytesRead)
 
-		nread, err := resp.Body.Read(buf)
-		bytesRead += nread
-		toRead -= nread
-
-		if err != nil {
-			if err != io.EOF {
-				return bytesRead, err
-			} else {
-				break;
-			}
-		}
-	}
-
-	err = nil
 	return
 }
 

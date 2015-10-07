@@ -462,6 +462,24 @@ func (s *GoofysTest) testWriteFile(t *C, fileName string, size int64, write_size
 	resp, err := s.s3.HeadObject(&s3.HeadObjectInput{ Bucket: &s.fs.bucket, Key: &fileName })
 	t.Assert(err, IsNil)
 	t.Assert(*resp.ContentLength, DeepEquals, size)
+
+	fh = fh.inode.OpenFile(s.fs)
+	offset := int64(0)
+	rbuf := [64 * 1024]byte{}
+
+	for {
+		var nread int
+		nread, err = fh.ReadFile(s.fs, offset, rbuf[:])
+		offset += int64(nread)
+		if err != nil || nread == 0 {
+			break
+		}
+	}
+
+	if err != nil {
+		t.Assert(err, Equals, io.EOF)
+	}
+	t.Assert(offset, Equals, size)
 }
 
 func (s *GoofysTest) TestWriteLargeFile(t *C) {
