@@ -255,6 +255,8 @@ func (parent *Inode) RmDir(
 	fs *Goofys,
 	name *string) (err error) {
 
+	parent.logFuse("Rmdir", *name)
+
 	fullName := parent.getChildName(name)
 	*fullName += "/"
 
