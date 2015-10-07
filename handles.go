@@ -96,6 +96,7 @@ type FileHandle struct {
 
 	lastWriteError error
 
+	// read
 	reader io.ReadCloser
 	readBufOffset int64
 }
@@ -476,12 +477,35 @@ func tryReadAll(r io.ReadCloser, buf []byte) (bytesRead int, err error) {
 	return
 }
 
+func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, err error) {
+	fh.mu.Lock()
+	defer fh.mu.Unlock()
+	if fh.inode.flags.DebugFuse {
+		defer fh.inode.logFuse("< readFromStream", bytesRead)
+	}
+
+	if fh.reader != nil {
+		// try to service read from existing stream
+		if offset == fh.readBufOffset {
+			nread, err := tryReadAll(fh.reader, buf)
+			fh.readBufOffset += int64(nread)
+			return nread, err
+		} else {
+			// XXX out of order read, maybe disable prefetching
+			fh.inode.logFuse("out of order read", offset, fh.readBufOffset)
+			fh.readBufOffset = offset
+			fh.reader.Close()
+			fh.reader = nil
+		}
+	}
+
+	return
+}
+
 func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
 	fh.inode.logFuse("ReadFile", offset, len(buf), fh.readBufOffset)
 	if fh.inode.flags.DebugFuse {
-		defer func() {
-			fh.inode.logFuse("< ReadFile", bytesRead)
-		}()
+		defer fh.inode.logFuse("< ReadFile", bytesRead)
 	}
 
 	if uint64(offset) >= fh.inode.Attributes.Size {
@@ -489,32 +513,15 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 		return
 	}
 
-	if fh.reader != nil {
-		// try to service read from existing stream
-		if offset == fh.readBufOffset {
-			nread, err := tryReadAll(fh.reader, buf)
+	bytesRead, err = fh.readFromStream(offset, buf)
+	offset = fh.readBufOffset
 
-			if nread == len(buf) {
-				fh.readBufOffset += int64(nread)
-				return nread, err
-			} else {
-				offset += int64(nread)
-				fh.readBufOffset = offset
-				bytesRead += nread
-				buf = buf[nread:]
-			}
-		} else {
-			// XXX out of order read, maybe disable prefetching
-			fh.inode.logFuse("out of order read", offset, fh.readBufOffset)
-			fh.readBufOffset = offset
-			fh.reader = nil
-		}
-	}
-
-	if uint64(offset) == fh.inode.Attributes.Size {
+	if bytesRead == len(buf) || uint64(offset) == fh.inode.Attributes.Size {
 		// nothing more to read
 		return
 	}
+
+	buf = buf[bytesRead:]
 
 	reqLen := 5 * 1024 * 1024
 	if reqLen < len(buf) {
@@ -538,6 +545,7 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 		return 0, mapAwsError(err)
 	}
 
+	// XXX check if reqLen is smaller than expected, if so adjust file size
 	reqLen = int(*resp.ContentLength)
 	fh.reader = resp.Body
 
