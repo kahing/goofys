@@ -70,11 +70,11 @@ func mount(
 		return
 	}
 
-	if flags.Uid < 0 {
+	if int32(flags.Uid) == -1 {
 		flags.Uid = uid
 	}
 
-	if flags.Gid < 0 {
+	if int32(flags.Gid) == -1 {
 		flags.Gid = gid
 	}
 
