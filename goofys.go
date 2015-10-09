@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"syscall"
 	"time"
 
 	"golang.org/x/net/context"
@@ -267,6 +268,8 @@ func mapAwsError(err error) error {
 			switch reqErr.StatusCode() {
 			case 404:
 				return fuse.ENOENT
+			case 405:
+				return syscall.ENOTSUP
 			default:
 				log.Printf("code=%v msg=%v request=%v\n", reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
 				return reqErr

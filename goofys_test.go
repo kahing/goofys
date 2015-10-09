@@ -564,8 +564,18 @@ func (s *GoofysTest) TestRename(t *C) {
 	err = root.Rename(s.fs, &from, root, &to)
 	t.Assert(err, Equals, syscall.EISDIR)
 
-	t.Skip("minio doesn't support unlink")
 	from, to = "file1", "new_file"
 	err = root.Rename(s.fs, &from, root, &to)
+	t.Assert(err, Equals, syscall.ENOTSUP)
+
+	_, err = s.s3.HeadObject(&s3.HeadObjectInput{ Bucket: &s.fs.bucket, Key: &to })
+	t.Assert(err, IsNil)
+
+	from, to = "file3", "new_file"
+	dir, _ := s.LookUpInode(t, "dir1")
+	err = dir.Rename(s.fs, &from, root, &to)
+	t.Assert(err, Equals, syscall.ENOTSUP)
+
+	_, err = s.s3.HeadObject(&s3.HeadObjectInput{ Bucket: &s.fs.bucket, Key: &to })
 	t.Assert(err, IsNil)
 }
