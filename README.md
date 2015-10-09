@@ -40,6 +40,7 @@ List of non-`POSIX` behaviors:
   * directories link count is always `2`
   * file owner is always the user running goofys
   * `ctime`, `atime` is always the same as `mtime`
+  * cannot rename non-empty directories
 
 # References
 
