@@ -696,3 +696,15 @@ func (fs *Goofys) Unlink(
 	err = parent.Unlink(fs, &op.Name)
 	return
 }
+
+func (fs *Goofys) Rename(
+	ctx context.Context,
+	op *fuseops.RenameOp) (err error) {
+
+	fs.mu.Lock()
+	parent := fs.getInodeOrDie(op.OldParent)
+	newParent := fs.getInodeOrDie(op.NewParent)
+	fs.mu.Unlock()
+
+	return parent.Rename(fs, &op.OldName, newParent, &op.NewName)
+}

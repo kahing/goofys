@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -527,7 +528,6 @@ func (s *GoofysTest) TestMkDir(t *C) {
 }
 
 func (s *GoofysTest) TestRmDir(t *C) {
-
 	root := s.getRoot(t)
 
 	dir := "dir1"
@@ -543,4 +543,29 @@ func (s *GoofysTest) TestRmDir(t *C) {
 	err = root.RmDir(s.fs, &dir)
 	t.Assert(err, IsNil)
 
+}
+
+func (s *GoofysTest) TestRename(t *C) {
+	root := s.getRoot(t)
+
+	from, to := "dir1", "new_dir"
+	err := root.Rename(s.fs, &from, root, &to)
+	t.Assert(err, Equals, fuse.ENOTEMPTY)
+
+	from, to = "empty_dir", "dir1"
+	err = root.Rename(s.fs, &from, root, &to)
+	t.Assert(err, Equals, fuse.ENOTEMPTY)
+
+	from, to = "empty_dir", "file1"
+	err = root.Rename(s.fs, &from, root, &to)
+	t.Assert(err, Equals, fuse.ENOTDIR)
+
+	from, to = "file1", "empty_dir"
+	err = root.Rename(s.fs, &from, root, &to)
+	t.Assert(err, Equals, syscall.EISDIR)
+
+	t.Skip("minio doesn't support unlink")
+	from, to = "file1", "new_file"
+	err = root.Rename(s.fs, &from, root, &to)
+	t.Assert(err, IsNil)
 }

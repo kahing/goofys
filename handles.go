@@ -19,6 +19,7 @@ import (
 	"log"
 	"sort"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -255,6 +256,35 @@ func (parent *Inode) MkDir(
 	return
 }
 
+func isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
+	fullName += "/"
+
+	params := &s3.ListObjectsInput{
+		Bucket:       &fs.bucket,
+		Delimiter:    aws.String("/"),
+		MaxKeys:      aws.Int64(1),
+		Prefix:       &fullName,
+	}
+
+	resp, err := fs.s3.ListObjects(params)
+	if err != nil {
+		return false, mapAwsError(err)
+	}
+
+	if len(resp.CommonPrefixes) > 0 || len(resp.Contents) > 1 {
+		err = fuse.ENOTEMPTY
+		isDir = true
+	} else if len(resp.Contents) == 1 {
+		isDir = true
+
+		if *resp.Contents[0].Key != fullName {
+			err = fuse.ENOTEMPTY
+		}
+	}
+
+	return
+}
+
 func (parent *Inode) RmDir(
 	fs *Goofys,
 	name *string) (err error) {
@@ -262,44 +292,28 @@ func (parent *Inode) RmDir(
 	parent.logFuse("Rmdir", *name)
 
 	fullName := parent.getChildName(name)
-	*fullName += "/"
 
-	params := &s3.ListObjectsInput{
-		Bucket:       &fs.bucket,
-		Delimiter:    aws.String("/"),
-		MaxKeys:      aws.Int64(1),
-		Prefix:       fullName,
+	isDir, err := isEmptyDir(fs, *fullName)
+	if err != nil {
+		return
+	}
+	if !isDir {
+		return fuse.ENOENT
 	}
 
-	resp, err := fs.s3.ListObjects(params)
+	*fullName += "/"
+
+	params := &s3.DeleteObjectInput{
+		Bucket:       &fs.bucket,
+		Key:          fullName,
+	}
+
+	_, err = fs.s3.DeleteObject(params)
 	if err != nil {
 		return mapAwsError(err)
 	}
 
-	if len(resp.CommonPrefixes) > 0 || len(resp.Contents) > 1 {
-		err = fuse.ENOTEMPTY
-		return
-	} else if len(resp.Contents) == 1 {
-		if *resp.Contents[0].Key != *fullName {
-			err = fuse.ENOTEMPTY
-			return
-		} else {
-			params := &s3.DeleteObjectInput{
-				Bucket:       &fs.bucket,
-				Key:          fullName,
-			}
-
-			_, err = fs.s3.DeleteObject(params)
-			if err != nil {
-				return mapAwsError(err)
-			}
-
-			return
-		}
-	} else {
-		err = fuse.ENOENT
-		return
-	}
+	return
 }
 
 func (inode *Inode) GetAttributes(fs *Goofys) (*fuseops.InodeAttributes, error) {
@@ -642,6 +656,67 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 	}
 
 	fs.logS3(resp)
+
+	return
+}
+
+func (parent *Inode) Rename(fs *Goofys, from *string, newParent *Inode, to *string) (err error) {
+	fromFullName := parent.getChildName(from)
+
+	parent.mu.Lock()
+	defer parent.mu.Unlock()
+
+	fromIsDir, err := isEmptyDir(fs, *fromFullName)
+	if err != nil {
+		// we don't support renaming a directory that's not empty
+		return
+	}
+
+	toFullName := newParent.getChildName(to)
+
+	if parent != newParent {
+		newParent.mu.Lock()
+		defer newParent.mu.Unlock()
+	}
+
+	toIsDir, err := isEmptyDir(fs, *toFullName)
+	if err != nil {
+		return
+	}
+
+	if fromIsDir && !toIsDir {
+		return fuse.ENOTDIR
+	} else if !fromIsDir && toIsDir {
+		return syscall.EISDIR
+	}
+
+	if fromIsDir {
+		*fromFullName += "/"
+		*toFullName += "/"
+	}
+
+	src := fs.bucket + "/" + *fromFullName
+
+	params := &s3.CopyObjectInput{
+		Bucket: &fs.bucket,
+		CopySource: &src,
+		Key: toFullName,
+	}
+
+	_, err = fs.s3.CopyObject(params)
+	if err != nil {
+		return mapAwsError(err)
+	}
+
+	delParams := &s3.DeleteObjectInput{
+		Bucket:       &fs.bucket,
+		Key:          fromFullName,
+	}
+
+	_, err = fs.s3.DeleteObject(delParams)
+	if err != nil {
+		return mapAwsError(err)
+	}
 
 	return
 }
