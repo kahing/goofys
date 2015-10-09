@@ -1,0 +1,10 @@
+language: go
+sudo: false
+addons:
+  apt_packages:
+   - openjdk-7-jre-headless
+install:
+- go get -t ./...
+- make
+go:
+  - 1.5.1

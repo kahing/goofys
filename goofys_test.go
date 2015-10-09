@@ -20,7 +20,6 @@ import (
 	"math/rand"
 	"os/exec"
 	"os/user"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -37,10 +36,6 @@ import (
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
 	"github.com/jacobsa/fuse/fuseutil"
-
-	"github.com/minio/minio/pkg/auth"
-	"github.com/minio/minio/pkg/server"
-	"github.com/minio/minio/pkg/server/api"
 
 	. "gopkg.in/check.v1"
 )
@@ -119,50 +114,20 @@ func (s *GoofysTest) waitFor(t *C, addr string) (err error) {
 	return
 }
 
-func (s *GoofysTest) setupMinio(t *C, addr string) (accessKey string, secretKey string) {
-	accessKeyID, perr := auth.GenerateAccessKeyID()
-	t.Assert(perr, IsNil)
-	secretAccessKey, perr := auth.GenerateSecretAccessKey()
-	t.Assert(perr, IsNil)
-
-	accessKey = string(accessKeyID)
-	secretKey = string(secretAccessKey)
-
-	authConf := &auth.Config{}
-	authConf.Users = make(map[string]*auth.User)
-	authConf.Users[string(accessKeyID)] = &auth.User{
-		Name:            "testuser",
-		AccessKeyID:     accessKey,
-		SecretAccessKey: secretKey,
-	}
-	auth.SetAuthConfigPath(filepath.Join(t.MkDir(), "users.json"))
-	perr = auth.SaveConfig(authConf)
-	t.Assert(perr, IsNil)
-
-	go server.Start(api.Config{ Address: addr })
-
-	err := s.waitFor(t, addr)
-	t.Assert(err, IsNil)
-
-	return
-}
-
 func (s *GoofysTest) SetUpSuite(t *C) {
 	//addr := "play.minio.io:9000"
-	addr := "127.0.0.1:9000"
-
-	accessKey, secretKey := s.setupMinio(t, addr)
+	addr := "127.0.0.1:8080"
 
 	s.awsConfig = &aws.Config{
 		//Credentials: credentials.AnonymousCredentials,
-		Credentials: credentials.NewStaticCredentials(accessKey, secretKey, ""),
-		Region: aws.String("milkyway"),//aws.String("us-west-2"),
+		Credentials: credentials.NewStaticCredentials("foo", "bar", ""),
+		Region: aws.String("us-west-2"),
 		Endpoint: aws.String(addr),
 		DisableSSL: aws.Bool(true),
 		S3ForcePathStyle: aws.Bool(true),
 		MaxRetries: aws.Int(0),
-		Logger: t,
-		LogLevel: aws.LogLevel(aws.LogDebug),
+		//Logger: t,
+		//LogLevel: aws.LogLevel(aws.LogDebug),
 		//LogLevel: aws.LogLevel(aws.LogDebug | aws.LogDebugWithHTTPBody),
 	}
 	s.s3 = s3.New(s.awsConfig)
@@ -210,7 +175,7 @@ func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker)
 
 // from https://stackoverflow.com/questions/22892120/how-to-generate-a-random-string-of-a-fixed-length-in-golang
 func RandStringBytesMaskImprSrc(n int) string {
-	const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	const letterBytes = "abcdefghijklmnopqrstuvwxyz0123456789"
 	const (
 		letterIdxBits = 6                    // 6 bits to represent a letter index
 		letterIdxMask = 1<<letterIdxBits - 1 // All 1-bits, as many as letterIdxBits
@@ -427,7 +392,6 @@ func (s *GoofysTest) TestCreateFiles(t *C) {
 }
 
 func (s *GoofysTest) TestUnlink(t *C) {
-	t.Skip("minio doesn't support unlink")
 	fileName := "file1"
 
 	err := s.getRoot(t).Unlink(s.fs, &fileName)
@@ -436,9 +400,6 @@ func (s *GoofysTest) TestUnlink(t *C) {
 	// make sure that it's gone from s3
 	_, err = s.s3.GetObject(&s3.GetObjectInput{ Bucket: &s.fs.bucket, Key: &fileName })
 	t.Assert(mapAwsError(err), Equals, fuse.ENOENT)
-
-	err = s.getRoot(t).Unlink(s.fs, &fileName)
-	t.Assert(err, Equals, fuse.ENOENT)
 }
 
 func (s *GoofysTest) testWriteFile(t *C, fileName string, size int64, write_size int) {
@@ -538,7 +499,6 @@ func (s *GoofysTest) TestRmDir(t *C) {
 	err = root.RmDir(s.fs, &dir)
 	t.Assert(err, Equals, fuse.ENOTEMPTY)
 
-	t.Skip("minio doesn't support unlink")
 	dir = "empty_dir"
 	err = root.RmDir(s.fs, &dir)
 	t.Assert(err, IsNil)
@@ -566,7 +526,7 @@ func (s *GoofysTest) TestRename(t *C) {
 
 	from, to = "file1", "new_file"
 	err = root.Rename(s.fs, &from, root, &to)
-	t.Assert(err, Equals, syscall.ENOTSUP)
+	t.Assert(err, IsNil)
 
 	_, err = s.s3.HeadObject(&s3.HeadObjectInput{ Bucket: &s.fs.bucket, Key: &to })
 	t.Assert(err, IsNil)
@@ -574,7 +534,7 @@ func (s *GoofysTest) TestRename(t *C) {
 	from, to = "file3", "new_file"
 	dir, _ := s.LookUpInode(t, "dir1")
 	err = dir.Rename(s.fs, &from, root, &to)
-	t.Assert(err, Equals, syscall.ENOTSUP)
+	t.Assert(err, IsNil)
 
 	_, err = s.s3.HeadObject(&s3.HeadObjectInput{ Bucket: &s.fs.bucket, Key: &to })
 	t.Assert(err, IsNil)

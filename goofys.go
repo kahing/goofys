@@ -127,7 +127,7 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *flagStorage) *Goofys
 			log.Println(err)
 			return nil
 		}
-	} else if *awsConfig.Region != "milkyway" {
+	} else if len(toRegion) == 0 &&  *awsConfig.Region != "milkyway" {
 		log.Printf("Unable to detect bucket region, staying at '%v'", *awsConfig.Region)
 	}
 
