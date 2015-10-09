@@ -101,6 +101,13 @@ func newApp() (app *cli.App) {
 					"docs/semantics.md",
 			},
 
+			cli.StringFlag{
+				Name: "storage-class",
+				Value: "STANDARD",
+				Usage: "The type of storage to use when writing objects." +
+					" Possible values: REDUCED_REDUNDANCY, STANDARD (default), STANDARD_IA.",
+			},
+
 			/////////////////////////
 			// Goofys
 			/////////////////////////
@@ -168,6 +175,7 @@ type flagStorage struct {
 	Uid          uint32
 	Gid          uint32
 	ImplicitDirs bool
+	StorageClass string
 
 	// Goofys
 	EgressBandwidthLimitBytesPerSecond float64
@@ -202,6 +210,7 @@ func populateFlags(c *cli.Context) (flags *flagStorage) {
 		StatCacheTTL: c.Duration("stat-cache-ttl"),
 		TypeCacheTTL: c.Duration("type-cache-ttl"),
 		ImplicitDirs: c.Bool("implicit-dirs"),
+		StorageClass: c.String("storage-class"),
 
 		// Debugging,
 		DebugFuse:       c.Bool("debug_fuse"),
