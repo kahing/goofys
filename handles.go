@@ -337,8 +337,9 @@ func (fh *FileHandle) initMPU(fs *Goofys) {
 	}()
 
 	params := &s3.CreateMultipartUploadInput{
-		Bucket: &fs.bucket,
-		Key:    fh.inode.FullName,
+		Bucket:       &fs.bucket,
+		Key:          fh.inode.FullName,
+		StorageClass: &fs.flags.StorageClass,
 	}
 
 	resp, err := fs.s3.CreateMultipartUpload(params)
@@ -696,9 +697,10 @@ func (parent *Inode) Rename(fs *Goofys, from *string, newParent *Inode, to *stri
 	src := fs.bucket + "/" + *fromFullName
 
 	params := &s3.CopyObjectInput{
-		Bucket:     &fs.bucket,
-		CopySource: &src,
-		Key:        toFullName,
+		Bucket:       &fs.bucket,
+		CopySource:   &src,
+		Key:          toFullName,
+		StorageClass: &fs.flags.StorageClass,
 	}
 
 	_, err = fs.s3.CopyObject(params)
