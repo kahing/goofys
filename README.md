@@ -41,6 +41,7 @@ List of non-`POSIX` behaviors:
   * file owner is always the user running goofys
   * `ctime`, `atime` is always the same as `mtime`
   * cannot rename non-empty directories
+  * `unlink` returns success even if file is not present
 
 # References
 
