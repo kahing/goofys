@@ -31,20 +31,19 @@ import (
 )
 
 type Inode struct {
-	Id fuseops.InodeID
-	Name *string
-	FullName *string
-	flags *flagStorage
+	Id         fuseops.InodeID
+	Name       *string
+	FullName   *string
+	flags      *flagStorage
 	Attributes *fuseops.InodeAttributes
 
-	mu sync.Mutex // everything below is protected by mu
+	mu      sync.Mutex          // everything below is protected by mu
 	handles map[*DirHandle]bool // value is ignored
-	refcnt uint64
+	refcnt  uint64
 }
 
-
 func NewInode(name *string, fullName *string, flags *flagStorage) (inode *Inode) {
-	inode = &Inode{ Name: name, FullName: fullName, flags: flags }
+	inode = &Inode{Name: name, FullName: fullName, flags: flags}
 	inode.handles = make(map[*DirHandle]bool)
 	inode.refcnt = 1
 	return
@@ -59,15 +58,15 @@ func (inode *Inode) Ref() {
 type DirHandle struct {
 	inode *Inode
 
-	mu sync.Mutex // everything below is protected by mu
-	Entries []fuseutil.Dirent
+	mu          sync.Mutex // everything below is protected by mu
+	Entries     []fuseutil.Dirent
 	NameToEntry map[string]fuseops.InodeAttributes // XXX use a smaller struct
-	Marker *string
-	BaseOffset int
+	Marker      *string
+	BaseOffset  int
 }
 
 func NewDirHandle(inode *Inode) (dh *DirHandle) {
-	dh = &DirHandle{ inode: inode }
+	dh = &DirHandle{inode: inode}
 	dh.NameToEntry = make(map[string]fuseops.InodeAttributes)
 	return
 }
@@ -85,25 +84,25 @@ type FileHandle struct {
 	inode *Inode
 
 	writeInit sync.Once
-	mpuWG sync.WaitGroup
-	etags []*string
+	mpuWG     sync.WaitGroup
+	etags     []*string
 
-	mu sync.Mutex
-	mpuId *string
+	mu              sync.Mutex
+	mpuId           *string
 	nextWriteOffset int64
 
 	poolHandle *BufferPoolHandle
-	buf []byte
+	buf        []byte
 
 	lastWriteError error
 
 	// read
-	reader io.ReadCloser
+	reader        io.ReadCloser
 	readBufOffset int64
 }
 
 func NewFileHandle(in *Inode) *FileHandle {
-	fh := &FileHandle{ inode: in };
+	fh := &FileHandle{inode: in}
 	return fh
 }
 
@@ -180,8 +179,8 @@ func (parent *Inode) Unlink(fs *Goofys, name *string) (err error) {
 	fullName := parent.getChildName(name)
 
 	params := &s3.DeleteObjectInput{
-		Bucket:       &fs.bucket,
-		Key:          fullName,
+		Bucket: &fs.bucket,
+		Key:    fullName,
 	}
 
 	resp, err := fs.s3.DeleteObject(params)
@@ -208,15 +207,15 @@ func (parent *Inode) Create(
 	now := time.Now()
 	inode = NewInode(name, fullName, parent.flags)
 	inode.Attributes = &fuseops.InodeAttributes{
-		Size: 0,
-		Nlink: 1,
-		Mode: 0644,
-		Atime: now,
-		Mtime: now,
-		Ctime: now,
+		Size:   0,
+		Nlink:  1,
+		Mode:   0644,
+		Atime:  now,
+		Mtime:  now,
+		Ctime:  now,
 		Crtime: now,
-		Uid:  fs.uid,
-		Gid:  fs.gid,
+		Uid:    fs.uid,
+		Gid:    fs.gid,
 	}
 
 	fh = NewFileHandle(inode)
@@ -237,8 +236,8 @@ func (parent *Inode) MkDir(
 
 	params := &s3.PutObjectInput{
 		Bucket: &fs.bucket,
-		Key: fullName,
-		Body: nil,
+		Key:    fullName,
+		Body:   nil,
 	}
 	_, err = fs.s3.PutObject(params)
 	if err != nil {
@@ -248,7 +247,6 @@ func (parent *Inode) MkDir(
 
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
-
 
 	inode = NewInode(name, fullName, parent.flags)
 	inode.Attributes = &fs.rootAttrs
@@ -260,10 +258,10 @@ func isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
 	fullName += "/"
 
 	params := &s3.ListObjectsInput{
-		Bucket:       &fs.bucket,
-		Delimiter:    aws.String("/"),
-		MaxKeys:      aws.Int64(1),
-		Prefix:       &fullName,
+		Bucket:    &fs.bucket,
+		Delimiter: aws.String("/"),
+		MaxKeys:   aws.Int64(1),
+		Prefix:    &fullName,
 	}
 
 	resp, err := fs.s3.ListObjects(params)
@@ -304,8 +302,8 @@ func (parent *Inode) RmDir(
 	*fullName += "/"
 
 	params := &s3.DeleteObjectInput{
-		Bucket:       &fs.bucket,
-		Key:          fullName,
+		Bucket: &fs.bucket,
+		Key:    fullName,
 	}
 
 	_, err = fs.s3.DeleteObject(params)
@@ -339,8 +337,8 @@ func (fh *FileHandle) initMPU(fs *Goofys) {
 	}()
 
 	params := &s3.CreateMultipartUploadInput{
-		Bucket:             &fs.bucket,
-		Key:                fh.inode.FullName,
+		Bucket: &fs.bucket,
+		Key:    fh.inode.FullName,
 	}
 
 	resp, err := fs.s3.CreateMultipartUpload(params)
@@ -363,11 +361,11 @@ func (fh *FileHandle) mpuPartNoSpawn(fs *Goofys, buf []byte, part int) (err erro
 	defer fh.poolHandle.Free(buf)
 
 	params := &s3.UploadPartInput{
-		Bucket:               &fs.bucket,
-		Key:                  fh.inode.FullName,
-		PartNumber:           aws.Int64(int64(part)),
-		UploadId:             fh.mpuId,
-		Body:                 bytes.NewReader(buf),
+		Bucket:     &fs.bucket,
+		Key:        fh.inode.FullName,
+		PartNumber: aws.Int64(int64(part)),
+		UploadId:   fh.mpuId,
+		Body:       bytes.NewReader(buf),
 	}
 
 	fs.logS3(params)
@@ -377,7 +375,7 @@ func (fh *FileHandle) mpuPartNoSpawn(fs *Goofys, buf []byte, part int) (err erro
 		return mapAwsError(err)
 	}
 
-	en := &fh.etags[part - 1]
+	en := &fh.etags[part-1]
 
 	if *en != nil {
 		panic(fmt.Sprintf("etags for part %v already set: %v", part, **en))
@@ -395,7 +393,7 @@ func (fh *FileHandle) mpuPart(fs *Goofys, buf []byte, part int) {
 	if fh.mpuId == nil {
 		fh.mpuWG.Wait()
 		// initMPU might have errored
-		if (fh.mpuId == nil) {
+		if fh.mpuId == nil {
 			return
 		}
 	}
@@ -474,7 +472,7 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 func tryReadAll(r io.ReadCloser, buf []byte) (bytesRead int, err error) {
 	toRead := len(buf)
 	for toRead > 0 {
-		buf := buf[bytesRead : bytesRead + int(toRead)]
+		buf := buf[bytesRead : bytesRead+int(toRead)]
 
 		nread, err := r.Read(buf)
 		bytesRead += nread
@@ -549,9 +547,9 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 	bytes := fmt.Sprintf("bytes=%v-%v", offset, end)
 
 	params := &s3.GetObjectInput{
-		Bucket:                     &fs.bucket,
-		Key:                        fh.inode.FullName,
-		Range:                      &bytes,
+		Bucket: &fs.bucket,
+		Key:    fh.inode.FullName,
+		Range:  &bytes,
 	}
 
 	resp, err := fs.s3.GetObject(params)
@@ -579,9 +577,9 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 
 			go func() {
 				params := &s3.AbortMultipartUploadInput{
-					Bucket:       &fs.bucket,
-					Key:          fh.inode.FullName,
-					UploadId:     fh.mpuId,
+					Bucket:   &fs.bucket,
+					Key:      fh.inode.FullName,
+					UploadId: fh.mpuId,
 				}
 
 				fh.mpuId = nil
@@ -636,11 +634,11 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 	}
 
 	params := &s3.CompleteMultipartUploadInput{
-		Bucket:           &fs.bucket,
-		Key:              fh.inode.FullName,
-		UploadId:         fh.mpuId,
-		MultipartUpload:  &s3.CompletedMultipartUpload{
-			Parts:            parts,
+		Bucket:   &fs.bucket,
+		Key:      fh.inode.FullName,
+		UploadId: fh.mpuId,
+		MultipartUpload: &s3.CompletedMultipartUpload{
+			Parts: parts,
 		},
 	}
 
@@ -698,9 +696,9 @@ func (parent *Inode) Rename(fs *Goofys, from *string, newParent *Inode, to *stri
 	src := fs.bucket + "/" + *fromFullName
 
 	params := &s3.CopyObjectInput{
-		Bucket: &fs.bucket,
+		Bucket:     &fs.bucket,
 		CopySource: &src,
-		Key: toFullName,
+		Key:        toFullName,
 	}
 
 	_, err = fs.s3.CopyObject(params)
@@ -709,8 +707,8 @@ func (parent *Inode) Rename(fs *Goofys, from *string, newParent *Inode, to *stri
 	}
 
 	delParams := &s3.DeleteObjectInput{
-		Bucket:       &fs.bucket,
-		Key:          fromFullName,
+		Bucket: &fs.bucket,
+		Key:    fromFullName,
 	}
 
 	_, err = fs.s3.DeleteObject(delParams)
@@ -742,7 +740,7 @@ func (p sortedDirents) Less(i, j int) bool { return p[i].Name < p[j].Name }
 func (p sortedDirents) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 func makeDirEntry(name *string, t fuseutil.DirentType) fuseutil.Dirent {
-	return fuseutil.Dirent{ Name: *name, Type: t, Inode: fuseops.RootInodeID + 1 }
+	return fuseutil.Dirent{Name: *name, Type: t, Inode: fuseops.RootInodeID + 1}
 }
 
 func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Dirent, error) {
@@ -777,10 +775,10 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 		}
 
 		params := &s3.ListObjectsInput{
-			Bucket:       &fs.bucket,
-			Delimiter:    aws.String("/"),
-			Marker:       dh.Marker,
-			Prefix:       &prefix,
+			Bucket:    &fs.bucket,
+			Delimiter: aws.String("/"),
+			Marker:    dh.Marker,
+			Prefix:    &prefix,
 			//MaxKeys:      aws.Int64(3),
 		}
 
@@ -791,11 +789,11 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 
 		fs.logS3(resp)
 
-		dh.Entries = make([]fuseutil.Dirent, 0, len(resp.CommonPrefixes) + len(resp.Contents))
-		
+		dh.Entries = make([]fuseutil.Dirent, 0, len(resp.CommonPrefixes)+len(resp.Contents))
+
 		for _, dir := range resp.CommonPrefixes {
 			// strip trailing /
-			dirName := (*dir.Prefix)[0:len(*dir.Prefix)-1]
+			dirName := (*dir.Prefix)[0 : len(*dir.Prefix)-1]
 			// strip previous prefix
 			dirName = dirName[len(*params.Prefix):]
 			dh.Entries = append(dh.Entries, makeDirEntry(&dirName, fuseutil.DT_Directory))
@@ -810,15 +808,15 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 			}
 			dh.Entries = append(dh.Entries, makeDirEntry(&baseName, fuseutil.DT_File))
 			dh.NameToEntry[baseName] = fuseops.InodeAttributes{
-				Size: uint64(*obj.Size),
-				Nlink: 1,
-				Mode: 0644,
-				Atime: *obj.LastModified,
-				Mtime: *obj.LastModified,
-				Ctime: *obj.LastModified,
+				Size:   uint64(*obj.Size),
+				Nlink:  1,
+				Mode:   0644,
+				Atime:  *obj.LastModified,
+				Mtime:  *obj.LastModified,
+				Ctime:  *obj.LastModified,
 				Crtime: *obj.LastModified,
-				Uid:  fs.flags.Uid,
-				Gid:  fs.flags.Gid,
+				Uid:    fs.flags.Uid,
+				Gid:    fs.flags.Gid,
 			}
 		}
 
@@ -827,9 +825,8 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 		// Fix up offset fields.
 		for i := 0; i < len(dh.Entries); i++ {
 			en := &dh.Entries[i]
-			en.Offset = fuseops.DirOffset(i + dh.BaseOffset) + 1
+			en.Offset = fuseops.DirOffset(i+dh.BaseOffset) + 1
 		}
-
 
 		if *resp.IsTruncated {
 			dh.Marker = resp.NextMarker

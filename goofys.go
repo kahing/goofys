@@ -31,7 +31,6 @@ import (
 	"github.com/jacobsa/syncutil"
 )
 
-
 // goofys is a Filey System written in Go. All the backend data is
 // stored on S3 as is. It's a Filey System instead of a File System
 // because it makes minimal effort at being POSIX
@@ -47,13 +46,13 @@ type Goofys struct {
 
 	flags *flagStorage
 
-	uid uint32
-	gid uint32
+	uid   uint32
+	gid   uint32
 	umask uint32
 
 	awsConfig *aws.Config
-	s3 *s3.S3
-	rootAttrs fuseops.InodeAttributes;
+	s3        *s3.S3
+	rootAttrs fuseops.InodeAttributes
 
 	bufferPool *BufferPool
 
@@ -77,11 +76,11 @@ type Goofys struct {
 	// INVARIANT: For all v, if IsDirName(v.Name()) then v is inode.DirInode
 	//
 	// GUARDED_BY(mu)
-	inodes map[fuseops.InodeID]*Inode
+	inodes      map[fuseops.InodeID]*Inode
 	inodesCache map[string]*Inode // fullname to inode
 
 	nextHandleID fuseops.HandleID
-	dirHandles map[fuseops.HandleID]*DirHandle
+	dirHandles   map[fuseops.HandleID]*DirHandle
 
 	fileHandles map[fuseops.HandleID]*FileHandle
 }
@@ -90,7 +89,7 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *flagStorage) *Goofys
 	// Set up the basic struct.
 	fs := &Goofys{
 		bucket: bucket,
-		flags: flags,
+		flags:  flags,
 		umask:  0122,
 	}
 
@@ -101,7 +100,7 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *flagStorage) *Goofys
 	fs.awsConfig = awsConfig
 	fs.s3 = s3.New(awsConfig)
 
-	params := &s3.GetBucketLocationInput{ Bucket: &bucket }
+	params := &s3.GetBucketLocationInput{Bucket: &bucket}
 	resp, err := fs.s3.GetBucketLocation(params)
 	var fromRegion, toRegion string
 	if err != nil {
@@ -127,24 +126,24 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *flagStorage) *Goofys
 			log.Println(err)
 			return nil
 		}
-	} else if len(toRegion) == 0 &&  *awsConfig.Region != "milkyway" {
+	} else if len(toRegion) == 0 && *awsConfig.Region != "milkyway" {
 		log.Printf("Unable to detect bucket region, staying at '%v'", *awsConfig.Region)
 	}
 
 	now := time.Now()
 	fs.rootAttrs = fuseops.InodeAttributes{
-		Size: 4096,
-		Nlink: 2,
-		Mode: 0700 | os.ModeDir,
-		Atime: now,
-		Mtime: now,
-		Ctime: now,
+		Size:   4096,
+		Nlink:  2,
+		Mode:   0700 | os.ModeDir,
+		Atime:  now,
+		Mtime:  now,
+		Ctime:  now,
 		Crtime: now,
-		Uid:  fs.flags.Uid,
-		Gid:  fs.flags.Gid,
+		Uid:    fs.flags.Uid,
+		Gid:    fs.flags.Gid,
 	}
 
-	fs.bufferPool = NewBufferPool(100 * 1024 * 1024, 20 * 1024 * 1024)
+	fs.bufferPool = NewBufferPool(100*1024*1024, 20*1024*1024)
 
 	fs.nextInodeID = fuseops.RootInodeID + 1
 	fs.inodes = make(map[fuseops.InodeID]*Inode)
@@ -163,7 +162,7 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *flagStorage) *Goofys
 	// Set up invariant checking.
 	fs.mu = syncutil.NewInvariantMutex(fs.checkInvariants)
 
-	return fs;
+	return fs
 }
 
 func (fs *Goofys) checkInvariants() {
@@ -247,8 +246,8 @@ func parseRegionError(err error) (fromRegion, toRegion string) {
 				fmt.Println(n, scanErr)
 				return
 			}
-			fromRegion = fromRegion[1:len(fromRegion)-1]
-			toRegion = toRegion[1:len(toRegion)-1]
+			fromRegion = fromRegion[1 : len(fromRegion)-1]
+			toRegion = toRegion[1 : len(toRegion)-1]
 			return
 		} else if reqErr.StatusCode() == 501 {
 			// method not implemented,
@@ -275,7 +274,7 @@ func mapAwsError(err error) error {
 				return reqErr
 			}
 		} else {
-			// Generic AWS Error with Code, Message, and original error (if any) 
+			// Generic AWS Error with Code, Message, and original error (if any)
 			log.Printf("code=%v msg=%v, err=%v\n", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
 			return awsErr
 		}
@@ -285,7 +284,7 @@ func mapAwsError(err error) error {
 }
 
 func (fs *Goofys) LookUpInodeNotDir(name *string, c chan s3.HeadObjectOutput, errc chan error) {
-	params := &s3.HeadObjectInput{ Bucket: &fs.bucket, Key: name }
+	params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: name}
 	resp, err := fs.s3.HeadObject(params)
 	if err != nil {
 		errc <- mapAwsError(err)
@@ -298,10 +297,10 @@ func (fs *Goofys) LookUpInodeNotDir(name *string, c chan s3.HeadObjectOutput, er
 
 func (fs *Goofys) LookUpInodeDir(name *string, c chan s3.ListObjectsOutput, errc chan error) {
 	params := &s3.ListObjectsInput{
-		Bucket:       &fs.bucket,
-		Delimiter:    aws.String("/"),
-		MaxKeys:      aws.Int64(1),
-		Prefix:       aws.String(*name + "/"),
+		Bucket:    &fs.bucket,
+		Delimiter: aws.String("/"),
+		MaxKeys:   aws.Int64(1),
+		Prefix:    aws.String(*name + "/"),
 	}
 
 	resp, err := fs.s3.ListObjects(params)
@@ -334,22 +333,22 @@ func (fs *Goofys) LookUpInodeMaybeDir(name *string, fullName *string) (inode *In
 
 	for {
 		select {
-		case resp := <- objectChan:
+		case resp := <-objectChan:
 			// XXX/TODO if both object and object/ exists, return dir
 			inode = NewInode(name, fullName, fs.flags)
 			inode.Attributes = &fuseops.InodeAttributes{
-				Size: uint64(*resp.ContentLength),
-				Nlink: 1,
-				Mode: 0644,
-				Atime: *resp.LastModified,
-				Mtime: *resp.LastModified,
-				Ctime: *resp.LastModified,
+				Size:   uint64(*resp.ContentLength),
+				Nlink:  1,
+				Mode:   0644,
+				Atime:  *resp.LastModified,
+				Mtime:  *resp.LastModified,
+				Ctime:  *resp.LastModified,
 				Crtime: *resp.LastModified,
-				Uid:  fs.flags.Uid,
-				Gid:  fs.flags.Gid,
+				Uid:    fs.flags.Uid,
+				Gid:    fs.flags.Gid,
 			}
 			return
-		case err = <- errObjectChan:
+		case err = <-errObjectChan:
 			if err == fuse.ENOENT {
 				if notFound {
 					return nil, err
@@ -360,7 +359,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name *string, fullName *string) (inode *In
 			} else {
 				// XXX retry
 			}
-		case resp := <- dirChan:
+		case resp := <-dirChan:
 			if len(resp.CommonPrefixes) != 0 || len(resp.Contents) != 0 {
 				inode = NewInode(name, fullName, fs.flags)
 				inode.Attributes = &fs.rootAttrs
@@ -373,7 +372,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name *string, fullName *string) (inode *In
 					notFound = true
 				}
 			}
-		case err = <- errDirChan:
+		case err = <-errDirChan:
 			// XXX retry
 		}
 	}
@@ -423,7 +422,7 @@ func (fs *Goofys) ForgetInode(
 
 	stale := inode.DeRef(op.N)
 
-	if (stale) {
+	if stale {
 		fs.mu.Lock()
 		defer fs.mu.Unlock()
 
@@ -495,11 +494,9 @@ func (fs *Goofys) ReadDir(
 	return
 }
 
-
 func (fs *Goofys) ReleaseDirHandle(
 	ctx context.Context,
 	op *fuseops.ReleaseDirHandleOp) (err error) {
-
 
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -574,7 +571,6 @@ func (fs *Goofys) FlushFile(
 	return
 }
 
-
 func (fs *Goofys) ReleaseFileHandle(
 	ctx context.Context,
 	op *fuseops.ReleaseFileHandleOp) (err error) {
@@ -584,7 +580,6 @@ func (fs *Goofys) ReleaseFileHandle(
 	delete(fs.fileHandles, op.Handle)
 	return
 }
-
 
 func (fs *Goofys) CreateFile(
 	ctx context.Context,

@@ -15,9 +15,9 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"net"
 	"io"
 	"math/rand"
+	"net"
 	"os/exec"
 	"os/user"
 	"strconv"
@@ -69,17 +69,17 @@ func currentGid() uint32 {
 }
 
 type GoofysTest struct {
-	fs *Goofys
-	ctx context.Context
+	fs        *Goofys
+	ctx       context.Context
 	awsConfig *aws.Config
-	s3 *s3.S3
-	env map[string]io.ReadSeeker
+	s3        *s3.S3
+	env       map[string]io.ReadSeeker
 }
 
 type S3Proxy struct {
-	jar string
+	jar    string
 	config string
-	cmd *exec.Cmd
+	cmd    *exec.Cmd
 }
 
 func Test(t *testing.T) {
@@ -120,12 +120,12 @@ func (s *GoofysTest) SetUpSuite(t *C) {
 
 	s.awsConfig = &aws.Config{
 		//Credentials: credentials.AnonymousCredentials,
-		Credentials: credentials.NewStaticCredentials("foo", "bar", ""),
-		Region: aws.String("us-west-2"),
-		Endpoint: aws.String(addr),
-		DisableSSL: aws.Bool(true),
+		Credentials:      credentials.NewStaticCredentials("foo", "bar", ""),
+		Region:           aws.String("us-west-2"),
+		Endpoint:         aws.String(addr),
+		DisableSSL:       aws.Bool(true),
 		S3ForcePathStyle: aws.Bool(true),
-		MaxRetries: aws.Int(0),
+		MaxRetries:       aws.Int(0),
 		//Logger: t,
 		//LogLevel: aws.LogLevel(aws.LogDebug),
 		//LogLevel: aws.LogLevel(aws.LogDebug | aws.LogDebugWithHTTPBody),
@@ -153,10 +153,9 @@ func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker)
 
 		params := &s3.PutObjectInput{
 			Bucket: &bucket,
-			Key: &path,
-			Body: r,
+			Key:    &path,
+			Body:   r,
 		}
-
 
 		_, err := s.s3.PutObject(params)
 		t.Assert(err, IsNil)
@@ -164,14 +163,13 @@ func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker)
 
 	// double check
 	for path := range env {
-		params := &s3.HeadObjectInput{ Bucket: &bucket, Key: &path }
+		params := &s3.HeadObjectInput{Bucket: &bucket, Key: &path}
 		_, err := s.s3.HeadObject(params)
 		t.Assert(err, IsNil)
 	}
 
 	t.Log("setupEnv done")
 }
-
 
 // from https://stackoverflow.com/questions/22892120/how-to-generate-a-random-string-of-a-fixed-length-in-golang
 func RandStringBytesMaskImprSrc(n int) string {
@@ -201,12 +199,12 @@ func RandStringBytesMaskImprSrc(n int) string {
 
 func (s *GoofysTest) setupDefaultEnv(t *C) (bucket string) {
 	s.env = map[string]io.ReadSeeker{
-		"file1": nil,
-		"file2": nil,
-		"dir1/file3": nil,
+		"file1":           nil,
+		"file2":           nil,
+		"dir1/file3":      nil,
 		"dir2/dir3/file4": nil,
-		"empty_dir/": nil,
-		"zero": bytes.NewReader([]byte{}),
+		"empty_dir/":      nil,
+		"zero":            bytes.NewReader([]byte{}),
 	}
 
 	bucket = RandStringBytesMaskImprSrc(16)
@@ -237,7 +235,7 @@ func (s *GoofysTest) TestGetRootAttributes(t *C) {
 }
 
 func (s *GoofysTest) ForgetInode(t *C, inode fuseops.InodeID) {
-	err := s.fs.ForgetInode(s.ctx, &fuseops.ForgetInodeOp{ Inode: inode })
+	err := s.fs.ForgetInode(s.ctx, &fuseops.ForgetInodeOp{Inode: inode})
 	t.Assert(err, IsNil)
 }
 
@@ -251,7 +249,7 @@ func (s *GoofysTest) LookUpInode(t *C, name string) (in *Inode, err error) {
 		}
 
 		dirName := name[0:idx]
-		name = name[idx + 1:]
+		name = name[idx+1:]
 
 		parent, err = parent.LookUp(s.fs, &dirName)
 		if err != nil {
@@ -321,22 +319,22 @@ func (s *GoofysTest) TestReadDir(t *C) {
 	dh := s.getRoot(t).OpenDir()
 	defer dh.CloseDir()
 
-	s.assertEntries(t, s.getRoot(t), []string{ "dir1", "dir2", "empty_dir", "file1", "file2", "zero" })
+	s.assertEntries(t, s.getRoot(t), []string{"dir1", "dir2", "empty_dir", "file1", "file2", "zero"})
 
 	// test listing dir1/
 	in, err := s.LookUpInode(t, "dir1")
 	t.Assert(err, IsNil)
-	s.assertEntries(t, in, []string{ "file3" })
+	s.assertEntries(t, in, []string{"file3"})
 
 	// test listing dir2/
 	in, err = s.LookUpInode(t, "dir2")
 	t.Assert(err, IsNil)
-	s.assertEntries(t, in, []string{ "dir3" })
+	s.assertEntries(t, in, []string{"dir3"})
 
 	// test listing dir2/dir3/
 	in, err = in.LookUp(s.fs, aws.String("dir3"))
 	t.Assert(err, IsNil)
-	s.assertEntries(t, in, []string{ "file4" })
+	s.assertEntries(t, in, []string{"file4"})
 }
 
 func (s *GoofysTest) TestReadFiles(t *C) {
@@ -364,7 +362,7 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 				t.Assert(nread, Equals, 0)
 			} else {
 				t.Assert(nread, Equals, len(en.Name))
-				buf = buf[0 : nread]
+				buf = buf[0:nread]
 				t.Assert(string(buf), Equals, en.Name)
 			}
 		} else {
@@ -381,7 +379,7 @@ func (s *GoofysTest) TestCreateFiles(t *C) {
 	err := fh.FlushFile(s.fs)
 	t.Assert(err, IsNil)
 
-	resp, err := s.s3.GetObject(&s3.GetObjectInput{ Bucket: &s.fs.bucket, Key: &fileName })
+	resp, err := s.s3.GetObject(&s3.GetObjectInput{Bucket: &s.fs.bucket, Key: &fileName})
 	defer resp.Body.Close()
 
 	t.Assert(err, IsNil)
@@ -398,7 +396,7 @@ func (s *GoofysTest) TestUnlink(t *C) {
 	t.Assert(err, IsNil)
 
 	// make sure that it's gone from s3
-	_, err = s.s3.GetObject(&s3.GetObjectInput{ Bucket: &s.fs.bucket, Key: &fileName })
+	_, err = s.s3.GetObject(&s3.GetObjectInput{Bucket: &s.fs.bucket, Key: &fileName})
 	t.Assert(mapAwsError(err), Equals, fuse.ENOENT)
 }
 
@@ -410,7 +408,7 @@ func (s *GoofysTest) testWriteFile(t *C, fileName string, size int64, write_size
 
 	for nwritten < size {
 		towrite := int64(write_size)
-		if nwritten + towrite > size {
+		if nwritten+towrite > size {
 			towrite = size - nwritten
 		}
 		err := fh.WriteFile(s.fs, nwritten, buf[:towrite])
@@ -421,7 +419,7 @@ func (s *GoofysTest) testWriteFile(t *C, fileName string, size int64, write_size
 	err := fh.FlushFile(s.fs)
 	t.Assert(err, IsNil)
 
-	resp, err := s.s3.HeadObject(&s3.HeadObjectInput{ Bucket: &s.fs.bucket, Key: &fileName })
+	resp, err := s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &fileName})
 	t.Assert(err, IsNil)
 	t.Assert(*resp.ContentLength, DeepEquals, size)
 
@@ -445,7 +443,7 @@ func (s *GoofysTest) testWriteFile(t *C, fileName string, size int64, write_size
 }
 
 func (s *GoofysTest) TestWriteLargeFile(t *C) {
-	s.testWriteFile(t, "testLargeFile", 21 * 1024 * 1024, 128 * 1024)
+	s.testWriteFile(t, "testLargeFile", 21*1024*1024, 128*1024)
 }
 
 func (s *GoofysTest) TestWriteManyFilesFile(t *C) {
@@ -456,7 +454,7 @@ func (s *GoofysTest) TestWriteManyFilesFile(t *C) {
 		fileName := "testSmallFile" + strconv.Itoa(i)
 		go func() {
 			defer files.Done()
-			s.testWriteFile(t, fileName, 1, 128 * 1024)
+			s.testWriteFile(t, fileName, 1, 128*1024)
 		}()
 	}
 
@@ -464,7 +462,7 @@ func (s *GoofysTest) TestWriteManyFilesFile(t *C) {
 }
 
 func (s *GoofysTest) testWriteFileNonAlign(t *C) {
-	s.testWriteFile(t, "testWriteFileNonAlign", 6 * 1024 * 1024, 128 * 1024 + 1)
+	s.testWriteFile(t, "testWriteFileNonAlign", 6*1024*1024, 128*1024+1)
 }
 
 func (s *GoofysTest) TestMkDir(t *C) {
@@ -528,7 +526,7 @@ func (s *GoofysTest) TestRename(t *C) {
 	err = root.Rename(s.fs, &from, root, &to)
 	t.Assert(err, IsNil)
 
-	_, err = s.s3.HeadObject(&s3.HeadObjectInput{ Bucket: &s.fs.bucket, Key: &to })
+	_, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &to})
 	t.Assert(err, IsNil)
 
 	from, to = "file3", "new_file"
@@ -536,6 +534,6 @@ func (s *GoofysTest) TestRename(t *C) {
 	err = dir.Rename(s.fs, &from, root, &to)
 	t.Assert(err, IsNil)
 
-	_, err = s.s3.HeadObject(&s3.HeadObjectInput{ Bucket: &s.fs.bucket, Key: &to })
+	_, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &to})
 	t.Assert(err, IsNil)
 }

@@ -32,7 +32,6 @@ import (
 	"github.com/jacobsa/syncutil"
 )
 
-
 func registerSIGINTHandler(mountPoint string) {
 	// Register for SIGINT.
 	signalChan := make(chan os.Signal, 1)
@@ -108,7 +107,6 @@ func mount(
 
 	return
 }
-
 
 func main() {
 	// Make logging output better.

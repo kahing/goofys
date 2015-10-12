@@ -209,11 +209,11 @@ func populateFlags(c *cli.Context) (flags *flagStorage) {
 		DebugS3:         c.Bool("debug_s3"),
 	}
 
-/*
-	// Handle the repeated "-o" flag.
-	for _, o := range c.StringSlice("o") {
-		mountpkg.ParseOptions(flags.MountOptions, o)
-	}
-*/
+	/*
+		// Handle the repeated "-o" flag.
+		for _, o := range c.StringSlice("o") {
+			mountpkg.ParseOptions(flags.MountOptions, o)
+		}
+	*/
 	return
 }

@@ -24,21 +24,21 @@ import (
 )
 
 type BufferPoolHandle struct {
-	mu sync.Mutex
+	mu   sync.Mutex
 	cond *sync.Cond
 
 	inUseBuffers int64
-	maxBuffers int64 // maximum number of buffers for this handle
-	pool *BufferPool
+	maxBuffers   int64 // maximum number of buffers for this handle
+	pool         *BufferPool
 }
 
 type BufferPool struct {
-	mu sync.Mutex
+	mu   sync.Mutex
 	cond *sync.Cond
 
-	freelist [][]byte // list of free buffers
-	numBuffers int64
-	maxBuffersGlobal int64
+	freelist            [][]byte // list of free buffers
+	numBuffers          int64
+	maxBuffersGlobal    int64
 	maxBuffersPerHandle int64
 }
 
@@ -46,7 +46,7 @@ const BUF_SIZE = 5 * 1024 * 1024
 
 func NewBufferPool(maxSizeGlobal int64, maxSizePerHandle int64) *BufferPool {
 	pool := &BufferPool{
-		maxBuffersGlobal: maxSizeGlobal / BUF_SIZE,
+		maxBuffersGlobal:    maxSizeGlobal / BUF_SIZE,
 		maxBuffersPerHandle: maxSizePerHandle / BUF_SIZE,
 	}
 	pool.cond = sync.NewCond(&pool.mu)
@@ -54,7 +54,7 @@ func NewBufferPool(maxSizeGlobal int64, maxSizePerHandle int64) *BufferPool {
 }
 
 func (pool *BufferPool) NewPoolHandle() *BufferPoolHandle {
-	handle := &BufferPoolHandle{ maxBuffers: pool.maxBuffersPerHandle, pool: pool }
+	handle := &BufferPoolHandle{maxBuffers: pool.maxBuffersPerHandle, pool: pool}
 	handle.cond = sync.NewCond(&handle.mu)
 	return handle
 }
@@ -73,8 +73,8 @@ func (pool *BufferPool) requestBuffer() (buf []byte) {
 		}
 	}
 
-	buf = pool.freelist[len(pool.freelist) - 1]
-	pool.freelist = pool.freelist[0 : len(pool.freelist) - 1]
+	buf = pool.freelist[len(pool.freelist)-1]
+	pool.freelist = pool.freelist[0 : len(pool.freelist)-1]
 	return
 }
 
@@ -122,7 +122,7 @@ func (h *BufferPoolHandle) Copy(to *[]byte, from []byte) (nCopied int) {
 	}
 
 	if nCopied != 0 {
-		*to = (*to)[0 : toLen + nCopied]
+		*to = (*to)[0 : toLen+nCopied]
 		copy((*to)[toLen:], from)
 	}
 	return
