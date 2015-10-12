@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"syscall"
 	"time"
 
@@ -28,7 +29,6 @@ import (
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
 	"github.com/jacobsa/fuse/fuseutil"
-	"github.com/jacobsa/syncutil"
 )
 
 // goofys is a Filey System written in Go. All the backend data is
@@ -58,7 +58,7 @@ type Goofys struct {
 
 	// A lock protecting the state of the file system struct itself (distinct
 	// from per-inode locks). Make sure to see the notes on lock ordering above.
-	mu syncutil.InvariantMutex
+	mu sync.Mutex
 
 	// The next inode ID to hand out. We assume that this will never overflow,
 	// since even if we were handing out inode IDs at 4 GHz, it would still take
@@ -134,7 +134,7 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *flagStorage) *Goofys
 	fs.rootAttrs = fuseops.InodeAttributes{
 		Size:   4096,
 		Nlink:  2,
-		Mode:   0700 | os.ModeDir,
+		Mode:   flags.DirMode | os.ModeDir,
 		Atime:  now,
 		Mtime:  now,
 		Ctime:  now,
@@ -159,23 +159,7 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *flagStorage) *Goofys
 
 	fs.fileHandles = make(map[fuseops.HandleID]*FileHandle)
 
-	// Set up invariant checking.
-	fs.mu = syncutil.NewInvariantMutex(fs.checkInvariants)
-
 	return fs
-}
-
-func (fs *Goofys) checkInvariants() {
-	//////////////////////////////////
-	// inodes
-	//////////////////////////////////
-
-	// INVARIANT: For all keys k, fuseops.RootInodeID <= k < nextInodeID
-	for id, _ := range fs.inodes {
-		if id < fuseops.RootInodeID || id >= fs.nextInodeID {
-			panic(fmt.Sprintf("Illegal inode ID: %v", id))
-		}
-	}
 }
 
 // Find the given inode. Panic if it doesn't exist.
@@ -339,7 +323,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name *string, fullName *string) (inode *In
 			inode.Attributes = &fuseops.InodeAttributes{
 				Size:   uint64(*resp.ContentLength),
 				Nlink:  1,
-				Mode:   0644,
+				Mode:   fs.flags.FileMode,
 				Atime:  *resp.LastModified,
 				Mtime:  *resp.LastModified,
 				Ctime:  *resp.LastModified,
@@ -404,8 +388,8 @@ func (fs *Goofys) LookUpInode(
 	fs.inodes[inode.Id] = inode
 	op.Entry.Child = inode.Id
 	op.Entry.Attributes = *inode.Attributes
-	op.Entry.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
-	op.Entry.EntryExpiration = time.Now().Add(365 * 24 * time.Hour)
+	op.Entry.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
+	op.Entry.EntryExpiration = time.Now().Add(fs.flags.TypeCacheTTL)
 	fs.mu.Unlock()
 
 	return
@@ -602,8 +586,8 @@ func (fs *Goofys) CreateFile(
 	fs.inodes[inode.Id] = inode
 	op.Entry.Child = inode.Id
 	op.Entry.Attributes = *inode.Attributes
-	op.Entry.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
-	op.Entry.EntryExpiration = time.Now().Add(365 * 24 * time.Hour)
+	op.Entry.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
+	op.Entry.EntryExpiration = time.Now().Add(fs.flags.TypeCacheTTL)
 
 	// Allocate a handle.
 	handleID := fs.nextHandleID
@@ -641,8 +625,8 @@ func (fs *Goofys) MkDir(
 	fs.inodes[inode.Id] = inode
 	op.Entry.Child = inode.Id
 	op.Entry.Attributes = *inode.Attributes
-	op.Entry.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
-	op.Entry.EntryExpiration = time.Now().Add(365 * 24 * time.Hour)
+	op.Entry.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
+	op.Entry.EntryExpiration = time.Now().Add(fs.flags.TypeCacheTTL)
 
 	return
 }

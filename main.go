@@ -29,7 +29,6 @@ import (
 
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseutil"
-	"github.com/jacobsa/syncutil"
 )
 
 func registerSIGINTHandler(mountPoint string) {
@@ -130,11 +129,6 @@ func main() {
 		bucketName := c.Args()[0]
 		mountPoint := c.Args()[1]
 		flags := populateFlags(c)
-
-		// Enable invariant checking if requested.
-		if flags.DebugInvariants {
-			syncutil.EnableInvariantChecking()
-		}
 
 		// Mount the file system.
 		mfs, err := mount(

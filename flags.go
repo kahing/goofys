@@ -95,35 +95,11 @@ func newApp() (app *cli.App) {
 				Usage: "GID owner of all inodes.",
 			},
 
-			cli.BoolFlag{
-				Name: "implicit-dirs",
-				Usage: "Implicitly define directories based on content. See" +
-					"docs/semantics.md",
-			},
-
 			cli.StringFlag{
-				Name: "storage-class",
+				Name:  "storage-class",
 				Value: "STANDARD",
 				Usage: "The type of storage to use when writing objects." +
 					" Possible values: REDUCED_REDUNDANCY, STANDARD (default), STANDARD_IA.",
-			},
-
-			/////////////////////////
-			// Goofys
-			/////////////////////////
-
-			cli.Float64Flag{
-				Name:  "limit-bytes-per-sec",
-				Value: -1,
-				Usage: "Bandwidth limit for reading data, measured over a 30-second " +
-					"window. (use -1 for no limit)",
-			},
-
-			cli.Float64Flag{
-				Name:  "limit-ops-per-sec",
-				Value: 5.0,
-				Usage: "Operations per second limit, measured over a 30-second window " +
-					"(use -1 for no limit)",
 			},
 
 			/////////////////////////
@@ -153,11 +129,6 @@ func newApp() (app *cli.App) {
 			},
 
 			cli.BoolFlag{
-				Name:  "debug_invariants",
-				Usage: "Panic when internal invariants are violated.",
-			},
-
-			cli.BoolFlag{
 				Name:  "debug_s3",
 				Usage: "Enable S3-related debugging output.",
 			},
@@ -174,21 +145,15 @@ type flagStorage struct {
 	FileMode     os.FileMode
 	Uid          uint32
 	Gid          uint32
-	ImplicitDirs bool
 	StorageClass string
-
-	// Goofys
-	EgressBandwidthLimitBytesPerSecond float64
-	OpRateLimitHz                      float64
 
 	// Tuning
 	StatCacheTTL time.Duration
 	TypeCacheTTL time.Duration
 
 	// Debugging
-	DebugFuse       bool
-	DebugInvariants bool
-	DebugS3         bool
+	DebugFuse bool
+	DebugS3   bool
 }
 
 // Add the flags accepted by run to the supplied flag set, returning the
@@ -202,20 +167,14 @@ func populateFlags(c *cli.Context) (flags *flagStorage) {
 		Uid:          uint32(c.Int("uid")),
 		Gid:          uint32(c.Int("gid")),
 
-		// Goofys,
-		EgressBandwidthLimitBytesPerSecond: c.Float64("limit-bytes-per-sec"),
-		OpRateLimitHz:                      c.Float64("limit-ops-per-sec"),
-
 		// Tuning,
 		StatCacheTTL: c.Duration("stat-cache-ttl"),
 		TypeCacheTTL: c.Duration("type-cache-ttl"),
-		ImplicitDirs: c.Bool("implicit-dirs"),
 		StorageClass: c.String("storage-class"),
 
 		// Debugging,
-		DebugFuse:       c.Bool("debug_fuse"),
-		DebugInvariants: c.Bool("debug_invariants"),
-		DebugS3:         c.Bool("debug_s3"),
+		DebugFuse: c.Bool("debug_fuse"),
+		DebugS3:   c.Bool("debug_s3"),
 	}
 
 	/*

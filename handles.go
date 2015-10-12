@@ -209,7 +209,7 @@ func (parent *Inode) Create(
 	inode.Attributes = &fuseops.InodeAttributes{
 		Size:   0,
 		Nlink:  1,
-		Mode:   0644,
+		Mode:   fs.flags.FileMode,
 		Atime:  now,
 		Mtime:  now,
 		Ctime:  now,
@@ -812,7 +812,7 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 			dh.NameToEntry[baseName] = fuseops.InodeAttributes{
 				Size:   uint64(*obj.Size),
 				Nlink:  1,
-				Mode:   0644,
+				Mode:   fs.flags.FileMode,
 				Atime:  *obj.LastModified,
 				Mtime:  *obj.LastModified,
 				Ctime:  *obj.LastModified,
