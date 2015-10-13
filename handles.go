@@ -455,6 +455,11 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 			buf := fh.buf
 			fh.buf = nil
 			fh.mpuWG.Add(1)
+
+			if page == 0 {
+				panic(fmt.Sprintf("invalid part number %v for offset %v", page, fh.nextWriteOffset))
+			}
+
 			go fh.mpuPart(fs, buf, page)
 		}
 
