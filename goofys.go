@@ -46,8 +46,6 @@ type Goofys struct {
 
 	flags *flagStorage
 
-	uid   uint32
-	gid   uint32
 	umask uint32
 
 	awsConfig *aws.Config

@@ -214,8 +214,8 @@ func (parent *Inode) Create(
 		Mtime:  now,
 		Ctime:  now,
 		Crtime: now,
-		Uid:    fs.uid,
-		Gid:    fs.gid,
+		Uid:    fs.flags.Uid,
+		Gid:    fs.flags.Gid,
 	}
 
 	fh = NewFileHandle(inode)
