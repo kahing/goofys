@@ -444,6 +444,7 @@ func (s *GoofysTest) testWriteFile(t *C, fileName string, size int64, write_size
 
 func (s *GoofysTest) TestWriteLargeFile(t *C) {
 	s.testWriteFile(t, "testLargeFile", 21*1024*1024, 128*1024)
+	s.testWriteFile(t, "testLargeFile2", 20*1024*1024, 128*1024)
 }
 
 func (s *GoofysTest) TestWriteManyFilesFile(t *C) {

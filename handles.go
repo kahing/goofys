@@ -609,7 +609,7 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 	}
 
 	nParts := int(fh.nextWriteOffset / BUF_SIZE)
-	if fh.nextWriteOffset != 0 {
+	if fh.nextWriteOffset%BUF_SIZE != 0 {
 		nParts++
 	}
 
