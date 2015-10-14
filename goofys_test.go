@@ -529,11 +529,26 @@ func (s *GoofysTest) TestRename(t *C) {
 	_, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &to})
 	t.Assert(err, IsNil)
 
+	_, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &from})
+	t.Assert(mapAwsError(err), Equals, fuse.ENOENT)
+
 	from, to = "file3", "new_file"
 	dir, _ := s.LookUpInode(t, "dir1")
 	err = dir.Rename(s.fs, &from, root, &to)
 	t.Assert(err, IsNil)
 
 	_, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &to})
+	t.Assert(err, IsNil)
+
+	_, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &from})
+	t.Assert(mapAwsError(err), Equals, fuse.ENOENT)
+
+	from, to = "no_such_file", "new_file"
+	err = root.Rename(s.fs, &from, root, &to)
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	// not really rename but can be used by rename
+	from, to = s.fs.bucket+"/file2", "new_file"
+	err = s.fs.copyObjectMultipart(int64(len(from)), &from, &to, nil)
 	t.Assert(err, IsNil)
 }

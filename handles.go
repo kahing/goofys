@@ -667,6 +667,7 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 func (parent *Inode) Rename(fs *Goofys, from *string, newParent *Inode, to *string) (err error) {
 	fromFullName := parent.getChildName(from)
 
+	// XXX don't hold the lock the entire time
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
@@ -694,23 +695,16 @@ func (parent *Inode) Rename(fs *Goofys, from *string, newParent *Inode, to *stri
 		return syscall.EISDIR
 	}
 
+	size := int64(-1)
 	if fromIsDir {
 		*fromFullName += "/"
 		*toFullName += "/"
+		size = 0
 	}
 
-	src := fs.bucket + "/" + *fromFullName
-
-	params := &s3.CopyObjectInput{
-		Bucket:       &fs.bucket,
-		CopySource:   &src,
-		Key:          toFullName,
-		StorageClass: &fs.flags.StorageClass,
-	}
-
-	_, err = fs.s3.CopyObject(params)
+	err = fs.copyObjectMaybeMultipart(size, *fromFullName, toFullName)
 	if err != nil {
-		return mapAwsError(err)
+		return err
 	}
 
 	delParams := &s3.DeleteObjectInput{

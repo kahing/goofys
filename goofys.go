@@ -295,6 +295,141 @@ func (fs *Goofys) LookUpInodeDir(name *string, c chan s3.ListObjectsOutput, errc
 	c <- *resp
 }
 
+func (fs *Goofys) mpuCopyPart(from *string, to *string, mpuId *string, bytes string, part int64, wg *sync.WaitGroup,
+	etag **string, errout *error) {
+
+	defer func() {
+		wg.Done()
+	}()
+
+	// XXX use CopySourceIfUnmodifiedSince to ensure that
+	// we are copying from the same object
+	params := &s3.UploadPartCopyInput{
+		Bucket:          &fs.bucket,
+		Key:             to,
+		CopySource:      from,
+		UploadId:        mpuId,
+		CopySourceRange: &bytes,
+		PartNumber:      &part,
+	}
+
+	fs.logS3(params)
+
+	resp, err := fs.s3.UploadPartCopy(params)
+	if err != nil {
+		*errout = mapAwsError(err)
+		return
+	}
+
+	*etag = resp.CopyPartResult.ETag
+	return
+}
+
+func (fs *Goofys) copyObjectMultipart(size int64, from *string, to *string, mpuId *string) (err error) {
+	const PART_SIZE = 5 * 1024 * 1024 * 1024
+
+	var wg sync.WaitGroup
+	nParts := int(size / PART_SIZE)
+	if size%PART_SIZE != 0 {
+		nParts++
+	}
+
+	etags := make([]*string, nParts)
+
+	if mpuId == nil {
+		params := &s3.CreateMultipartUploadInput{
+			Bucket:       &fs.bucket,
+			Key:          to,
+			StorageClass: &fs.flags.StorageClass,
+		}
+
+		resp, err := fs.s3.CreateMultipartUpload(params)
+		if err != nil {
+			return mapAwsError(err)
+		}
+
+		mpuId = resp.UploadId
+	}
+
+	rangeFrom := int64(0)
+	rangeTo := int64(0)
+
+	for i := int64(1); rangeTo < size; i++ {
+		rangeFrom = rangeTo
+		rangeTo = i * PART_SIZE
+		if rangeTo > size {
+			rangeTo = size
+		}
+		bytes := fmt.Sprintf("bytes=%v-%v", rangeFrom, rangeTo-1)
+
+		wg.Add(1)
+		go fs.mpuCopyPart(from, to, mpuId, bytes, i, &wg, &etags[i-1], &err)
+	}
+
+	wg.Wait()
+	if err != nil {
+		return
+	} else {
+		parts := make([]*s3.CompletedPart, nParts)
+		for i := 0; i < nParts; i++ {
+			parts[i] = &s3.CompletedPart{
+				ETag:       etags[i],
+				PartNumber: aws.Int64(int64(i + 1)),
+			}
+		}
+
+		params := &s3.CompleteMultipartUploadInput{
+			Bucket:   &fs.bucket,
+			Key:      to,
+			UploadId: mpuId,
+			MultipartUpload: &s3.CompletedMultipartUpload{
+				Parts: parts,
+			},
+		}
+
+		fs.logS3(params)
+
+		_, err = fs.s3.CompleteMultipartUpload(params)
+		if err != nil {
+			return mapAwsError(err)
+		}
+	}
+
+	return
+}
+
+func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to *string) (err error) {
+	if size == -1 {
+		params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: &from}
+		resp, err := fs.s3.HeadObject(params)
+		if err != nil {
+			return mapAwsError(err)
+		}
+
+		size = *resp.ContentLength
+	}
+
+	from = fs.bucket + "/" + from
+
+	if size > 5*1024*1024*1024 {
+		return fs.copyObjectMultipart(size, &from, to, nil)
+	}
+
+	params := &s3.CopyObjectInput{
+		Bucket:       &fs.bucket,
+		CopySource:   &from,
+		Key:          to,
+		StorageClass: &fs.flags.StorageClass,
+	}
+
+	_, err = fs.s3.CopyObject(params)
+	if err != nil {
+		err = mapAwsError(err)
+	}
+
+	return
+}
+
 func (fs *Goofys) allocateInodeId() (id fuseops.InodeID) {
 	id = fs.nextInodeID
 	fs.nextInodeID++
