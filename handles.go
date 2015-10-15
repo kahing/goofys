@@ -109,7 +109,7 @@ func NewFileHandle(in *Inode) *FileHandle {
 
 func (inode *Inode) logFuse(op string, args ...interface{}) {
 	if inode.flags.DebugFuse {
-		log.Printf("%v: [%v] %v", op, *inode.FullName, args)
+		log.Printf("%v: %v [%v] %v", op, inode.Id, *inode.FullName, args)
 	}
 }
 
@@ -322,6 +322,7 @@ func (inode *Inode) GetAttributes(fs *Goofys) (*fuseops.InodeAttributes, error) 
 }
 
 func (inode *Inode) OpenFile(fs *Goofys) *FileHandle {
+	inode.logFuse("OpenFile")
 	return NewFileHandle(inode)
 }
 

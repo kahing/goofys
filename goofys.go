@@ -541,6 +541,8 @@ func (fs *Goofys) LookUpInode(
 	op.Entry.EntryExpiration = time.Now().Add(fs.flags.TypeCacheTTL)
 	fs.mu.Unlock()
 
+	inode.logFuse("<-- LookUpInode")
+
 	return
 }
 
@@ -745,6 +747,8 @@ func (fs *Goofys) CreateFile(
 	fs.fileHandles[handleID] = fh
 
 	op.Handle = handleID
+
+	inode.logFuse("<-- CreateFile")
 
 	return
 }
