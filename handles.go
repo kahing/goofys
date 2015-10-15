@@ -221,7 +221,6 @@ func (parent *Inode) Create(
 
 	fh = NewFileHandle(inode)
 	fh.poolHandle = fs.bufferPool.NewPoolHandle()
-	fh.initWrite(fs, 0)
 
 	return
 }
@@ -326,25 +325,8 @@ func (inode *Inode) OpenFile(fs *Goofys) *FileHandle {
 	return NewFileHandle(inode)
 }
 
-func (fh *FileHandle) initWrite(fs *Goofys, offset int64) {
+func (fh *FileHandle) initWrite(fs *Goofys) {
 	fh.writeInit.Do(func() {
-		/*
-			fileSize := int64(fh.inode.Attributes.Size)
-			if offset == fileSize {
-				fh.nextWriteOffset = fileSize
-				fh.appendUpTo = fileSize
-				fh.lastPartId = sizeToParts(fileSize)
-				fh.inode.logFuse("append after parts", fh.lastPartId)
-			}
-		*/
-		if offset != 0 {
-			fh.inode.logFuse("writes to middle of file not supported", offset, fh.inode.Attributes.Size)
-			fh.lastWriteError = fuse.EINVAL
-			return
-		}
-
-		fh.poolHandle = fs.bufferPool.NewPoolHandle()
-
 		fh.mpuWG.Add(1)
 		go fh.initMPU(fs)
 	})
@@ -437,9 +419,10 @@ func (fh *FileHandle) mpuPart(fs *Goofys, buf []byte, part int) {
 	}
 }
 
-func (fh *FileHandle) waitForCreateMPU() (err error) {
+func (fh *FileHandle) waitForCreateMPU(fs *Goofys) (err error) {
 	if fh.mpuId == nil {
 		fh.mu.Unlock()
+		fh.initWrite(fs)
 		fh.mpuWG.Wait() // wait for initMPU
 		fh.mu.Lock()
 
@@ -457,8 +440,6 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 	fh.mu.Lock()
 	defer fh.mu.Unlock()
 
-	fh.initWrite(fs, offset)
-
 	if fh.lastWriteError != nil {
 		return fh.lastWriteError
 	}
@@ -467,6 +448,10 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 		fh.inode.logFuse("WriteFile: only sequential writes supported", fh.nextWriteOffset, offset)
 		fh.lastWriteError = fuse.EINVAL
 		return fh.lastWriteError
+	}
+
+	if offset == 0 {
+		fh.poolHandle = fs.bufferPool.NewPoolHandle()
 	}
 
 	for {
@@ -479,7 +464,7 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 
 		if len(fh.buf) == cap(fh.buf) {
 			// we filled this buffer, upload this part
-			err = fh.waitForCreateMPU()
+			err = fh.waitForCreateMPU(fs)
 			if err != nil {
 				return
 			}
@@ -603,27 +588,57 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 	return
 }
 
+func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
+	buf := fh.buf
+	fh.buf = nil
+
+	if cap(buf) != 0 {
+		defer fh.poolHandle.Free(buf)
+	}
+
+	params := &s3.PutObjectInput{
+		Bucket: &fs.bucket,
+		Key:    fh.inode.FullName,
+		Body:   bytes.NewReader(buf),
+	}
+
+	_, err = fs.s3.PutObject(params)
+	if err != nil {
+		err = mapAwsError(err)
+	}
+	return
+}
+
 func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 	fh.inode.logFuse("FlushFile")
 
 	// abort mpu on error
 	defer func() {
-		if err != nil && fh.mpuId != nil {
-			fh.inode.logFuse("FlushFile", err)
+		if err != nil {
+			fh.inode.logFuse("<-- FlushFile", err)
+			if fh.mpuId != nil {
+				go func() {
+					params := &s3.AbortMultipartUploadInput{
+						Bucket:   &fs.bucket,
+						Key:      fh.inode.FullName,
+						UploadId: fh.mpuId,
+					}
 
-			go func() {
-				params := &s3.AbortMultipartUploadInput{
-					Bucket:   &fs.bucket,
-					Key:      fh.inode.FullName,
-					UploadId: fh.mpuId,
-				}
-
-				fh.mpuId = nil
-				resp, _ := fs.s3.AbortMultipartUpload(params)
-				fs.logS3(resp)
-			}()
+					fh.mpuId = nil
+					resp, _ := fs.s3.AbortMultipartUpload(params)
+					fs.logS3(resp)
+				}()
+			}
 		}
+
+		fh.writeInit = sync.Once{}
+		fh.nextWriteOffset = 0
+		fh.lastPartId = 0
 	}()
+
+	if fh.lastPartId == 0 {
+		return fh.flushSmallFile(fs)
+	}
 
 	fh.mpuWG.Wait()
 
@@ -639,22 +654,12 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 	}
 
 	nParts := fh.lastPartId
-	if fh.nextWriteOffset == 0 {
-		// s3 doesn't support mpu with 0 parts, upload an
-		// empty part
-		nParts = 1
-		err = fh.mpuPartNoSpawn(fs, []byte{}, 1)
+	if fh.buf != nil {
+		// upload last part
+		nParts++
+		err = fh.mpuPartNoSpawn(fs, fh.buf, nParts)
 		if err != nil {
 			return
-		}
-	} else {
-		if fh.buf != nil {
-			// upload last part
-			nParts++
-			err = fh.mpuPartNoSpawn(fs, fh.buf, nParts)
-			if err != nil {
-				return
-			}
 		}
 	}
 
@@ -677,17 +682,13 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 
 	fs.logS3(params)
 
-	fh.mpuId = nil
-	fh.writeInit = sync.Once{}
-	fh.nextWriteOffset = 0
-	fh.lastPartId = 0
-
 	resp, err := fs.s3.CompleteMultipartUpload(params)
 	if err != nil {
 		return mapAwsError(err)
 	}
 
 	fs.logS3(resp)
+	fh.mpuId = nil
 
 	return
 }

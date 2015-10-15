@@ -391,10 +391,9 @@ func (s *GoofysTest) TestCreateFiles(t *C) {
 	t.Assert(err, IsNil)
 
 	resp, err := s.s3.GetObject(&s3.GetObjectInput{Bucket: &s.fs.bucket, Key: &fileName})
-	defer resp.Body.Close()
-
 	t.Assert(err, IsNil)
 	t.Assert(*resp.ContentLength, DeepEquals, int64(0))
+	defer resp.Body.Close()
 
 	_, err = s.getRoot(t).LookUp(s.fs, &fileName)
 	t.Assert(err, IsNil)
