@@ -735,6 +735,8 @@ func (fs *Goofys) CreateFile(
 	inode.Id = nextInode
 
 	fs.inodes[inode.Id] = inode
+	fs.inodesCache[*inode.FullName] = inode
+
 	op.Entry.Child = inode.Id
 	op.Entry.Attributes = *inode.Attributes
 	op.Entry.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
