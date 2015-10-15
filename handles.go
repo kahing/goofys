@@ -693,6 +693,8 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 }
 
 func (parent *Inode) Rename(fs *Goofys, from *string, newParent *Inode, to *string) (err error) {
+	parent.logFuse("Rename", *from, *newParent.getChildName(to))
+
 	fromFullName := parent.getChildName(from)
 
 	// XXX don't hold the lock the entire time
