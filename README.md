@@ -80,4 +80,4 @@ List of non-`POSIX` behaviors:
     * [gcsfuse](https://github.com/googlecloudplatform/gcsfuse):
       filesystem for
       [Google Cloud Storage](https://cloud.google.com/storage/)
-  * [Minio Server](https://github.com/minio/minio) is used for `go test`
+  * [S3Proxy](https://github.com/andrewgaul/s3proxy) is used for `go test`
