@@ -80,6 +80,13 @@ func mount(
 		Region: aws.String("us-west-2"),
 		//LogLevel: aws.LogLevel(aws.LogDebug),
 	}
+	if len(flags.Endpoint) > 0 {
+		awsConfig.Endpoint = &flags.Endpoint
+	}
+	if flags.UsePathRequest {
+		awsConfig.S3ForcePathStyle = aws.Bool(true)
+	}
+
 	goofys := NewGoofys(bucketName, awsConfig, flags)
 	if goofys == nil {
 		err = fmt.Errorf("Mount: initialization failed")
