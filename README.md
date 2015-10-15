@@ -11,6 +11,34 @@ round-trip would either fail (random writes) or faked (no
 per-file permission). Goofys does not have a on disk data cache, and
 consistency model is close-to-open.
 
+# Usage
+
+```
+go install https://github.com/kahing/goofys
+aws configure # for credential
+$GOPATH/bin/goofys <bucket> <mountpoint>
+```
+
+## Credentials
+
+Goofys uses [Amazon SDK for Go](https://github.com/aws/aws-sdk-go) to
+communicate with `S3`, and inherits all the credential configurations
+from that. Here is a quick reference if you don't want to use the `aws cli`:
+
+```
+cat ~/.aws/credentials
+[default]
+aws_access_key_id = ACCESS_KEY
+aws_secret_access_key = SECRET_KEY
+
+export AWS_ACCESS_KEY=<ACCESS_KEY>
+export AWS_SECRET_KEY=<SECRET_KEY>
+```
+
+See
+[Configuring the AWS Command Line Interface](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html)
+for additional details.
+
 # License
 
 Copyright (C) 2015 Ka-Hing Cheung
