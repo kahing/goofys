@@ -14,30 +14,17 @@ consistency model is close-to-open.
 # Usage
 
 ```
-go install https://github.com/kahing/goofys
-aws configure # for credential
-$GOPATH/bin/goofys <bucket> <mountpoint>
-```
-
-## Credentials
-
-Goofys uses [Amazon SDK for Go](https://github.com/aws/aws-sdk-go) to
-communicate with `S3`, and inherits all the credential configurations
-from that. Here is a quick reference if you don't want to use the `aws cli`:
-
-```
-cat ~/.aws/credentials
+$ go install https://github.com/kahing/goofys
+$ cat > ~/.aws/credentials
 [default]
-aws_access_key_id = ACCESS_KEY
-aws_secret_access_key = SECRET_KEY
-
-export AWS_ACCESS_KEY=<ACCESS_KEY>
-export AWS_SECRET_KEY=<SECRET_KEY>
+aws_access_key_id = AKID1234567890
+aws_secret_access_key = MY-SECRET-KEY
+$ $GOPATH/bin/goofys <bucket> <mountpoint>
 ```
 
-See
-[Configuring the AWS Command Line Interface](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html)
-for additional details.
+Users can also configure credentials via the
+[AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html)
+or the `AWS_ACCESS_KEY` and `AWS_SECRET_KEY` environment variables.
 
 # License
 
