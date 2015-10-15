@@ -55,7 +55,7 @@ List of not yet implemented fuse operations:
     * `ReadSymlink`
     * `SetInodeAttributes`
 
-List of non-`POSIX` behaviors:
+List of non-`POSIX` behaviors/limitations:
   * only sequential writes supported
   * does not support appending to a file yet
   * file mode is always `0644` for regular files and `0700` for directories
@@ -64,6 +64,7 @@ List of non-`POSIX` behaviors:
   * `ctime`, `atime` is always the same as `mtime`
   * cannot rename non-empty directories
   * `unlink` returns success even if file is not present
+  * can only create files up to 50GB
 
 # References
 
