@@ -45,12 +45,6 @@ Copyright (C) 2015 Ka-Hing Cheung
 
 Licensed under the Apache License, Version 2.0
 
-Goofys uses the same [fuse binding](https://github.com/jacobsa/fuse)
-as [gcsfuse](https://github.com/GoogleCloudPlatform/gcsfuse/). Some
-skeleton code is copied from `gcsfuse` due to my unfamiliarity with
-`Go` and this particular flavor of fuse. `gcsfuse` is also licensed
-under Apache License 2.0.
-
 # Current Status
 
 List of not yet implemented fuse operations:
@@ -79,5 +73,7 @@ List of non-`POSIX` behaviors:
     * [s3fs](https://github.com/s3fs-fuse/s3fs-fuse): another popular filesystem for S3
     * [gcsfuse](https://github.com/googlecloudplatform/gcsfuse):
       filesystem for
-      [Google Cloud Storage](https://cloud.google.com/storage/)
+      [Google Cloud Storage](https://cloud.google.com/storage/). Goofys
+      borrowed some skeleton code from this project.
   * [S3Proxy](https://github.com/andrewgaul/s3proxy) is used for `go test`
+  * [fuse binding](https://github.com/jacobsa/fuse), also used by `gcsfuse`
