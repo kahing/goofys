@@ -95,11 +95,28 @@ func newApp() (app *cli.App) {
 				Usage: "GID owner of all inodes.",
 			},
 
+			/////////////////////////
+			// S3
+			/////////////////////////
+
+			cli.StringFlag{
+				Name:  "endpoint",
+				Value: "",
+				Usage: "The non-AWS endpoint to connect to." +
+					" Possible values: http://127.0.0.1:8081/",
+			},
+
 			cli.StringFlag{
 				Name:  "storage-class",
 				Value: "STANDARD",
 				Usage: "The type of storage to use when writing objects." +
 					" Possible values: REDUCED_REDUNDANCY, STANDARD (default), STANDARD_IA.",
+			},
+
+			cli.BoolFlag{
+				Name: "use-path-request",
+				Usage: "Use a path-style request instead of virtual host-style." +
+					" Needed for some private object stores.",
 			},
 
 			/////////////////////////
@@ -145,7 +162,11 @@ type flagStorage struct {
 	FileMode     os.FileMode
 	Uid          uint32
 	Gid          uint32
-	StorageClass string
+
+	// S3
+	Endpoint       string
+	StorageClass   string
+	UsePathRequest bool
 
 	// Tuning
 	StatCacheTTL time.Duration
@@ -170,7 +191,11 @@ func populateFlags(c *cli.Context) (flags *flagStorage) {
 		// Tuning,
 		StatCacheTTL: c.Duration("stat-cache-ttl"),
 		TypeCacheTTL: c.Duration("type-cache-ttl"),
-		StorageClass: c.String("storage-class"),
+
+		// S3
+		Endpoint:       c.String("endpoint"),
+		StorageClass:   c.String("storage-class"),
+		UsePathRequest: c.Bool("use-path-request"),
 
 		// Debugging,
 		DebugFuse: c.Bool("debug_fuse"),
