@@ -597,9 +597,10 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 	}
 
 	params := &s3.PutObjectInput{
-		Bucket: &fs.bucket,
-		Key:    fh.inode.FullName,
-		Body:   bytes.NewReader(buf),
+		Bucket:       &fs.bucket,
+		Key:          fh.inode.FullName,
+		Body:         bytes.NewReader(buf),
+		StorageClass: &fs.flags.StorageClass,
 	}
 
 	_, err = fs.s3.PutObject(params)
