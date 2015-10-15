@@ -102,6 +102,10 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *flagStorage) *Goofys
 	resp, err := fs.s3.GetBucketLocation(params)
 	var fromRegion, toRegion string
 	if err != nil {
+		if mapAwsError(err) == fuse.ENOENT {
+			log.Printf("bucket %v does not exist", bucket)
+			return nil
+		}
 		fromRegion, toRegion = parseRegionError(err)
 	} else {
 		fs.logS3(resp)
