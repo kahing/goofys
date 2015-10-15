@@ -14,7 +14,8 @@ consistency model is close-to-open.
 # Usage
 
 ```
-$ go install https://github.com/kahing/goofys
+$ go get github.com/kahing/goofys
+$ go install github.com/kahing/goofys
 $ cat > ~/.aws/credentials
 [default]
 aws_access_key_id = AKID1234567890
