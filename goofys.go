@@ -325,15 +325,40 @@ func (fs *Goofys) mpuCopyPart(from *string, to *string, mpuId *string, bytes str
 	return
 }
 
-func (fs *Goofys) copyObjectMultipart(size int64, from *string, to *string, mpuId *string) (err error) {
+func sizeToParts(size int64) int {
 	const PART_SIZE = 5 * 1024 * 1024 * 1024
 
-	var wg sync.WaitGroup
 	nParts := int(size / PART_SIZE)
 	if size%PART_SIZE != 0 {
 		nParts++
 	}
+	return nParts
+}
 
+func (fs *Goofys) mpuCopyParts(size int64, from *string, to *string, mpuId *string,
+	wg *sync.WaitGroup, etags []*string, err *error) {
+
+	const PART_SIZE = 5 * 1024 * 1024 * 1024
+
+	rangeFrom := int64(0)
+	rangeTo := int64(0)
+
+	for i := int64(1); rangeTo < size; i++ {
+		rangeFrom = rangeTo
+		rangeTo = i * PART_SIZE
+		if rangeTo > size {
+			rangeTo = size
+		}
+		bytes := fmt.Sprintf("bytes=%v-%v", rangeFrom, rangeTo-1)
+
+		wg.Add(1)
+		go fs.mpuCopyPart(from, to, mpuId, bytes, i, wg, &etags[i-1], err)
+	}
+}
+
+func (fs *Goofys) copyObjectMultipart(size int64, from *string, to *string, mpuId *string) (err error) {
+	var wg sync.WaitGroup
+	nParts := sizeToParts(size)
 	etags := make([]*string, nParts)
 
 	if mpuId == nil {
@@ -351,22 +376,9 @@ func (fs *Goofys) copyObjectMultipart(size int64, from *string, to *string, mpuI
 		mpuId = resp.UploadId
 	}
 
-	rangeFrom := int64(0)
-	rangeTo := int64(0)
-
-	for i := int64(1); rangeTo < size; i++ {
-		rangeFrom = rangeTo
-		rangeTo = i * PART_SIZE
-		if rangeTo > size {
-			rangeTo = size
-		}
-		bytes := fmt.Sprintf("bytes=%v-%v", rangeFrom, rangeTo-1)
-
-		wg.Add(1)
-		go fs.mpuCopyPart(from, to, mpuId, bytes, i, &wg, &etags[i-1], &err)
-	}
-
+	fs.mpuCopyParts(size, from, to, mpuId, &wg, etags, &err)
 	wg.Wait()
+
 	if err != nil {
 		return
 	} else {

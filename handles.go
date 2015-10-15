@@ -90,6 +90,7 @@ type FileHandle struct {
 	mu              sync.Mutex
 	mpuId           *string
 	nextWriteOffset int64
+	lastPartId      int
 
 	poolHandle *BufferPoolHandle
 	buf        []byte
@@ -220,7 +221,7 @@ func (parent *Inode) Create(
 
 	fh = NewFileHandle(inode)
 	fh.poolHandle = fs.bufferPool.NewPoolHandle()
-	fh.initWrite(fs)
+	fh.initWrite(fs, 0)
 
 	return
 }
@@ -324,8 +325,25 @@ func (inode *Inode) OpenFile(fs *Goofys) *FileHandle {
 	return NewFileHandle(inode)
 }
 
-func (fh *FileHandle) initWrite(fs *Goofys) {
+func (fh *FileHandle) initWrite(fs *Goofys, offset int64) {
 	fh.writeInit.Do(func() {
+		/*
+			fileSize := int64(fh.inode.Attributes.Size)
+			if offset == fileSize {
+				fh.nextWriteOffset = fileSize
+				fh.appendUpTo = fileSize
+				fh.lastPartId = sizeToParts(fileSize)
+				fh.inode.logFuse("append after parts", fh.lastPartId)
+			}
+		*/
+		if offset != 0 {
+			fh.inode.logFuse("writes to middle of file not supported", offset, fh.inode.Attributes.Size)
+			fh.lastWriteError = fuse.EINVAL
+			return
+		}
+
+		fh.poolHandle = fs.bufferPool.NewPoolHandle()
+
 		fh.mpuWG.Add(1)
 		go fh.initMPU(fs)
 	})
@@ -355,11 +373,19 @@ func (fh *FileHandle) initMPU(fs *Goofys) {
 
 	fh.mpuId = resp.UploadId
 	fh.etags = make([]*string, 10000) // at most 10K parts
+
 	return
 }
 
 func (fh *FileHandle) mpuPartNoSpawn(fs *Goofys, buf []byte, part int) (err error) {
-	defer fh.poolHandle.Free(buf)
+	fh.inode.logFuse("mpuPartNoSpawn", cap(buf), part)
+	if cap(buf) != 0 {
+		defer fh.poolHandle.Free(buf)
+	}
+
+	if part == 0 || part > 10000 {
+		panic(fmt.Sprintf("invalid part number: %v", part))
+	}
 
 	params := &s3.UploadPartInput{
 		Bucket:     &fs.bucket,
@@ -410,11 +436,27 @@ func (fh *FileHandle) mpuPart(fs *Goofys, buf []byte, part int) {
 	}
 }
 
+func (fh *FileHandle) waitForCreateMPU() (err error) {
+	if fh.mpuId == nil {
+		fh.mu.Unlock()
+		fh.mpuWG.Wait() // wait for initMPU
+		fh.mu.Lock()
+
+		if fh.lastWriteError != nil {
+			return fh.lastWriteError
+		}
+	}
+
+	return
+}
+
 func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err error) {
 	fh.inode.logFuse("WriteFile", offset, len(data))
 
 	fh.mu.Lock()
 	defer fh.mu.Unlock()
+
+	fh.initWrite(fs, offset)
 
 	if fh.lastWriteError != nil {
 		return fh.lastWriteError
@@ -424,11 +466,6 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 		fh.inode.logFuse("WriteFile: only sequential writes supported", fh.nextWriteOffset, offset)
 		fh.lastWriteError = fuse.EINVAL
 		return fh.lastWriteError
-	}
-
-	if offset == 0 {
-		fh.poolHandle = fs.bufferPool.NewPoolHandle()
-		fh.initWrite(fs)
 	}
 
 	for {
@@ -441,26 +478,18 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 
 		if len(fh.buf) == cap(fh.buf) {
 			// we filled this buffer, upload this part
-			if fh.mpuId == nil {
-				fh.mu.Unlock()
-				fh.mpuWG.Wait() // wait for initMPU
-				fh.mu.Lock()
-
-				if fh.lastWriteError != nil {
-					return fh.lastWriteError
-				}
+			err = fh.waitForCreateMPU()
+			if err != nil {
+				return
 			}
 
-			page := int(fh.nextWriteOffset / BUF_SIZE)
+			fh.lastPartId++
+			part := fh.lastPartId
 			buf := fh.buf
 			fh.buf = nil
 			fh.mpuWG.Add(1)
 
-			if page == 0 {
-				panic(fmt.Sprintf("invalid part number %v for offset %v", page, fh.nextWriteOffset))
-			}
-
-			go fh.mpuPart(fs, buf, page)
+			go fh.mpuPart(fs, buf, part)
 		}
 
 		if nCopied == len(data) {
@@ -608,12 +637,8 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 		return
 	}
 
-	nParts := int(fh.nextWriteOffset / BUF_SIZE)
-	if fh.nextWriteOffset%BUF_SIZE != 0 {
-		nParts++
-	}
-
-	if nParts == 0 {
+	nParts := fh.lastPartId
+	if fh.nextWriteOffset == 0 {
 		// s3 doesn't support mpu with 0 parts, upload an
 		// empty part
 		nParts = 1
@@ -624,6 +649,7 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 	} else {
 		if fh.buf != nil {
 			// upload last part
+			nParts++
 			err = fh.mpuPartNoSpawn(fs, fh.buf, nParts)
 			if err != nil {
 				return
@@ -653,6 +679,7 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 	fh.mpuId = nil
 	fh.writeInit = sync.Once{}
 	fh.nextWriteOffset = 0
+	fh.lastPartId = 0
 
 	resp, err := fs.s3.CompleteMultipartUpload(params)
 	if err != nil {

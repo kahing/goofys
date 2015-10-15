@@ -116,19 +116,28 @@ func (s *GoofysTest) waitFor(t *C, addr string) (err error) {
 
 func (s *GoofysTest) SetUpSuite(t *C) {
 	//addr := "play.minio.io:9000"
-	addr := "127.0.0.1:8080"
+	const LOCAL_TEST = true
 
-	s.awsConfig = &aws.Config{
-		//Credentials: credentials.AnonymousCredentials,
-		Credentials:      credentials.NewStaticCredentials("foo", "bar", ""),
-		Region:           aws.String("us-west-2"),
-		Endpoint:         aws.String(addr),
-		DisableSSL:       aws.Bool(true),
-		S3ForcePathStyle: aws.Bool(true),
-		MaxRetries:       aws.Int(0),
-		//Logger: t,
-		//LogLevel: aws.LogLevel(aws.LogDebug),
-		//LogLevel: aws.LogLevel(aws.LogDebug | aws.LogDebugWithHTTPBody),
+	if LOCAL_TEST {
+		addr := "127.0.0.1:8080"
+
+		s.awsConfig = &aws.Config{
+			//Credentials: credentials.AnonymousCredentials,
+			Credentials:      credentials.NewStaticCredentials("foo", "bar", ""),
+			Region:           aws.String("us-west-2"),
+			Endpoint:         aws.String(addr),
+			DisableSSL:       aws.Bool(true),
+			S3ForcePathStyle: aws.Bool(true),
+			MaxRetries:       aws.Int(0),
+			//Logger: t,
+			//LogLevel: aws.LogLevel(aws.LogDebug),
+			//LogLevel: aws.LogLevel(aws.LogDebug | aws.LogDebugWithHTTPBody),
+		}
+	} else {
+		s.awsConfig = &aws.Config{
+			Region:     aws.String("us-west-2"),
+			DisableSSL: aws.Bool(true),
+		}
 	}
 	s.s3 = s3.New(s.awsConfig)
 
@@ -216,7 +225,9 @@ func (s *GoofysTest) SetUpTest(t *C) {
 	bucket := s.setupDefaultEnv(t)
 
 	s.ctx = context.Background()
-	flags := &flagStorage{}
+	flags := &flagStorage{
+		StorageClass: "STANDARD",
+	}
 	s.fs = NewGoofys(bucket, s.awsConfig, flags)
 }
 
