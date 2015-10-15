@@ -804,12 +804,12 @@ func (fs *Goofys) WriteFile(
 	op *fuseops.WriteFileOp) (err error) {
 
 	fs.mu.Lock()
-	defer fs.mu.Unlock()
 
 	fh, ok := fs.fileHandles[op.Handle]
 	if !ok {
 		panic(fmt.Sprintf("WriteFile: can't find handle %v", op.Handle))
 	}
+	fs.mu.Unlock()
 
 	err = fh.WriteFile(fs, op.Offset, op.Data)
 
