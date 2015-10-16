@@ -27,6 +27,26 @@ Users can also configure credentials via the
 [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html)
 or the `AWS_ACCESS_KEY` and `AWS_SECRET_KEY` environment variables.
 
+# Benchmark
+
+Using `--stat-cache-ttl 0 --type-cache-ttl 0` for goofys
+`-ostat_cache_expire=1` for s3fs to simulate cold runs. Detail for the
+benchmark can be found in
+(bench.sh)[https://github.com/kahing/goofys/blob/master/bench.sh]. (Raw
+data)[https://github.com/kahing/goofys/blob/master/bench.data] is
+available as well.
+
+operation | goofys | s3fs
+---| ------ | ------
+Create 1000 files|49.4+/-1.5|146.0+/-15.0|2.96+/-0.32
+Unlink 1000 files|28.1+/-0.8|36.7+/-6.2|1.31+/-0.22
+ls with 1000 files|0.21+/-0.04|3.5+/-0.6|16.9+/-4.6
+Create 1000 files (parallel)|21.5+/-0.4|134.2+/-9.1|6.2+/-0.4
+Unlink 1000 files (parallel)|28.18+/-0.35|38.1+/-4.2|1.35+/-0.15
+Write 1GB|51.4+/-4.3|29.7+/-2.9|0.58+/-0.07
+Read 1GB|58.9+/-4.7|65.7+/-18.9|1.12+/-0.33
+Time to 1st byte|0.0169+/-0.0023|0.98+/-0.06|58.3+/-8.7
+
 # License
 
 Copyright (C) 2015 Ka-Hing Cheung
