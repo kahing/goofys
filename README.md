@@ -36,8 +36,8 @@ benchmark can be found in
 data)[https://github.com/kahing/goofys/blob/master/bench.data] is
 available as well.
 
-operation | goofys | s3fs
----| ------ | ------
+operation | goofys | s3fs | speedup
+---| ------ | ------ | -----
 Create 1000 files|49.4+/-1.5|146.0+/-15.0|2.96+/-0.32
 Unlink 1000 files|28.1+/-0.8|36.7+/-6.2|1.31+/-0.22
 ls with 1000 files|0.21+/-0.04|3.5+/-0.6|16.9+/-4.6

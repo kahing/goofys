@@ -6,8 +6,8 @@ import sys
 
 f = sys.argv[1]
 data = open(f).readlines()
-print 'operation | goofys | s3fs'
-print '---| ------ | ------'
+print 'operation | goofys | s3fs | speedup'
+print '---| ------ | ------ | -----'
 for l in data:
     nums = l.strip().split('\t')
     op = nums[0]
