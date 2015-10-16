@@ -13,6 +13,8 @@ consistency model is close-to-open.
 
 # Usage
 
+Pre-built binaries are available [here](https://github.com/kahing/goofys/releases/).
+
 ```
 $ go get github.com/kahing/goofys
 $ go install github.com/kahing/goofys
