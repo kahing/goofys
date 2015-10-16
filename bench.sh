@@ -21,71 +21,76 @@ function create_files {
     done
 }
 
-echo "Running create_files"
-time create_files
+# echo "Running create_files"
+# time create_files
 
-function ls_files {
-    ls -1 | wc -l
-}
+# function ls_files {
+#     ls -1 | wc -l
+# }
 
-echo "Running ls_files"
-drop_cache
-time ls_files
-drop_cache
-time ls_files
-drop_cache
-time ls_files
+# echo "Running ls_files"
+# drop_cache
+# sleep 1
+# time ls_files
 
-function rm_files {
-    for i in $(seq 1 1000); do
-        rm file$i
-    done
-}
+# drop_cache
+# sleep 1
+# time ls_files
 
-echo "Running rm_files/create_files"
-drop_cache
-time rm_files
+# drop_cache
+# sleep 1
+# time ls_files
 
-drop_cache
-time create_files
-drop_cache
-time rm_files
+# function rm_files {
+#     for i in $(seq 1 1000); do
+#         rm file$i
+#     done
+# }
 
-drop_cache
-time create_files
-drop_cache
-time rm_files
+# echo "Running rm_files/create_files"
+# drop_cache
+# time rm_files
 
-function create_files_parallel {
-    for i in $(seq 1 1000); do
-        echo $i > file$i & true
-    done
-    wait
-}
+# drop_cache
+# time create_files
+# drop_cache
+# time rm_files
 
-function rm_files_parallel {
-    for i in $(seq 1 1000); do
-        rm file$i & true
-    done
-    wait
-}
+# drop_cache
+# time create_files
+# drop_cache
+# time rm_files
 
-echo "Running create_files_parallel/rm_files_parallel"
+# function create_files_parallel {
+#     for i in $(seq 1 1000); do
+#         echo $i > file$i & true
+#     done
+#     wait
+# }
 
-drop_cache
-time create_files_parallel
-drop_cache
-time rm_files_parallel
+# function rm_files_parallel {
+#     for i in $(seq 1 1000); do
+#         rm file$i & true
+#     done
+#     wait
+# }
 
-drop_cache
-time create_files_parallel
-drop_cache
-time rm_files_parallel
+# echo "Running create_files_parallel/rm_files_parallel"
 
-drop_cache
-time create_files_parallel
-drop_cache
-time rm_files_parallel
+# drop_cache
+# time create_files_parallel
+# drop_cache
+# time rm_files_parallel
+
+# drop_cache
+# time create_files_parallel
+# drop_cache
+# time rm_files_parallel
+
+# drop_cache
+# time create_files_parallel
+# drop_cache
+# time rm_files_parallel
 
 function write_large_file {
     dd if=/dev/zero of=largefile bs=1MB count=1000
@@ -95,21 +100,31 @@ function read_large_file {
     dd if=largefile of=/dev/null bs=1MB count=1000
 }
 
+function read_first_byte {
+    dd if=largefile of=/dev/null bs=1 count=1
+}
+
 echo "Running write_large_file/read_large_file"
 drop_cache
 time write_large_file
 drop_cache
 time read_large_file
+drop_cache
+time read_first_byte
 rm largefile
 
 drop_cache
 time write_large_file
 drop_cache
 time read_large_file
+drop_cache
+time read_first_byte
 rm largefile
 
 drop_cache
 time write_large_file
 drop_cache
 time read_large_file
+drop_cache
+time read_first_byte
 rm largefile
