@@ -397,6 +397,21 @@ func (s *GoofysTest) TestCreateFiles(t *C) {
 
 	_, err = s.getRoot(t).LookUp(s.fs, &fileName)
 	t.Assert(err, IsNil)
+
+	fileName = "testCreateFile2"
+	s.testWriteFile(t, fileName, 1, 128*1024)
+
+	inode, err := s.getRoot(t).LookUp(s.fs, &fileName)
+	t.Assert(err, IsNil)
+
+	fh = inode.OpenFile(s.fs)
+	err = fh.FlushFile(s.fs)
+	t.Assert(err, IsNil)
+
+	resp, err = s.s3.GetObject(&s3.GetObjectInput{Bucket: &s.fs.bucket, Key: &fileName})
+	t.Assert(err, IsNil)
+	t.Assert(*resp.ContentLength, Equals, int64(1))
+	defer resp.Body.Close()
 }
 
 func (s *GoofysTest) TestUnlink(t *C) {

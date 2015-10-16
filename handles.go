@@ -83,6 +83,7 @@ func (dh *DirHandle) IsDir(name *string) bool {
 type FileHandle struct {
 	inode *Inode
 
+	dirty     bool
 	writeInit sync.Once
 	mpuWG     sync.WaitGroup
 	etags     []*string
@@ -221,6 +222,7 @@ func (parent *Inode) Create(
 
 	fh = NewFileHandle(inode)
 	fh.poolHandle = fs.bufferPool.NewPoolHandle()
+	fh.dirty = true
 
 	return
 }
@@ -452,6 +454,7 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 
 	if offset == 0 {
 		fh.poolHandle = fs.bufferPool.NewPoolHandle()
+		fh.dirty = true
 	}
 
 	for {
@@ -613,6 +616,10 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 	fh.inode.logFuse("FlushFile")
 
+	if !fh.dirty {
+		return
+	}
+
 	// abort mpu on error
 	defer func() {
 		if err != nil {
@@ -635,6 +642,7 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 		fh.writeInit = sync.Once{}
 		fh.nextWriteOffset = 0
 		fh.lastPartId = 0
+		fh.dirty = false
 	}()
 
 	if fh.lastPartId == 0 {
