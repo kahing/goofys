@@ -34,9 +34,9 @@ or the `AWS_ACCESS_KEY` and `AWS_SECRET_KEY` environment variables.
 Using `--stat-cache-ttl 0 --type-cache-ttl 0` for goofys
 `-ostat_cache_expire=1` for s3fs to simulate cold runs. Detail for the
 benchmark can be found in
-[bench.sh](https://github.com/kahing/goofys/blob/master/bench.sh). [Raw
-data](https://github.com/kahing/goofys/blob/master/bench.data) is
-available as well.
+[bench.sh](https://github.com/kahing/goofys/blob/master/bench.sh). [Raw data](https://github.com/kahing/goofys/blob/master/bench.data)
+is available as well. Test was run on an EC2 c4.xlarge in us-west-2a
+connecting to a bucket in us-west-2.
 
 operation | goofys | s3fs | speedup
 ---| ------ | ------ | -----
