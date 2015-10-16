@@ -88,7 +88,7 @@ drop_cache
 time rm_files_parallel
 
 function write_large_file {
-    dd if=/dev/zero of=largefile bs=1MB count=1000 oflag=direct
+    dd if=/dev/zero of=largefile bs=1MB count=1000
 }
 
 function read_large_file {
