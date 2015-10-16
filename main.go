@@ -96,9 +96,10 @@ func mount(
 
 	// Mount the file system.
 	mountCfg := &fuse.MountConfig{
-		FSName:      bucketName,
-		Options:     flags.MountOptions,
-		ErrorLogger: log.New(os.Stderr, "fuse: ", log.Flags()),
+		FSName:                  bucketName,
+		Options:                 flags.MountOptions,
+		ErrorLogger:             log.New(os.Stderr, "fuse: ", log.Flags()),
+		DisableWritebackCaching: true,
 	}
 
 	if flags.DebugFuse {
