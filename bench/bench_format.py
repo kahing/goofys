@@ -6,8 +6,8 @@ import sys
 
 f = sys.argv[1]
 data = open(f).readlines()
-print 'operation | goofys | s3fs | speedup'
-print '---| ------ | ------ | -----'
+print 'operation |  s3fs  | goofys | speedup'
+print '----------| ------ | ------ | -------'
 for l in data:
     nums = l.strip().split('\t')
     op = nums[0]
@@ -19,5 +19,5 @@ for l in data:
     err_y = numpy.std(y)
     u_x = uncertainties.ufloat(mean_x, err_x)
     u_y = uncertainties.ufloat(mean_y, err_y)
-    delta = u_y/u_x
-    print "%s|%s|%s|%s" % (op, u_x, u_y, delta)
+    delta = u_x/u_y
+    print "%s | %s | %s | %s" % (op, u_x, u_y, delta)
