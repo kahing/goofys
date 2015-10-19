@@ -2,11 +2,11 @@ Goofys is a Filey-System interface to [S3](https://aws.amazon.com/s3/)
 
 # Overview
 
-Goofys allows you to mount an `S3` bucket as a filey system.
+Goofys allows you to mount an S3 bucket as a filey system.
 
 It's a Filey System instead of a File System because goofys strives
 for performance first and POSIX second. Particularly things that are
-difficult to support on `S3` or would translate into more than one
+difficult to support on S3 or would translate into more than one
 round-trip would either fail (random writes) or faked (no per-file
 permission). Goofys does not have a on disk data cache, and
 consistency model is close-to-open.
@@ -69,11 +69,11 @@ List of not yet implemented fuse operations:
     * `ReadSymlink`
     * `SetInodeAttributes`
 
-List of non-`POSIX` behaviors/limitations:
+List of non-POSIX behaviors/limitations:
   * only sequential writes supported
   * does not support appending to a file yet
-  * file mode is always `0644` for regular files and `0700` for directories
-  * directories link count is always `2`
+  * file mode is always 0644 for regular files and 0700 for directories
+  * directories link count is always 2
   * file owner is always the user running goofys
   * `ctime`, `atime` is always the same as `mtime`
   * cannot rename non-empty directories
