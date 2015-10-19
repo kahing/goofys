@@ -3,12 +3,28 @@
 set -o errexit
 set -o nounset
 
-if [ $# != 1 ]; then
-    echo "Usage: $0 <dir>"
+if [ $# != 12]; then
+    echo "Usage: $0 <mount cmd> <dir>"
     exit 1
 fi
 
-prefix=$1
+cmd=$1
+prefix=$2/test_dir
+
+$cmd >& /dev/null &
+PID=$!
+
+function cleanup {
+    rmdir $prefix
+
+    if [ "$PID" != "" ]; then
+        kill $PID
+    fi
+}
+
+trap cleanup EXIT
+
+mkdir "$prefix"
 cd "$prefix"
 
 function drop_cache {
