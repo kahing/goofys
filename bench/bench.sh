@@ -3,7 +3,7 @@
 set -o errexit
 set -o nounset
 
-if [ $# != 12]; then
+if [ $# != 2 ]; then
     echo "Usage: $0 <mount cmd> <dir>"
     exit 1
 fi
