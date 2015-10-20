@@ -50,6 +50,7 @@ Read 1GB | 22.0+/-6.7* | 17.1+/-1.1* | 1.3+/-0.4x | 25.2+/-1.0 | 1.48+/-0.11x
 Time to 1st byte | 1.1+/-0.4 | 0.036+/-0.013* | 31.0+/-16.8x | 0.275+/-0.018* | 7.6+/-2.9x
 
 (*) indicates the number of outliers removed
+
 (†) riofs does not wait for HTTP response before returning from `release()`
 
 # License
