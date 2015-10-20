@@ -83,7 +83,7 @@ function rm_files {
     get_howmany $@
 
     for i in $(seq 1 $howmany); do
-        rm file$i
+        rm file$i >&/dev/null || true
     done
 }
 
