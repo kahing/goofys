@@ -145,7 +145,7 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *flagStorage) *Goofys
 		Gid:    fs.flags.Gid,
 	}
 
-	fs.bufferPool = NewBufferPool(1000*1024*1024, 200*1024*1024)
+	fs.bufferPool = NewBufferPool(100*1024*1024, 20*1024*1024)
 
 	fs.nextInodeID = fuseops.RootInodeID + 1
 	fs.inodes = make(map[fuseops.InodeID]*Inode)
