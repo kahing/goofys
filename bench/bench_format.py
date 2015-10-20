@@ -7,13 +7,24 @@ import sys
 def filter_outliers(numbers, mean, std):
     return filter(lambda x: abs(x - mean) < 2 * std, numbers)
 
+op_str = {
+    'create_files' : 'Create 100 files',
+    'rm_files' : 'Unlink 100 files',
+    'create_files_parallel' : 'Create 100 files (parallel)',
+    'rm_files_parallel' : 'Unlink 100 files (parallel)',
+    'ls_files' : 'ls with 1000 files',
+    'write_large_file' : 'Write 1GB',
+    'read_large_file' : 'Read 1GB',
+    'read_first_byte' : 'Time to 1st byte',
+}
+
 f = sys.argv[1]
 data = open(f).readlines()
 print 'operation |  s3fs  | goofys | speedup'
 print '----------| ------ | ------ | -------'
 for l in data:
     nums = l.strip().split('\t')
-    op = nums[0]
+    op = op_str[nums[0]]
     x = map(lambda x: float(x), nums[1].strip().split(' '))
     y = map(lambda x: float(x), nums[2].strip().split(' '))
     mean_x = numpy.mean(x)

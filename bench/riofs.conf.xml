@@ -1,0 +1,110 @@
+<app>
+    <foreground type="boolean">True</foreground>
+</app>
+
+<log>
+    <!-- use syslog for error messages -->
+    <use_syslog type="boolean">False</use_syslog>
+    <use_color type="boolean">False</use_color>
+
+    <!-- log level - LOG_err = 0, LOG_msg = 1, LOG_debug = 2 -->
+    <level type="int">0</level>
+</log>
+
+<pool>
+    <!-- number of concurrent connections for each type of operation -->
+    <writers type="int">2</writers>
+    <readers type="int">2</readers>
+
+    <!-- number of concurrent connections for "other" operations, 
+         such as directory listing, object deleting, etc -->
+    <operations type="int">4</operations>
+
+    <!-- max requests in pool queue -->
+    <max_requests_per_pool type="uint">100</max_requests_per_pool>
+</pool>
+
+<s3>
+    <!-- S3 endpoint, can be set to bucket's region to avoid initial redirect
+         See http://docs.aws.amazon.com/general/latest/gr/rande.html#s3_region for options. -->
+    <endpoint type="string">https://s3.amazonaws.com</endpoint>
+
+    <!-- The maximum number of keys returned in the response body. -->
+    <keys_per_request type="uint">1000</keys_per_request>
+    
+    <!-- part size for upload / download files (5mb is the minimal value) -->
+    <part_size type="uint">5242880</part_size>
+    
+    <!-- compatibility with s3fs: send HEAD request to S3 if file size is 0 to check if it's a directory 
+         Greatly increases directory access time. Consider to disable this option. -->
+    <check_empty_files type="boolean">False</check_empty_files>
+
+    <!-- Storage class to use for storing the object. 
+         Valid Values: STANDARD | REDUCED_REDUNDANCY 
+         Please read S3 documentation before changing this value ! -->
+    <storage_type type="string">STANDARD</storage_type>
+
+    <!-- Use either environment variables AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY or configuration file.
+         Uncomment these 2 lines and replace ### strings with your data: -->
+    <!--
+    <access_key_id type="string">### AWS Access Key ID ###</access_key_id>
+    <secret_access_key type="string">### AWS Secret Access Key ###</secret_access_key>
+    -->
+</s3>
+
+<connection>
+    <!-- timeout value for HTTP requests (seconds) -->
+    <timeout type="int">-1</timeout>
+
+    <!-- number of retries, before giving up (-1 for infinite loop) -->
+    <retries type="int">-1</retries>
+
+    <!-- maximum redirects per HTTP request -->
+    <max_redirects type="int">20</max_redirects>
+
+    <!-- maximum retries per HTTP request -->
+    <max_retries type="int">20</max_retries>
+</connection>
+
+<filesystem>
+    <!-- set uid / gid of the owners of filesystem, -1 to use the current uid / gid of the calling process. -->
+    <uid type="int">-1</uid>
+    <gid type="int">-1</gid>
+    <!-- set default mode for all files and directories, -1 to use the default value -->
+    <dir_mode type="int">-1</dir_mode>
+    <file_mode type="int">-1</file_mode>
+
+    <!-- time to keep directory cache (seconds) -->
+    <dir_cache_max_time type="uint">0</dir_cache_max_time>
+
+    <!-- time to keep file attributes cache (seconds) -->
+    <file_cache_max_time type="uint">0</file_cache_max_time>
+
+    <!-- set True to enable calculating MD5 sum of file content, increases CPU load -->
+    <md5_enabled type="boolean">False</md5_enabled>
+    
+    <!-- set True to enable objects caching -->
+    <cache_enabled type="boolean">False</cache_enabled>
+
+    <!-- directory for storing cache objects -->
+    <cache_dir type="string">/tmp/riofs</cache_dir>
+
+    <!-- maximum size of cache directory (1Gb) -->
+    <cache_dir_max_size type="uint">1</cache_dir_max_size>
+
+    <!-- maximum time of cached object, 10 min -->
+    <cache_object_ttl type="uint">0</cache_object_ttl>
+</filesystem>
+
+<statistics>
+    <!-- set True to enable statistics server, disabled by default. -->
+    <enabled type="boolean">False</enabled>
+
+    <!-- set host to bind server to, or 0.0.0.0 to bind on all available interfaces -->
+    <host type="string">127.0.0.1</host>
+    <port type="int">8011</port>
+
+    <!-- URI path -->
+    <stats_path type="string">/stats</stats_path>
+    <history_size type="uint">1000</history_size>
+</statistics>

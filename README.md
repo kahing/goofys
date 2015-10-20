@@ -36,20 +36,21 @@ Using `--stat-cache-ttl 0 --type-cache-ttl 0` for goofys
 benchmark can be found in
 [bench.sh](https://github.com/kahing/goofys/blob/master/bench/bench.sh). [Raw data](https://github.com/kahing/goofys/blob/master/bench/)
 is available as well. Test was run on an EC2 c4.xlarge in us-west-2a
-connecting to a bucket in us-west-2.
+connecting to a bucket in us-west-2. Units are seconds.
 
-operation |  s3fs  | goofys | speedup
-----------| ------ | ------ | -------
-create_files | 33.7+/-2.5 | 5.31+/-0.35 | 6.3+/-0.6x
-rm_files | 6.6+/-0.6 | 3.1+/-0.4* | 2.12+/-0.32x
-create_files_parallel | 29.4+/-1.7* | 2.45+/-0.30 | 12.0+/-1.6x
-rm_files_parallel | 9.7+/-1.7 | 3.10+/-0.35 | 3.1+/-0.7x
-ls_files | 9.6+/-1.4 | 0.173+/-0.029* | 55.2+/-12.3x
-write_large_file | 38.4+/-6.2* | 11.7+/-1.8* | 3.3+/-0.7x
-read_large_file | 22.0+/-6.7* | 17.1+/-1.1* | 1.3+/-0.4x
-read_first_byte | 1.1+/-0.4 | 0.036+/-0.013* | 31.0+/-16.8x
+operation |  s3fs  | goofys | speedup | riofs† | speedup
+----------| ------ | ------ | ------- | ----- | -------
+Create 100 files | 33.7+/-2.5 | 5.31+/-0.35 | 6.3+/-0.6x | 1.43+/-0.21† | 0.27+/-0.04x
+Unlink 100 files | 6.6+/-0.6 | 3.1+/-0.4* | 2.12+/-0.32x | 3.63+/-0.33 | 1.17+/-0.17x
+Create 100 files (parallel) | 29.4+/-1.7* | 2.45+/-0.30 | 12.0+/-1.6x | 1.25+/-0.16† | 0.51+/-0.09x
+Unlink 100 files (parallel) | 9.7+/-1.7 | 3.10+/-0.35 | 3.1+/-0.7x | 4.2+/-0.4 | 1.36+/-0.20x
+ls with 1000 files | 9.6+/-1.4 | 0.173+/-0.029* | 55.2+/-12.3x | 0.21+/-0.09* | 1.2+/-0.6x
+Write 1GB | 38.4+/-6.2* | 11.7+/-1.8* | 3.3+/-0.7x | 117.1+/-3.7 | 10.0+/-1.6x
+Read 1GB | 22.0+/-6.7* | 17.1+/-1.1* | 1.3+/-0.4x | 25.2+/-1.0 | 1.48+/-0.11x
+Time to 1st byte | 1.1+/-0.4 | 0.036+/-0.013* | 31.0+/-16.8x | 0.275+/-0.018* | 7.6+/-2.9x
 
 (*) indicates the number of outliers removed
+(†) riofs does not wait for HTTP response before returning from `release()`
 
 # License
 
