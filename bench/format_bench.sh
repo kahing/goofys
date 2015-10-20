@@ -11,6 +11,8 @@ fi
 data1=$1
 data2=$2
 
+dir=$(dirname $0)
+
 declare -A RESULT
 declare -a TESTS
 
@@ -45,4 +47,4 @@ for t in ${TESTS[@]}; do
     echo ${RESULT2[$t]}
 done > bench.data
 
-./bench_format.py bench.data
+$dir/bench_format.py bench.data

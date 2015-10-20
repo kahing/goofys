@@ -34,20 +34,22 @@ or the `AWS_ACCESS_KEY` and `AWS_SECRET_KEY` environment variables.
 Using `--stat-cache-ttl 0 --type-cache-ttl 0` for goofys
 `-ostat_cache_expire=1` for s3fs to simulate cold runs. Detail for the
 benchmark can be found in
-[bench.sh](https://github.com/kahing/goofys/blob/master/bench.sh). [Raw data](https://github.com/kahing/goofys/blob/master/bench.data)
+[bench.sh](https://github.com/kahing/goofys/blob/master/bench/bench.sh). [Raw data](https://github.com/kahing/goofys/blob/master/bench/)
 is available as well. Test was run on an EC2 c4.xlarge in us-west-2a
 connecting to a bucket in us-west-2.
 
-operation | goofys | s3fs | speedup
----| ------ | ------ | -----
-Create 1000 files|49.4 +/- 1.5s|146.0 +/- 15.0s|2.96 +/- 0.32x
-Unlink 1000 files|28.1 +/- 0.8s|36.7 +/- 6.2s|1.31 +/- 0.22x
-ls with 1000 files|0.21 +/- 0.04s|3.5 +/- 0.6s|16.9 +/- 4.6x
-Create 1000 files (parallel)|21.5 +/- 0.4s|134.2 +/- 9.1s|6.2 +/- 0.4x
-Unlink 1000 files (parallel)|28.18 +/- 0.35s|38.1 +/- 4.2s|1.35 +/- 0.15x
-Write 1GB|51.4 +/- 4.3MB/s|29.7 +/- 2.9MB/s|1.73 +/- 0.22x
-Read 1GB|58.9 +/- 4.7MB/s|65.7 +/- 18.9MB/s|0.90 +/- 0.27x
-Time to 1st byte|0.0169 +/- 0.0023s|0.98 +/- 0.06s|58.3 +/- 8.7x
+operation |  s3fs  | goofys | speedup
+----------| ------ | ------ | -------
+create_files | 33.7+/-2.5 | 5.31+/-0.35 | 6.3+/-0.6x
+rm_files | 6.6+/-0.6 | 3.1+/-0.4* | 2.12+/-0.32x
+create_files_parallel | 29.4+/-1.7* | 2.45+/-0.30 | 12.0+/-1.6x
+rm_files_parallel | 9.7+/-1.7 | 3.10+/-0.35 | 3.1+/-0.7x
+ls_files | 9.6+/-1.4 | 0.173+/-0.029* | 55.2+/-12.3x
+write_large_file | 38.4+/-6.2* | 11.7+/-1.8* | 3.3+/-0.7x
+read_large_file | 22.0+/-6.7* | 17.1+/-1.1* | 1.3+/-0.4x
+read_first_byte | 1.1+/-0.4 | 0.036+/-0.013* | 31.0+/-16.8x
+
+(*) indicates the number of outliers removed
 
 # License
 
