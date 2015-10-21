@@ -17,6 +17,7 @@ package internal
 
 import (
 	"os"
+	"strings"
 	"time"
 
 	"github.com/codegangsta/cli"
@@ -177,6 +178,29 @@ type FlagStorage struct {
 	DebugS3   bool
 }
 
+func parseOptions(m map[string]string, s string) {
+	// NOTE(jacobsa): The man pages don't define how escaping works, and as far
+	// as I can tell there is no way to properly escape or quote a comma in the
+	// options list for an fstab entry. So put our fingers in our ears and hope
+	// that nobody needs a comma.
+	for _, p := range strings.Split(s, ",") {
+		var name string
+		var value string
+
+		// Split on the first equals sign.
+		if equalsIndex := strings.IndexByte(p, '='); equalsIndex != -1 {
+			name = p[:equalsIndex]
+			value = p[equalsIndex+1:]
+		} else {
+			name = p
+		}
+
+		m[name] = value
+	}
+
+	return
+}
+
 // Add the flags accepted by run to the supplied flag set, returning the
 // variables into which the flags will parse.
 func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
@@ -202,11 +226,9 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		DebugS3:   c.Bool("debug_s3"),
 	}
 
-	/*
-		// Handle the repeated "-o" flag.
-		for _, o := range c.StringSlice("o") {
-			mountpkg.ParseOptions(flags.MountOptions, o)
-		}
-	*/
+	// Handle the repeated "-o" flag.
+	for _, o := range c.StringSlice("o") {
+		parseOptions(flags.MountOptions, o)
+	}
 	return
 }
