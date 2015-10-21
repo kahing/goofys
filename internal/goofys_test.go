@@ -121,6 +121,9 @@ func (s *GoofysTest) SetUpSuite(t *C) {
 	if LOCAL_TEST {
 		addr := "127.0.0.1:8080"
 
+		err := s.waitFor(t, addr)
+		t.Assert(err, IsNil)
+
 		s.awsConfig = &aws.Config{
 			//Credentials: credentials.AnonymousCredentials,
 			Credentials:      credentials.NewStaticCredentials("foo", "bar", ""),
