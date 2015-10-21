@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package internal
 
 import (
 	"os"
@@ -48,7 +48,7 @@ COPYRIGHT:
 `
 }
 
-func newApp() (app *cli.App) {
+func NewApp() (app *cli.App) {
 	app = &cli.App{
 		Name:     "goofys",
 		Version:  "0.0.1",
@@ -155,7 +155,7 @@ func newApp() (app *cli.App) {
 	return
 }
 
-type flagStorage struct {
+type FlagStorage struct {
 	// File system
 	MountOptions map[string]string
 	DirMode      os.FileMode
@@ -179,8 +179,8 @@ type flagStorage struct {
 
 // Add the flags accepted by run to the supplied flag set, returning the
 // variables into which the flags will parse.
-func populateFlags(c *cli.Context) (flags *flagStorage) {
-	flags = &flagStorage{
+func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
+	flags = &FlagStorage{
 		// File system
 		MountOptions: make(map[string]string),
 		DirMode:      os.FileMode(c.Int("dir-mode")),

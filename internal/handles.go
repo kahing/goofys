@@ -10,7 +10,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package internal
 
 import (
 	"bytes"
@@ -34,7 +34,7 @@ type Inode struct {
 	Id         fuseops.InodeID
 	Name       *string
 	FullName   *string
-	flags      *flagStorage
+	flags      *FlagStorage
 	Attributes *fuseops.InodeAttributes
 
 	mu      sync.Mutex          // everything below is protected by mu
@@ -42,7 +42,7 @@ type Inode struct {
 	refcnt  uint64
 }
 
-func NewInode(name *string, fullName *string, flags *flagStorage) (inode *Inode) {
+func NewInode(name *string, fullName *string, flags *FlagStorage) (inode *Inode) {
 	inode = &Inode{Name: name, FullName: fullName, flags: flags}
 	inode.handles = make(map[*DirHandle]bool)
 	inode.refcnt = 1

@@ -10,7 +10,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package internal
 
 import (
 	"fmt"
@@ -44,7 +44,7 @@ type Goofys struct {
 	fuseutil.NotImplementedFileSystem
 	bucket string
 
-	flags *flagStorage
+	flags *FlagStorage
 
 	umask uint32
 
@@ -83,7 +83,7 @@ type Goofys struct {
 	fileHandles map[fuseops.HandleID]*FileHandle
 }
 
-func NewGoofys(bucket string, awsConfig *aws.Config, flags *flagStorage) *Goofys {
+func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys {
 	// Set up the basic struct.
 	fs := &Goofys{
 		bucket: bucket,

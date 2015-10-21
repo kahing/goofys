@@ -10,7 +10,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package internal
 
 import (
 	"bufio"
@@ -225,7 +225,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 	bucket := s.setupDefaultEnv(t)
 
 	s.ctx = context.Background()
-	flags := &flagStorage{
+	flags := &FlagStorage{
 		StorageClass: "STANDARD",
 	}
 	s.fs = NewGoofys(bucket, s.awsConfig, flags)

@@ -16,6 +16,8 @@
 package main
 
 import (
+	. "github.com/kahing/goofys/internal"
+
 	"fmt"
 	"log"
 	"os"
@@ -59,7 +61,7 @@ func mount(
 	ctx context.Context,
 	bucketName string,
 	mountPoint string,
-	flags *flagStorage) (mfs *fuse.MountedFileSystem, err error) {
+	flags *FlagStorage) (mfs *fuse.MountedFileSystem, err error) {
 
 	// Choose UID and GID.
 	uid, gid, err := MyUserAndGroup()
@@ -119,7 +121,7 @@ func main() {
 	// Make logging output better.
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 
-	app := newApp()
+	app := NewApp()
 	app.Action = func(c *cli.Context) {
 		var err error
 
@@ -136,7 +138,7 @@ func main() {
 		// Populate and parse flags.
 		bucketName := c.Args()[0]
 		mountPoint := c.Args()[1]
-		flags := populateFlags(c)
+		flags := PopulateFlags(c)
 
 		// Mount the file system.
 		mfs, err := mount(

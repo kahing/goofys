@@ -10,7 +10,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package internal
 
 // the goal is to allow each file handle to request a limited number
 // of buffers, while recycling them across many file handles

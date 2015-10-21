@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // System permissions-related code.
-package main
+package internal
 
 import (
 	"fmt"
