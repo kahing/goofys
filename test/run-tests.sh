@@ -30,7 +30,7 @@ function wait_for_proxy
     exit
 }
 
-PROXY_BIN="java -jar s3proxy.jar --properties s3proxy.properties"
+PROXY_BIN="java -jar s3proxy.jar --properties test/s3proxy.properties"
 stdbuf -oL -eL $PROXY_BIN &
 PROXY_PID=$!
 
