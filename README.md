@@ -13,7 +13,7 @@ consistency model is close-to-open.
 
 # Usage
 
-Pre-built binaries are available [here](https://github.com/kahing/goofys/releases/).
+Pre-built binaries are available [here](https://github.com/kahing/goofys/releases/). You may also need to install fuse-utils first.
 
 ```ShellSession
 $ go get github.com/kahing/goofys
