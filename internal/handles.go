@@ -780,8 +780,8 @@ func (p sortedDirents) Len() int           { return len(p) }
 func (p sortedDirents) Less(i, j int) bool { return p[i].Name < p[j].Name }
 func (p sortedDirents) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
-func makeDirEntry(name *string, t fuseutil.DirentType) fuseutil.Dirent {
-	return fuseutil.Dirent{Name: *name, Type: t, Inode: fuseops.RootInodeID + 1}
+func makeDirEntry(name string, t fuseutil.DirentType) fuseutil.Dirent {
+	return fuseutil.Dirent{Name: name, Type: t, Inode: fuseops.RootInodeID + 1}
 }
 
 func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Dirent, error) {
@@ -791,7 +791,19 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 		dh.Entries = nil
 	}
 
-	i := int(offset) - dh.BaseOffset
+	if offset == 0 {
+		e := makeDirEntry(".", fuseutil.DT_Directory)
+		e.Offset = 1
+		dh.NameToEntry["."] = fs.rootAttrs
+		return &e, nil
+	} else if offset == 1 {
+		e := makeDirEntry("..", fuseutil.DT_Directory)
+		e.Offset = 2
+		dh.NameToEntry[".."] = fs.rootAttrs
+		return &e, nil
+	}
+
+	i := int(offset) - dh.BaseOffset - 2
 	if i < 0 {
 		panic(fmt.Sprintf("invalid offset %v, base=%v", offset, dh.BaseOffset))
 	}
@@ -804,7 +816,7 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 		}
 	}
 
-	if dh.BaseOffset > 5000 {
+	if i > 5000 {
 		// XXX prevent infinite loop, raise the limit later
 		panic("too many results")
 	}
@@ -837,7 +849,7 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 			dirName := (*dir.Prefix)[0 : len(*dir.Prefix)-1]
 			// strip previous prefix
 			dirName = dirName[len(*params.Prefix):]
-			dh.Entries = append(dh.Entries, makeDirEntry(&dirName, fuseutil.DT_Directory))
+			dh.Entries = append(dh.Entries, makeDirEntry(dirName, fuseutil.DT_Directory))
 			dh.NameToEntry[dirName] = fs.rootAttrs
 		}
 
@@ -847,7 +859,7 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 				// this is a directory blob
 				continue
 			}
-			dh.Entries = append(dh.Entries, makeDirEntry(&baseName, fuseutil.DT_File))
+			dh.Entries = append(dh.Entries, makeDirEntry(baseName, fuseutil.DT_File))
 			dh.NameToEntry[baseName] = fuseops.InodeAttributes{
 				Size:   uint64(*obj.Size),
 				Nlink:  1,
@@ -866,7 +878,8 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 		// Fix up offset fields.
 		for i := 0; i < len(dh.Entries); i++ {
 			en := &dh.Entries[i]
-			en.Offset = fuseops.DirOffset(i+dh.BaseOffset) + 1
+			// offset is 1 based, also need to account for "." and ".."
+			en.Offset = fuseops.DirOffset(i+dh.BaseOffset) + 1 + 2
 		}
 
 		if *resp.IsTruncated {

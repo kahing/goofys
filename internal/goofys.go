@@ -606,7 +606,7 @@ func (fs *Goofys) ReadDir(
 		panic(fmt.Sprintf("can't find dh=%v", op.Handle))
 	}
 
-	fs.logFuse("ReadDir", *dh.inode.FullName, op.Offset)
+	dh.inode.logFuse("ReadDir", op.Offset)
 
 	for i := op.Offset; ; i++ {
 		e, err := dh.ReadDir(fs, i)
@@ -621,7 +621,8 @@ func (fs *Goofys) ReadDir(
 		if n == 0 {
 			break
 		}
-		fs.logFuse("ReadDir", *dh.inode.FullName, e.Name)
+
+		dh.inode.logFuse("<-- ReadDir", e.Name, e.Offset)
 
 		op.BytesRead += n
 	}

@@ -302,8 +302,16 @@ func (s *GoofysTest) TestGetInodeAttributes(t *C) {
 }
 
 func (s *GoofysTest) readDirFully(t *C, dh *DirHandle) (entries []fuseutil.Dirent) {
-	for i := fuseops.DirOffset(0); ; i++ {
-		en, err := dh.ReadDir(s.fs, i)
+	en, err := dh.ReadDir(s.fs, fuseops.DirOffset(0))
+	t.Assert(err, IsNil)
+	t.Assert(en.Name, Equals, ".")
+
+	en, err = dh.ReadDir(s.fs, fuseops.DirOffset(1))
+	t.Assert(err, IsNil)
+	t.Assert(en.Name, Equals, "..")
+
+	for i := fuseops.DirOffset(2); ; i++ {
+		en, err = dh.ReadDir(s.fs, i)
 		t.Assert(err, IsNil)
 
 		if en == nil {
