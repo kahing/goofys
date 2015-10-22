@@ -24,6 +24,8 @@ package internal
 import (
 	"io"
 	"sync"
+
+	"github.com/shirou/gopsutil/mem"
 )
 
 type BufferPoolHandle struct {
@@ -45,6 +47,21 @@ type BufferPool struct {
 }
 
 const BUF_SIZE = 10 * 1024 * 1024
+
+func (pool BufferPool) Init() *BufferPool {
+	m, err := mem.VirtualMemory()
+	if err != nil {
+		panic(err)
+	}
+	max := int64(m.Free) / 2
+	pool.maxBuffersGlobal = max/BUF_SIZE + 1
+	pool.maxBuffersPerHandle = 200 * 1024 * 1024 / BUF_SIZE
+	pool.cond = sync.NewCond(&pool.mu)
+	log.Debugf("amounnt of free memory: %v", m.Free)
+	log.Debugf("using up to %v %vMB buffers", pool.maxBuffersGlobal, BUF_SIZE/1024/1024)
+
+	return &pool
+}
 
 func NewBufferPool(maxSizeGlobal int64, maxSizePerHandle int64) *BufferPool {
 	pool := &BufferPool{
