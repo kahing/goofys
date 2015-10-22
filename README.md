@@ -65,9 +65,7 @@ List of not yet implemented fuse operations:
   * in terms of syscalls
     * `readlink`
     * `chmod`/`utimes`/`ftruncate`
-  * in terms of fuse functions
-    * `ReadSymlink`
-    * `SetInodeAttributes`
+    * `fsync`
 
 List of non-POSIX behaviors/limitations:
   * only sequential writes supported
@@ -79,6 +77,7 @@ List of non-POSIX behaviors/limitations:
   * cannot rename non-empty directories
   * `unlink` returns success even if file is not present
   * can only create files up to 50GB
+  * no `symlink` support
 
 # References
 
