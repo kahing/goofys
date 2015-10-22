@@ -698,11 +698,7 @@ func (fs *Goofys) FlushFile(
 	ctx context.Context,
 	op *fuseops.FlushFileOp) (err error) {
 
-	fs.mu.Lock()
-	fh := fs.fileHandles[op.Handle]
-	fs.mu.Unlock()
-
-	err = fh.FlushFile(fs)
+	// see ReleaseFileHandle
 
 	return
 }
@@ -711,9 +707,15 @@ func (fs *Goofys) ReleaseFileHandle(
 	ctx context.Context,
 	op *fuseops.ReleaseFileHandleOp) (err error) {
 	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
+	fh := fs.fileHandles[op.Handle]
 	delete(fs.fileHandles, op.Handle)
+	fs.mu.Unlock()
+
+	err = fh.FlushFile(fs)
+	if err != nil {
+		fh.inode.logErr("FlushFile", err)
+	}
+
 	return
 }
 

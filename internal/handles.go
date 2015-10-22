@@ -108,6 +108,10 @@ func NewFileHandle(in *Inode) *FileHandle {
 	return fh
 }
 
+func (inode *Inode) logErr(op string, err error, args ...interface{}) {
+	log.Printf("%v: %v %v [%v] %v", op, inode.Id, *inode.FullName, err, args)
+}
+
 func (inode *Inode) logFuse(op string, args ...interface{}) {
 	if inode.flags.DebugFuse {
 		log.Printf("%v: %v [%v] %v", op, inode.Id, *inode.FullName, args)
