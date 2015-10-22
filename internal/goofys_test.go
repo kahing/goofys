@@ -214,6 +214,7 @@ func (s *GoofysTest) setupDefaultEnv(t *C) (bucket string) {
 		"file1":           nil,
 		"file2":           nil,
 		"dir1/file3":      nil,
+		"dir2/dir3/":      nil,
 		"dir2/dir3/file4": nil,
 		"empty_dir/":      nil,
 		"zero":            bytes.NewReader([]byte{}),
@@ -545,6 +546,13 @@ func (s *GoofysTest) TestRename(t *C) {
 
 	from, to := "dir1", "new_dir"
 	err := root.Rename(s.fs, &from, root, &to)
+	t.Assert(err, Equals, fuse.ENOTEMPTY)
+
+	dir2, err := root.LookUp(s.fs, aws.String("dir2"))
+	t.Assert(err, IsNil)
+
+	from, to = "dir3", "new_dir"
+	err = dir2.Rename(s.fs, &from, root, &to)
 	t.Assert(err, Equals, fuse.ENOTEMPTY)
 
 	from, to = "empty_dir", "dir1"

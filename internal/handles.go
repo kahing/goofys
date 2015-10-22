@@ -266,7 +266,7 @@ func isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
 	params := &s3.ListObjectsInput{
 		Bucket:    &fs.bucket,
 		Delimiter: aws.String("/"),
-		MaxKeys:   aws.Int64(1),
+		MaxKeys:   aws.Int64(2),
 		Prefix:    &fullName,
 	}
 
@@ -278,7 +278,10 @@ func isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
 	if len(resp.CommonPrefixes) > 0 || len(resp.Contents) > 1 {
 		err = fuse.ENOTEMPTY
 		isDir = true
-	} else if len(resp.Contents) == 1 {
+		return
+	}
+
+	if len(resp.Contents) == 1 {
 		isDir = true
 
 		if *resp.Contents[0].Key != fullName {
