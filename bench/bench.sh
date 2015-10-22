@@ -17,7 +17,7 @@ PID=$!
 
 function cleanup {
     popd >/dev/null
-    rmdir $prefix
+    rmdir $prefix >& /dev/null || true # riofs doesn't support rmdir
 
     if [ "$PID" != "" ]; then
         kill $PID >& /dev/null
@@ -76,7 +76,8 @@ function create_files {
 }
 
 function ls_files {
-    ls > /dev/null
+    # people usually use ls in the terminal when color is on
+    ls --color=always > /dev/null
 }
 
 function rm_files {
