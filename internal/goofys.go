@@ -698,7 +698,10 @@ func (fs *Goofys) FlushFile(
 	ctx context.Context,
 	op *fuseops.FlushFileOp) (err error) {
 
-	// see ReleaseFileHandle
+	// the call sequence that we see for new files:
+	// creat() -> flush() -> write() -> flush() -> release()
+	// we should detect the first flush and ignore it,
+	// for now we just flush on release()
 
 	return
 }
