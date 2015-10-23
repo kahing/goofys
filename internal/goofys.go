@@ -269,8 +269,8 @@ func mapAwsError(err error) error {
 	}
 }
 
-func (fs *Goofys) LookUpInodeNotDir(name *string, c chan s3.HeadObjectOutput, errc chan error) {
-	params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: name}
+func (fs *Goofys) LookUpInodeNotDir(name string, c chan s3.HeadObjectOutput, errc chan error) {
+	params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: &name}
 	resp, err := fs.s3.HeadObject(params)
 	if err != nil {
 		errc <- mapAwsError(err)
@@ -281,12 +281,12 @@ func (fs *Goofys) LookUpInodeNotDir(name *string, c chan s3.HeadObjectOutput, er
 	c <- *resp
 }
 
-func (fs *Goofys) LookUpInodeDir(name *string, c chan s3.ListObjectsOutput, errc chan error) {
+func (fs *Goofys) LookUpInodeDir(name string, c chan s3.ListObjectsOutput, errc chan error) {
 	params := &s3.ListObjectsInput{
 		Bucket:    &fs.bucket,
 		Delimiter: aws.String("/"),
 		MaxKeys:   aws.Int64(1),
-		Prefix:    aws.String(*name + "/"),
+		Prefix:    aws.String(name + "/"),
 	}
 
 	resp, err := fs.s3.ListObjects(params)
@@ -299,7 +299,7 @@ func (fs *Goofys) LookUpInodeDir(name *string, c chan s3.ListObjectsOutput, errc
 	c <- *resp
 }
 
-func (fs *Goofys) mpuCopyPart(from *string, to *string, mpuId *string, bytes string, part int64, wg *sync.WaitGroup,
+func (fs *Goofys) mpuCopyPart(from string, to string, mpuId string, bytes string, part int64, wg *sync.WaitGroup,
 	etag **string, errout *error) {
 
 	defer func() {
@@ -310,9 +310,9 @@ func (fs *Goofys) mpuCopyPart(from *string, to *string, mpuId *string, bytes str
 	// we are copying from the same object
 	params := &s3.UploadPartCopyInput{
 		Bucket:          &fs.bucket,
-		Key:             to,
-		CopySource:      from,
-		UploadId:        mpuId,
+		Key:             &to,
+		CopySource:      &from,
+		UploadId:        &mpuId,
 		CopySourceRange: &bytes,
 		PartNumber:      &part,
 	}
@@ -339,7 +339,7 @@ func sizeToParts(size int64) int {
 	return nParts
 }
 
-func (fs *Goofys) mpuCopyParts(size int64, from *string, to *string, mpuId *string,
+func (fs *Goofys) mpuCopyParts(size int64, from string, to string, mpuId string,
 	wg *sync.WaitGroup, etags []*string, err *error) {
 
 	const PART_SIZE = 5 * 1024 * 1024 * 1024
@@ -360,15 +360,15 @@ func (fs *Goofys) mpuCopyParts(size int64, from *string, to *string, mpuId *stri
 	}
 }
 
-func (fs *Goofys) copyObjectMultipart(size int64, from *string, to *string, mpuId *string) (err error) {
+func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId string) (err error) {
 	var wg sync.WaitGroup
 	nParts := sizeToParts(size)
 	etags := make([]*string, nParts)
 
-	if mpuId == nil {
+	if mpuId == "" {
 		params := &s3.CreateMultipartUploadInput{
 			Bucket:       &fs.bucket,
-			Key:          to,
+			Key:          &to,
 			StorageClass: &fs.flags.StorageClass,
 		}
 
@@ -377,7 +377,7 @@ func (fs *Goofys) copyObjectMultipart(size int64, from *string, to *string, mpuI
 			return mapAwsError(err)
 		}
 
-		mpuId = resp.UploadId
+		mpuId = *resp.UploadId
 	}
 
 	fs.mpuCopyParts(size, from, to, mpuId, &wg, etags, &err)
@@ -396,8 +396,8 @@ func (fs *Goofys) copyObjectMultipart(size int64, from *string, to *string, mpuI
 
 		params := &s3.CompleteMultipartUploadInput{
 			Bucket:   &fs.bucket,
-			Key:      to,
-			UploadId: mpuId,
+			Key:      &to,
+			UploadId: &mpuId,
 			MultipartUpload: &s3.CompletedMultipartUpload{
 				Parts: parts,
 			},
@@ -414,7 +414,7 @@ func (fs *Goofys) copyObjectMultipart(size int64, from *string, to *string, mpuI
 	return
 }
 
-func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to *string) (err error) {
+func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (err error) {
 	if size == -1 {
 		params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: &from}
 		resp, err := fs.s3.HeadObject(params)
@@ -428,13 +428,13 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to *string) 
 	from = fs.bucket + "/" + from
 
 	if size > 5*1024*1024*1024 {
-		return fs.copyObjectMultipart(size, &from, to, nil)
+		return fs.copyObjectMultipart(size, from, to, "")
 	}
 
 	params := &s3.CopyObjectInput{
 		Bucket:       &fs.bucket,
 		CopySource:   &from,
-		Key:          to,
+		Key:          &to,
 		StorageClass: &fs.flags.StorageClass,
 	}
 
@@ -453,7 +453,7 @@ func (fs *Goofys) allocateInodeId() (id fuseops.InodeID) {
 }
 
 // returned inode has nil Id
-func (fs *Goofys) LookUpInodeMaybeDir(name *string, fullName *string) (inode *Inode, err error) {
+func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inode, err error) {
 	errObjectChan := make(chan error, 1)
 	objectChan := make(chan s3.HeadObjectOutput, 1)
 	errDirChan := make(chan error, 1)
@@ -468,7 +468,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name *string, fullName *string) (inode *In
 		select {
 		case resp := <-objectChan:
 			// XXX/TODO if both object and object/ exists, return dir
-			inode = NewInode(name, fullName, fs.flags)
+			inode = NewInode(&name, &fullName, fs.flags)
 			inode.Attributes = &fuseops.InodeAttributes{
 				Size:   uint64(*resp.ContentLength),
 				Nlink:  1,
@@ -494,7 +494,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name *string, fullName *string) (inode *In
 			}
 		case resp := <-dirChan:
 			if len(resp.CommonPrefixes) != 0 || len(resp.Contents) != 0 {
-				inode = NewInode(name, fullName, fs.flags)
+				inode = NewInode(&name, &fullName, fs.flags)
 				inode.Attributes = &fs.rootAttrs
 				return
 			} else {
@@ -518,13 +518,13 @@ func (fs *Goofys) LookUpInode(
 	fs.mu.Lock()
 
 	parent := fs.getInodeOrDie(op.Parent)
-	inode, ok := fs.inodesCache[*parent.getChildName(&op.Name)]
+	inode, ok := fs.inodesCache[parent.getChildName(op.Name)]
 	if ok {
 		defer inode.Ref()
 	} else {
 		fs.mu.Unlock()
 
-		inode, err = parent.LookUp(fs, &op.Name)
+		inode, err = parent.LookUp(fs, op.Name)
 		if err != nil {
 			return err
 		}
@@ -730,7 +730,7 @@ func (fs *Goofys) CreateFile(
 	parent := fs.getInodeOrDie(op.Parent)
 	fs.mu.Unlock()
 
-	inode, fh := parent.Create(fs, &op.Name)
+	inode, fh := parent.Create(fs, op.Name)
 
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -770,7 +770,7 @@ func (fs *Goofys) MkDir(
 	fs.mu.Unlock()
 
 	// ignore op.Mode for now
-	inode, err := parent.MkDir(fs, &op.Name)
+	inode, err := parent.MkDir(fs, op.Name)
 	if err != nil {
 		return err
 	}
@@ -800,7 +800,7 @@ func (fs *Goofys) RmDir(
 	parent := fs.getInodeOrDie(op.Parent)
 	fs.mu.Unlock()
 
-	err = parent.RmDir(fs, &op.Name)
+	err = parent.RmDir(fs, op.Name)
 	return
 }
 
@@ -836,7 +836,7 @@ func (fs *Goofys) Unlink(
 	parent := fs.getInodeOrDie(op.Parent)
 	fs.mu.Unlock()
 
-	err = parent.Unlink(fs, &op.Name)
+	err = parent.Unlink(fs, op.Name)
 	return
 }
 
@@ -849,5 +849,5 @@ func (fs *Goofys) Rename(
 	newParent := fs.getInodeOrDie(op.NewParent)
 	fs.mu.Unlock()
 
-	return parent.Rename(fs, &op.OldName, newParent, &op.NewName)
+	return parent.Rename(fs, op.OldName, newParent, op.NewName)
 }

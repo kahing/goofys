@@ -266,13 +266,13 @@ func (s *GoofysTest) LookUpInode(t *C, name string) (in *Inode, err error) {
 		dirName := name[0:idx]
 		name = name[idx+1:]
 
-		parent, err = parent.LookUp(s.fs, &dirName)
+		parent, err = parent.LookUp(s.fs, dirName)
 		if err != nil {
 			return
 		}
 	}
 
-	in, err = parent.LookUp(s.fs, &name)
+	in, err = parent.LookUp(s.fs, name)
 	return
 }
 
@@ -294,7 +294,7 @@ func (s *GoofysTest) TestLookUpInode(t *C) {
 }
 
 func (s *GoofysTest) TestGetInodeAttributes(t *C) {
-	inode, err := s.getRoot(t).LookUp(s.fs, aws.String("file1"))
+	inode, err := s.getRoot(t).LookUp(s.fs, "file1")
 	t.Assert(err, IsNil)
 
 	attr, err := inode.GetAttributes(s.fs)
@@ -355,7 +355,7 @@ func (s *GoofysTest) TestReadDir(t *C) {
 	s.assertEntries(t, in, []string{"dir3"})
 
 	// test listing dir2/dir3/
-	in, err = in.LookUp(s.fs, aws.String("dir3"))
+	in, err = in.LookUp(s.fs, "dir3")
 	t.Assert(err, IsNil)
 	s.assertEntries(t, in, []string{"file4"})
 }
@@ -374,7 +374,7 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 		}
 
 		if en.Type == fuseutil.DT_File {
-			in, err := parent.LookUp(s.fs, &en.Name)
+			in, err := parent.LookUp(s.fs, en.Name)
 			t.Assert(err, IsNil)
 
 			fh := in.OpenFile(s.fs)
@@ -398,7 +398,7 @@ func (s *GoofysTest) TestReadOffset(t *C) {
 	root := s.getRoot(t)
 	f := "file1"
 
-	in, err := root.LookUp(s.fs, &f)
+	in, err := root.LookUp(s.fs, f)
 	t.Assert(err, IsNil)
 
 	fh := in.OpenFile(s.fs)
@@ -414,7 +414,7 @@ func (s *GoofysTest) TestReadOffset(t *C) {
 func (s *GoofysTest) TestCreateFiles(t *C) {
 	fileName := "testCreateFile"
 
-	_, fh := s.getRoot(t).Create(s.fs, &fileName)
+	_, fh := s.getRoot(t).Create(s.fs, fileName)
 
 	err := fh.FlushFile(s.fs)
 	t.Assert(err, IsNil)
@@ -424,13 +424,13 @@ func (s *GoofysTest) TestCreateFiles(t *C) {
 	t.Assert(*resp.ContentLength, DeepEquals, int64(0))
 	defer resp.Body.Close()
 
-	_, err = s.getRoot(t).LookUp(s.fs, &fileName)
+	_, err = s.getRoot(t).LookUp(s.fs, fileName)
 	t.Assert(err, IsNil)
 
 	fileName = "testCreateFile2"
 	s.testWriteFile(t, fileName, 1, 128*1024)
 
-	inode, err := s.getRoot(t).LookUp(s.fs, &fileName)
+	inode, err := s.getRoot(t).LookUp(s.fs, fileName)
 	t.Assert(err, IsNil)
 
 	fh = inode.OpenFile(s.fs)
@@ -446,7 +446,7 @@ func (s *GoofysTest) TestCreateFiles(t *C) {
 func (s *GoofysTest) TestUnlink(t *C) {
 	fileName := "file1"
 
-	err := s.getRoot(t).Unlink(s.fs, &fileName)
+	err := s.getRoot(t).Unlink(s.fs, fileName)
 	t.Assert(err, IsNil)
 
 	// make sure that it's gone from s3
@@ -455,7 +455,7 @@ func (s *GoofysTest) TestUnlink(t *C) {
 }
 
 func (s *GoofysTest) testWriteFile(t *C, fileName string, size int64, write_size int) {
-	_, fh := s.getRoot(t).Create(s.fs, &fileName)
+	_, fh := s.getRoot(t).Create(s.fs, fileName)
 
 	buf := make([]byte, write_size)
 	nwritten := int64(0)
@@ -525,35 +525,32 @@ func (s *GoofysTest) TestMkDir(t *C) {
 	t.Assert(err, Equals, fuse.ENOENT)
 
 	dirName := "new_dir"
-	inode, err := s.getRoot(t).MkDir(s.fs, &dirName)
+	inode, err := s.getRoot(t).MkDir(s.fs, dirName)
 	t.Assert(err, IsNil)
 
-	_, err = s.LookUpInode(t, "new_dir")
+	_, err = s.LookUpInode(t, dirName)
 	t.Assert(err, IsNil)
 
 	fileName := "file"
-	_, fh := inode.Create(s.fs, &fileName)
+	_, fh := inode.Create(s.fs, fileName)
 
 	err = fh.FlushFile(s.fs)
 	t.Assert(err, IsNil)
 
-	_, err = s.LookUpInode(t, "new_dir/file")
+	_, err = s.LookUpInode(t, dirName+"/"+fileName)
 	t.Assert(err, IsNil)
 }
 
 func (s *GoofysTest) TestRmDir(t *C) {
 	root := s.getRoot(t)
 
-	dir := "dir1"
-	err := root.RmDir(s.fs, &dir)
+	err := root.RmDir(s.fs, "dir1")
 	t.Assert(err, Equals, fuse.ENOTEMPTY)
 
-	dir = "dir2"
-	err = root.RmDir(s.fs, &dir)
+	err = root.RmDir(s.fs, "dir2")
 	t.Assert(err, Equals, fuse.ENOTEMPTY)
 
-	dir = "empty_dir"
-	err = root.RmDir(s.fs, &dir)
+	err = root.RmDir(s.fs, "empty_dir")
 	t.Assert(err, IsNil)
 
 }
@@ -562,30 +559,30 @@ func (s *GoofysTest) TestRename(t *C) {
 	root := s.getRoot(t)
 
 	from, to := "dir1", "new_dir"
-	err := root.Rename(s.fs, &from, root, &to)
+	err := root.Rename(s.fs, from, root, to)
 	t.Assert(err, Equals, fuse.ENOTEMPTY)
 
-	dir2, err := root.LookUp(s.fs, aws.String("dir2"))
+	dir2, err := root.LookUp(s.fs, "dir2")
 	t.Assert(err, IsNil)
 
 	from, to = "dir3", "new_dir"
-	err = dir2.Rename(s.fs, &from, root, &to)
+	err = dir2.Rename(s.fs, from, root, to)
 	t.Assert(err, Equals, fuse.ENOTEMPTY)
 
 	from, to = "empty_dir", "dir1"
-	err = root.Rename(s.fs, &from, root, &to)
+	err = root.Rename(s.fs, from, root, to)
 	t.Assert(err, Equals, fuse.ENOTEMPTY)
 
 	from, to = "empty_dir", "file1"
-	err = root.Rename(s.fs, &from, root, &to)
+	err = root.Rename(s.fs, from, root, to)
 	t.Assert(err, Equals, fuse.ENOTDIR)
 
 	from, to = "file1", "empty_dir"
-	err = root.Rename(s.fs, &from, root, &to)
+	err = root.Rename(s.fs, from, root, to)
 	t.Assert(err, Equals, syscall.EISDIR)
 
 	from, to = "file1", "new_file"
-	err = root.Rename(s.fs, &from, root, &to)
+	err = root.Rename(s.fs, from, root, to)
 	t.Assert(err, IsNil)
 
 	_, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &to})
@@ -596,7 +593,7 @@ func (s *GoofysTest) TestRename(t *C) {
 
 	from, to = "file3", "new_file"
 	dir, _ := s.LookUpInode(t, "dir1")
-	err = dir.Rename(s.fs, &from, root, &to)
+	err = dir.Rename(s.fs, from, root, to)
 	t.Assert(err, IsNil)
 
 	_, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &to})
@@ -606,11 +603,11 @@ func (s *GoofysTest) TestRename(t *C) {
 	t.Assert(mapAwsError(err), Equals, fuse.ENOENT)
 
 	from, to = "no_such_file", "new_file"
-	err = root.Rename(s.fs, &from, root, &to)
+	err = root.Rename(s.fs, from, root, to)
 	t.Assert(err, Equals, fuse.ENOENT)
 
 	// not really rename but can be used by rename
 	from, to = s.fs.bucket+"/file2", "new_file"
-	err = s.fs.copyObjectMultipart(int64(len(from)), &from, &to, nil)
+	err = s.fs.copyObjectMultipart(int64(len(from)), from, to, "")
 	t.Assert(err, IsNil)
 }

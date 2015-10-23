@@ -71,15 +71,6 @@ func NewDirHandle(inode *Inode) (dh *DirHandle) {
 	return
 }
 
-func (dh *DirHandle) IsDir(name *string) bool {
-	en, ok := dh.NameToEntry[*name]
-	if !ok {
-		return false
-	}
-
-	return en.Nlink == 2
-}
-
 type FileHandle struct {
 	inode *Inode
 
@@ -119,7 +110,7 @@ func (inode *Inode) logFuse(op string, args ...interface{}) {
 }
 
 // LOCKS_REQUIRED(parent.mu)
-func (parent *Inode) lookupFromDirHandles(name *string) (inode *Inode) {
+func (parent *Inode) lookupFromDirHandles(name string) (inode *Inode) {
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
@@ -130,9 +121,10 @@ func (parent *Inode) lookupFromDirHandles(name *string) (inode *Inode) {
 	}()
 
 	for dh := range parent.handles {
-		attr, ok := dh.NameToEntry[*name]
+		attr, ok := dh.NameToEntry[name]
 		if ok {
-			inode = NewInode(name, parent.getChildName(name), parent.flags)
+			fullName := parent.getChildName(name)
+			inode = NewInode(&name, &fullName, parent.flags)
 			inode.Attributes = &attr
 			return
 		}
@@ -141,8 +133,8 @@ func (parent *Inode) lookupFromDirHandles(name *string) (inode *Inode) {
 	return
 }
 
-func (parent *Inode) LookUp(fs *Goofys, name *string) (inode *Inode, err error) {
-	parent.logFuse("Inode.LookUp", *name)
+func (parent *Inode) LookUp(fs *Goofys, name string) (inode *Inode, err error) {
+	parent.logFuse("Inode.LookUp", name)
 
 	inode = parent.lookupFromDirHandles(name)
 	if inode != nil {
@@ -157,12 +149,11 @@ func (parent *Inode) LookUp(fs *Goofys, name *string) (inode *Inode, err error) 
 	return
 }
 
-func (parent *Inode) getChildName(name *string) *string {
+func (parent *Inode) getChildName(name string) string {
 	if parent.Id == fuseops.RootInodeID {
 		return name
 	} else {
-		fullName := fmt.Sprintf("%v/%v", *parent.FullName, *name)
-		return &fullName
+		return fmt.Sprintf("%v/%v", *parent.FullName, name)
 	}
 }
 
@@ -181,12 +172,14 @@ func (inode *Inode) DeRef(n uint64) (stale bool) {
 	return inode.refcnt == 0
 }
 
-func (parent *Inode) Unlink(fs *Goofys, name *string) (err error) {
+func (parent *Inode) Unlink(fs *Goofys, name string) (err error) {
+	parent.logFuse("Unlink", name)
+
 	fullName := parent.getChildName(name)
 
 	params := &s3.DeleteObjectInput{
 		Bucket: &fs.bucket,
-		Key:    fullName,
+		Key:    &fullName,
 	}
 
 	resp, err := fs.s3.DeleteObject(params)
@@ -201,17 +194,16 @@ func (parent *Inode) Unlink(fs *Goofys, name *string) (err error) {
 
 func (parent *Inode) Create(
 	fs *Goofys,
-	name *string) (inode *Inode, fh *FileHandle) {
+	name string) (inode *Inode, fh *FileHandle) {
 
-	parent.logFuse("Create", *name)
+	parent.logFuse("Create", name)
+	fullName := parent.getChildName(name)
 
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
-	fullName := parent.getChildName(name)
-
 	now := time.Now()
-	inode = NewInode(name, fullName, parent.flags)
+	inode = NewInode(&name, &fullName, parent.flags)
 	inode.Attributes = &fuseops.InodeAttributes{
 		Size:   0,
 		Nlink:  1,
@@ -233,16 +225,15 @@ func (parent *Inode) Create(
 
 func (parent *Inode) MkDir(
 	fs *Goofys,
-	name *string) (inode *Inode, err error) {
+	name string) (inode *Inode, err error) {
 
-	parent.logFuse("MkDir", *name)
+	parent.logFuse("MkDir", name)
 
-	fullName := parent.getChildName(name)
-	*fullName += "/"
+	fullName := parent.getChildName(name) + "/"
 
 	params := &s3.PutObjectInput{
 		Bucket: &fs.bucket,
-		Key:    fullName,
+		Key:    &fullName,
 		Body:   nil,
 	}
 	_, err = fs.s3.PutObject(params)
@@ -254,7 +245,7 @@ func (parent *Inode) MkDir(
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
-	inode = NewInode(name, fullName, parent.flags)
+	inode = NewInode(&name, &fullName, parent.flags)
 	inode.Attributes = &fs.rootAttrs
 
 	return
@@ -294,13 +285,13 @@ func isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
 
 func (parent *Inode) RmDir(
 	fs *Goofys,
-	name *string) (err error) {
+	name string) (err error) {
 
-	parent.logFuse("Rmdir", *name)
+	parent.logFuse("Rmdir", name)
 
 	fullName := parent.getChildName(name)
 
-	isDir, err := isEmptyDir(fs, *fullName)
+	isDir, err := isEmptyDir(fs, fullName)
 	if err != nil {
 		return
 	}
@@ -308,11 +299,11 @@ func (parent *Inode) RmDir(
 		return fuse.ENOENT
 	}
 
-	*fullName += "/"
+	fullName += "/"
 
 	params := &s3.DeleteObjectInput{
 		Bucket: &fs.bucket,
-		Key:    fullName,
+		Key:    &fullName,
 	}
 
 	_, err = fs.s3.DeleteObject(params)
@@ -711,8 +702,8 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 	return
 }
 
-func (parent *Inode) Rename(fs *Goofys, from *string, newParent *Inode, to *string) (err error) {
-	parent.logFuse("Rename", *from, *newParent.getChildName(to))
+func (parent *Inode) Rename(fs *Goofys, from string, newParent *Inode, to string) (err error) {
+	parent.logFuse("Rename", from, newParent.getChildName(to))
 
 	fromFullName := parent.getChildName(from)
 
@@ -720,7 +711,7 @@ func (parent *Inode) Rename(fs *Goofys, from *string, newParent *Inode, to *stri
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
-	fromIsDir, err := isEmptyDir(fs, *fromFullName)
+	fromIsDir, err := isEmptyDir(fs, fromFullName)
 	if err != nil {
 		// we don't support renaming a directory that's not empty
 		return
@@ -733,7 +724,7 @@ func (parent *Inode) Rename(fs *Goofys, from *string, newParent *Inode, to *stri
 		defer newParent.mu.Unlock()
 	}
 
-	toIsDir, err := isEmptyDir(fs, *toFullName)
+	toIsDir, err := isEmptyDir(fs, toFullName)
 	if err != nil {
 		return
 	}
@@ -746,19 +737,19 @@ func (parent *Inode) Rename(fs *Goofys, from *string, newParent *Inode, to *stri
 
 	size := int64(-1)
 	if fromIsDir {
-		*fromFullName += "/"
-		*toFullName += "/"
+		fromFullName += "/"
+		toFullName += "/"
 		size = 0
 	}
 
-	err = fs.copyObjectMaybeMultipart(size, *fromFullName, toFullName)
+	err = fs.copyObjectMaybeMultipart(size, fromFullName, toFullName)
 	if err != nil {
 		return err
 	}
 
 	delParams := &s3.DeleteObjectInput{
 		Bucket: &fs.bucket,
-		Key:    fromFullName,
+		Key:    &fromFullName,
 	}
 
 	_, err = fs.s3.DeleteObject(delParams)
