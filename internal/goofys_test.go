@@ -394,6 +394,23 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 	}
 }
 
+func (s *GoofysTest) TestReadOffset(t *C) {
+	root := s.getRoot(t)
+	f := "file1"
+
+	in, err := root.LookUp(s.fs, &f)
+	t.Assert(err, IsNil)
+
+	fh := in.OpenFile(s.fs)
+
+	buf := make([]byte, 4096)
+
+	nread, err := fh.ReadFile(s.fs, 1, buf)
+	t.Assert(err, IsNil)
+	t.Assert(nread, Equals, len(f)-1)
+	t.Assert(string(buf[0:nread]), DeepEquals, f[1:])
+}
+
 func (s *GoofysTest) TestCreateFiles(t *C) {
 	fileName := "testCreateFile"
 

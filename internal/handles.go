@@ -540,6 +540,8 @@ func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, e
 			fh.reader.Close()
 			fh.reader = nil
 		}
+	} else {
+		fh.readBufOffset = offset
 	}
 
 	return
