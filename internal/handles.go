@@ -515,15 +515,17 @@ func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, e
 	fh.mu.Lock()
 	defer fh.mu.Unlock()
 	if fh.inode.flags.DebugFuse {
-		defer fh.inode.logFuse("< readFromStream", bytesRead)
+		defer func() {
+			fh.inode.logFuse("< readFromStream", bytesRead)
+		}()
 	}
 
 	if fh.reader != nil {
 		// try to service read from existing stream
 		if offset == fh.readBufOffset {
-			nread, err := tryReadAll(fh.reader, buf)
-			fh.readBufOffset += int64(nread)
-			return nread, err
+			bytesRead, err = tryReadAll(fh.reader, buf)
+			fh.readBufOffset += int64(bytesRead)
+			return
 		} else {
 			// XXX out of order read, maybe disable prefetching
 			fh.inode.logFuse("out of order read", offset, fh.readBufOffset)
@@ -541,7 +543,9 @@ func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, e
 func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
 	fh.inode.logFuse("ReadFile", offset, len(buf), fh.readBufOffset)
 	if fh.inode.flags.DebugFuse {
-		defer fh.inode.logFuse("< ReadFile", bytesRead)
+		defer func() {
+			fh.inode.logFuse("< ReadFile", bytesRead)
+		}()
 	}
 
 	if uint64(offset) >= fh.inode.Attributes.Size {
