@@ -501,9 +501,6 @@ func tryReadAll(r io.ReadCloser, buf []byte) (bytesRead int, err error) {
 		toRead -= nread
 
 		if err != nil {
-			if err == io.EOF {
-				err = nil
-			}
 			return bytesRead, err
 		}
 	}
@@ -524,6 +521,11 @@ func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, e
 		// try to service read from existing stream
 		if offset == fh.readBufOffset {
 			bytesRead, err = tryReadAll(fh.reader, buf)
+			if err == io.EOF {
+				err = nil
+				fh.reader.Close()
+				fh.reader = nil
+			}
 			fh.readBufOffset += int64(bytesRead)
 			return
 		} else {
@@ -589,8 +591,14 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 	reqLen = int(*resp.ContentLength)
 	fh.reader = resp.Body
 
-	bytesRead, err = tryReadAll(resp.Body, buf)
-	fh.readBufOffset += int64(bytesRead)
+	nread, err := tryReadAll(resp.Body, buf)
+	if err == io.EOF {
+		err = nil
+		fh.reader.Close()
+		fh.reader = nil
+	}
+	fh.readBufOffset += int64(nread)
+	bytesRead += nread
 
 	return
 }
