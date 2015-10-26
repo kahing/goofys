@@ -3,20 +3,26 @@
 set -o errexit
 set -o nounset
 
-if [ $# != 2 ]; then
+if [ $# -lt 2 ]; then
     echo "Usage: $0 <mount cmd> <dir>"
     exit 1
 fi
 
 cmd=$1
 mnt=$2
+if [ $# -gt 2 ]; then
+    t=$3
+else
+    t=
+fi
+
 prefix=$mnt/test_dir
 
 $cmd >& mount.log &
 PID=$!
 
 function cleanup {
-    popd >/dev/null
+    popd
     rmdir $prefix >& /dev/null || true # riofs doesn't support rmdir
 
     if [ "$PID" != "" ]; then
@@ -26,16 +32,15 @@ function cleanup {
 }
 
 function cleanup_err {
-    err=$?
-    popd >/dev/null
-    rmdir $prefix
+    popd >&/dev/null || true
+    rmdir $prefix >&/dev/null || true
 
     if [ "$PID" != "" ]; then
         kill $PID >& /dev/null
         fusermount -u $mnt >& /dev/null
     fi
 
-    return $err
+    return 1
 }
 
 trap cleanup EXIT
@@ -118,25 +123,33 @@ function read_first_byte {
     dd if=largefile of=/dev/null bs=1 count=1 status=none
 }
 
-for i in $(seq 1 10); do
-    run_test create_files
-    run_test rm_files
-done
+if [ "$t" = "" -o "$t" = "create" ]; then
+    for i in $(seq 1 10); do
+        run_test create_files
+        run_test rm_files
+    done
+fi
 
-for i in $(seq 1 10); do
-    run_test create_files_parallel
-    run_test rm_files_parallel
-done
+if [ "$t" = "" -o "$t" = "create_parallel" ]; then
+    for i in $(seq 1 10); do
+        run_test create_files_parallel
+        run_test rm_files_parallel
+    done
+fi
 
-create_files_parallel 1000
-for i in $(seq 1 10); do
-    run_test ls_files
-done
-rm_files 1000
+if [ "$t" = "" -o "$t" = "ls" ]; then
+    create_files_parallel 1000
+    for i in $(seq 1 10); do
+        run_test ls_files
+    done
+    rm_files 1000
+fi
 
-for i in $(seq 1 10); do
-    run_test write_large_file
-    run_test read_large_file
-    run_test read_first_byte
-    rm largefile
-done
+if [ "$t" = "" -o "$t" = "io" ]; then
+    for i in $(seq 1 10); do
+        run_test write_large_file
+        run_test read_large_file
+        run_test read_first_byte
+        rm largefile
+    done
+fi
