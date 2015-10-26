@@ -522,7 +522,6 @@ func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, e
 		if offset == fh.readBufOffset {
 			bytesRead, err = tryReadAll(fh.reader, buf)
 			if err == io.EOF {
-				err = nil
 				fh.reader.Close()
 				fh.reader = nil
 			}
@@ -532,11 +531,11 @@ func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, e
 			// XXX out of order read, maybe disable prefetching
 			fh.inode.logFuse("out of order read", offset, fh.readBufOffset)
 			fh.readBufOffset = offset
-			fh.reader.Close()
-			fh.reader = nil
+			if fh.reader != nil {
+				fh.reader.Close()
+				fh.reader = nil
+			}
 		}
-	} else {
-		fh.readBufOffset = offset
 	}
 
 	return
@@ -544,11 +543,15 @@ func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, e
 
 func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
 	fh.inode.logFuse("ReadFile", offset, len(buf), fh.readBufOffset)
-	if fh.inode.flags.DebugFuse {
-		defer func() {
+	defer func() {
+		if bytesRead != 0 && err != nil {
+			err = nil
+		}
+
+		if fh.inode.flags.DebugFuse {
 			fh.inode.logFuse("< ReadFile", bytesRead)
-		}()
-	}
+		}
+	}()
 
 	if uint64(offset) >= fh.inode.Attributes.Size {
 		// nothing to read
@@ -556,44 +559,37 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 	}
 
 	bytesRead, err = fh.readFromStream(offset, buf)
-	offset = fh.readBufOffset
+	if err != nil {
+		return
+	}
 
 	if bytesRead == len(buf) || uint64(offset) == fh.inode.Attributes.Size {
 		// nothing more to read
 		return
 	}
 
+	offset += int64(bytesRead)
 	buf = buf[bytesRead:]
-
-	reqLen := 5 * 1024 * 1024
-	if reqLen < len(buf) {
-		reqLen = len(buf)
-	}
-
-	end := uint64(offset) + uint64(reqLen) - 1
-	if end >= fh.inode.Attributes.Size {
-		end = fh.inode.Attributes.Size - 1
-	}
-	bytes := fmt.Sprintf("bytes=%v-%v", offset, end)
 
 	params := &s3.GetObjectInput{
 		Bucket: &fs.bucket,
 		Key:    fh.inode.FullName,
-		Range:  &bytes,
+	}
+
+	if offset != 0 {
+		bytes := fmt.Sprintf("bytes=%v-", offset)
+		params.Range = &bytes
 	}
 
 	resp, err := fs.s3.GetObject(params)
 	if err != nil {
-		return 0, mapAwsError(err)
+		return bytesRead, mapAwsError(err)
 	}
 
-	// XXX check if reqLen is smaller than expected, if so adjust file size
-	reqLen = int(*resp.ContentLength)
 	fh.reader = resp.Body
 
 	nread, err := tryReadAll(resp.Body, buf)
 	if err == io.EOF {
-		err = nil
 		fh.reader.Close()
 		fh.reader = nil
 	}
