@@ -501,6 +501,37 @@ func (s *GoofysTest) TestWriteLargeFile(t *C) {
 	s.testWriteFile(t, "testLargeFile2", 20*1024*1024, 128*1024)
 }
 
+func (s *GoofysTest) TestReadLargeFile(t *C) {
+	s.testWriteFile(t, "testLargeFile", 20*1024*1024, 128*1024)
+
+	root := s.getRoot(t)
+
+	in, err := root.LookUp(s.fs, "testLargeFile")
+	t.Assert(err, IsNil)
+
+	fh := in.OpenFile(s.fs)
+
+	buf := [128 * 1024]byte{}
+
+	totalRead := int64(0)
+	nread, err := fh.ReadFile(s.fs, 0, buf[:32*1024])
+	t.Assert(err, IsNil)
+	t.Assert(nread, Equals, 32*1024)
+	totalRead += int64(nread)
+
+	for {
+		nread, err := fh.ReadFile(s.fs, totalRead, buf[:])
+		t.Assert(err, IsNil)
+		totalRead += int64(nread)
+
+		if totalRead != 20*1024*1024 {
+			t.Assert(nread, Equals, len(buf))
+		} else {
+			break
+		}
+	}
+}
+
 func (s *GoofysTest) TestWriteManyFilesFile(t *C) {
 	var files sync.WaitGroup
 
