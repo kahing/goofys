@@ -22,25 +22,26 @@ $cmd >& mount.log &
 PID=$!
 
 function cleanup {
-    popd
+    popd >/dev/null
     rmdir $prefix >& /dev/null || true # riofs doesn't support rmdir
 
     if [ "$PID" != "" ]; then
-        kill $PID >& /dev/null
-        fusermount -u $mnt >& /dev/null
+        kill $PID >& /dev/null || true
+        fusermount -u $mnt >& /dev/null || true
     fi
 }
 
 function cleanup_err {
+    err=$?
     popd >&/dev/null || true
     rmdir $prefix >&/dev/null || true
 
     if [ "$PID" != "" ]; then
-        kill $PID >& /dev/null
-        fusermount -u $mnt >& /dev/null
+        kill $PID >& /dev/null || true
+        fusermount -u $mnt >& /dev/null || true
     fi
 
-    return 1
+    return $err
 }
 
 trap cleanup EXIT
@@ -116,7 +117,7 @@ function write_large_file {
 }
 
 function read_large_file {
-    dd if=largefile of=/dev/null bs=1MB count=1000 status=none
+    dd if=largefile of=/dev/null bs=1MB status=none
 }
 
 function read_first_byte {
