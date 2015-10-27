@@ -700,10 +700,11 @@ func (fs *Goofys) FlushFile(
 	ctx context.Context,
 	op *fuseops.FlushFileOp) (err error) {
 
-	// the call sequence that we see for new files:
-	// creat() -> flush() -> write() -> flush() -> release()
-	// we should detect the first flush and ignore it,
-	// for now we just flush on release()
+	fs.mu.Lock()
+	fh := fs.fileHandles[op.Handle]
+	fs.mu.Unlock()
+
+	err = fh.FlushFile(fs)
 
 	return
 }
@@ -712,15 +713,9 @@ func (fs *Goofys) ReleaseFileHandle(
 	ctx context.Context,
 	op *fuseops.ReleaseFileHandleOp) (err error) {
 	fs.mu.Lock()
-	fh := fs.fileHandles[op.Handle]
+	defer fs.mu.Unlock()
+
 	delete(fs.fileHandles, op.Handle)
-	fs.mu.Unlock()
-
-	err = fh.FlushFile(fs)
-	if err != nil {
-		fh.inode.logErr("FlushFile", err)
-	}
-
 	return
 }
 
