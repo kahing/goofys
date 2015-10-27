@@ -4,7 +4,11 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-t=$1
+if [ $# = 1 ]; then
+    t=$1
+else
+    t=
+fi
 
 dir=$(dirname $0)
 

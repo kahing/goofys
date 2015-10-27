@@ -58,11 +58,11 @@ function drop_cache {
 export TIMEFORMAT=%R
 
 function run_test {
-    t=$1
+    test=$1
     drop_cache
     sleep 1
-    echo -n "$t "
-    time $t
+    echo -n "$test "
+    time $test
 }
 
 function get_howmany {
