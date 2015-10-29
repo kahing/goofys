@@ -94,7 +94,7 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 	}
 
 	if flags.DebugS3 {
-		awsConfig.LogLevel = aws.LogLevel(aws.LogDebug)
+		awsConfig.LogLevel = aws.LogLevel(aws.LogDebug | aws.LogDebugWithRequestErrors)
 	}
 
 	fs.awsConfig = awsConfig
