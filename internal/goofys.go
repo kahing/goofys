@@ -27,6 +27,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/aws/session"
 
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
@@ -51,6 +52,7 @@ type Goofys struct {
 	umask uint32
 
 	awsConfig *aws.Config
+	sess      *session.Session
 	s3        *s3.S3
 	rootAttrs fuseops.InodeAttributes
 
@@ -98,7 +100,8 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 	}
 
 	fs.awsConfig = awsConfig
-	fs.s3 = s3.New(awsConfig)
+	fs.sess = session.New(awsConfig)
+	fs.s3 = s3.New(fs.sess)
 
 	params := &s3.GetBucketLocationInput{Bucket: &bucket}
 	resp, err := fs.s3.GetBucketLocation(params)
@@ -124,7 +127,8 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 	if len(toRegion) != 0 && fromRegion != toRegion {
 		log.Printf("Switching from region '%v' to '%v'", fromRegion, toRegion)
 		awsConfig.Region = &toRegion
-		fs.s3 = s3.New(awsConfig)
+		fs.sess = session.New(awsConfig)
+		fs.s3 = s3.New(fs.sess)
 		_, err = fs.s3.GetBucketLocation(params)
 		if err != nil {
 			log.Println(err)

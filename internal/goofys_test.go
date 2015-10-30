@@ -34,6 +34,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/aws/session"
 
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
@@ -75,6 +76,7 @@ type GoofysTest struct {
 	ctx       context.Context
 	awsConfig *aws.Config
 	s3        *s3.S3
+	sess      *session.Session
 	env       map[string]io.ReadSeeker
 }
 
@@ -144,7 +146,8 @@ func (s *GoofysTest) SetUpSuite(t *C) {
 			DisableSSL: aws.Bool(true),
 		}
 	}
-	s.s3 = s3.New(s.awsConfig)
+	s.sess = session.New(s.awsConfig)
+	s.s3 = s3.New(s.sess)
 
 	_, err := s.s3.ListBuckets(nil)
 	t.Assert(err, IsNil)
