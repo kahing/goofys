@@ -17,13 +17,12 @@
 package internal
 
 import (
-	"fmt"
 	"os/user"
 	"strconv"
 )
 
 // Return the UID and GID of this process.
-func MyUserAndGroup() (uid uint32, gid uint32, err error) {
+func MyUserAndGroup() (uid int, gid int) {
 	// Ask for the current user.
 	user, err := user.Current()
 	if err != nil {
@@ -31,21 +30,21 @@ func MyUserAndGroup() (uid uint32, gid uint32, err error) {
 	}
 
 	// Parse UID.
-	uid64, err := strconv.ParseUint(user.Uid, 10, 32)
+	uid64, err := strconv.ParseInt(user.Uid, 10, 32)
 	if err != nil {
-		err = fmt.Errorf("Parsing UID (%s): %v", user.Uid, err)
+		log.Fatalf("Parsing UID (%s): %v", user.Uid, err)
 		return
 	}
 
 	// Parse GID.
-	gid64, err := strconv.ParseUint(user.Gid, 10, 32)
+	gid64, err := strconv.ParseInt(user.Gid, 10, 32)
 	if err != nil {
-		err = fmt.Errorf("Parsing GID (%s): %v", user.Gid, err)
+		log.Fatalf("Parsing GID (%s): %v", user.Gid, err)
 		return
 	}
 
-	uid = uint32(uid64)
-	gid = uint32(gid64)
+	uid = int(uid64)
+	gid = int(gid64)
 
 	return
 }

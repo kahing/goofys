@@ -50,6 +50,8 @@ COPYRIGHT:
 }
 
 func NewApp() (app *cli.App) {
+	uid, gid := MyUserAndGroup()
+
 	app = &cli.App{
 		Name:     "goofys",
 		Version:  "0.0.2",
@@ -86,13 +88,13 @@ func NewApp() (app *cli.App) {
 
 			cli.IntFlag{
 				Name:  "uid",
-				Value: -1,
+				Value: uid,
 				Usage: "UID owner of all inodes.",
 			},
 
 			cli.IntFlag{
 				Name:  "gid",
-				Value: -1,
+				Value: gid,
 				Usage: "GID owner of all inodes.",
 			},
 

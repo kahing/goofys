@@ -66,21 +66,6 @@ func mount(
 	mountPoint string,
 	flags *FlagStorage) (mfs *fuse.MountedFileSystem, err error) {
 
-	// Choose UID and GID.
-	uid, gid, err := MyUserAndGroup()
-	if err != nil {
-		err = fmt.Errorf("MyUserAndGroup: %v", err)
-		return
-	}
-
-	if int32(flags.Uid) == -1 {
-		flags.Uid = uid
-	}
-
-	if int32(flags.Gid) == -1 {
-		flags.Gid = gid
-	}
-
 	awsConfig := &aws.Config{
 		Region: aws.String("us-west-2"),
 		Logger: GetLogger("s3"),
