@@ -16,7 +16,6 @@ package internal
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"sync"
 	"syscall"
@@ -26,12 +25,14 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
 	"github.com/jacobsa/fuse/fuseutil"
+
+	"github.com/Sirupsen/logrus"
 )
 
 // goofys is a Filey System written in Go. All the backend data is
@@ -87,6 +88,8 @@ type Goofys struct {
 	fileHandles map[fuseops.HandleID]*FileHandle
 }
 
+var s3Log = GetLogger("s3")
+
 func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys {
 	// Set up the basic struct.
 	fs := &Goofys{
@@ -97,6 +100,7 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 
 	if flags.DebugS3 {
 		awsConfig.LogLevel = aws.LogLevel(aws.LogDebug | aws.LogDebugWithRequestErrors)
+		s3Log.Level = logrus.DebugLevel
 	}
 
 	fs.awsConfig = awsConfig
@@ -108,12 +112,12 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 	var fromRegion, toRegion string
 	if err != nil {
 		if mapAwsError(err) == fuse.ENOENT {
-			log.Printf("bucket %v does not exist", bucket)
+			log.Errorf("bucket %v does not exist", bucket)
 			return nil
 		}
 		fromRegion, toRegion = parseRegionError(err)
 	} else {
-		fs.logS3(resp)
+		s3Log.Debug(resp)
 
 		if resp.LocationConstraint == nil {
 			toRegion = "us-east-1"
@@ -125,17 +129,17 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 	}
 
 	if len(toRegion) != 0 && fromRegion != toRegion {
-		log.Printf("Switching from region '%v' to '%v'", fromRegion, toRegion)
+		s3Log.Infof("Switching from region '%v' to '%v'", fromRegion, toRegion)
 		awsConfig.Region = &toRegion
 		fs.sess = session.New(awsConfig)
 		fs.s3 = s3.New(fs.sess)
 		_, err = fs.s3.GetBucketLocation(params)
 		if err != nil {
-			log.Println(err)
+			log.Errorln(err)
 			return nil
 		}
 	} else if len(toRegion) == 0 && *awsConfig.Region != "milkyway" {
-		log.Printf("Unable to detect bucket region, staying at '%v'", *awsConfig.Region)
+		s3Log.Infof("Unable to detect bucket region, staying at '%v'", *awsConfig.Region)
 	}
 
 	now := time.Now()
@@ -180,18 +184,6 @@ func (fs *Goofys) getInodeOrDie(id fuseops.InodeID) (inode *Inode) {
 	}
 
 	return
-}
-
-func (fs *Goofys) logFuse(op string, args ...interface{}) {
-	if fs.flags.DebugFuse {
-		log.Printf("%v: %v", op, args)
-	}
-}
-
-func (fs *Goofys) logS3(resp ...interface{}) {
-	if fs.flags.DebugS3 {
-		log.Println(resp)
-	}
 }
 
 func (fs *Goofys) StatFS(
@@ -245,7 +237,7 @@ func parseRegionError(err error) (fromRegion, toRegion string) {
 			// method not implemented,
 			// do nothing, use existing region
 		} else {
-			log.Printf("code=%v msg=%v request=%v\n",
+			s3Log.Errorf("code=%v msg=%v request=%v\n",
 				reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
 		}
 	}
@@ -262,12 +254,12 @@ func mapAwsError(err error) error {
 			case 405:
 				return syscall.ENOTSUP
 			default:
-				log.Printf("code=%v msg=%v request=%v\n", reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
+				s3Log.Errorf("code=%v msg=%v request=%v\n", reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
 				return reqErr
 			}
 		} else {
 			// Generic AWS Error with Code, Message, and original error (if any)
-			log.Printf("code=%v msg=%v, err=%v\n", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
+			s3Log.Errorf("code=%v msg=%v, err=%v\n", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
 			return awsErr
 		}
 	} else {
@@ -283,7 +275,7 @@ func (fs *Goofys) LookUpInodeNotDir(name string, c chan s3.HeadObjectOutput, err
 		return
 	}
 
-	fs.logS3(resp)
+	s3Log.Debug(resp)
 	c <- *resp
 }
 
@@ -301,7 +293,7 @@ func (fs *Goofys) LookUpInodeDir(name string, c chan s3.ListObjectsOutput, errc 
 		return
 	}
 
-	fs.logS3(resp)
+	s3Log.Debug(resp)
 	c <- *resp
 }
 
@@ -323,7 +315,7 @@ func (fs *Goofys) mpuCopyPart(from string, to string, mpuId string, bytes string
 		PartNumber:      &part,
 	}
 
-	fs.logS3(params)
+	s3Log.Debug(params)
 
 	resp, err := fs.s3.UploadPartCopy(params)
 	if err != nil {
@@ -409,7 +401,7 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 			},
 		}
 
-		fs.logS3(params)
+		s3Log.Debug(params)
 
 		_, err = fs.s3.CompleteMultipartUpload(params)
 		if err != nil {
@@ -645,7 +637,8 @@ func (fs *Goofys) ReleaseDirHandle(
 
 	dh := fs.dirHandles[op.Handle]
 	dh.CloseDir()
-	fs.logFuse("ReleaseDirHandle", *dh.inode.FullName)
+
+	fuseLog.Debugln("ReleaseDirHandle", *dh.inode.FullName)
 
 	delete(fs.dirHandles, op.Handle)
 

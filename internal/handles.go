@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log"
 	"sort"
 	"sync"
 	"syscall"
@@ -30,6 +29,8 @@ import (
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
 	"github.com/jacobsa/fuse/fuseutil"
+
+	"github.com/Sirupsen/logrus"
 )
 
 type Inode struct {
@@ -38,6 +39,8 @@ type Inode struct {
 	FullName   *string
 	flags      *FlagStorage
 	Attributes *fuseops.InodeAttributes
+
+	log *logHandle
 
 	mu      sync.Mutex          // everything below is protected by mu
 	handles map[*DirHandle]bool // value is ignored
@@ -48,6 +51,11 @@ func NewInode(name *string, fullName *string, flags *FlagStorage) (inode *Inode)
 	inode = &Inode{Name: name, FullName: fullName, flags: flags}
 	inode.handles = make(map[*DirHandle]bool)
 	inode.refcnt = 1
+	inode.log = GetLogger(*fullName)
+
+	if inode.flags.DebugFuse {
+		inode.log.Level = logrus.DebugLevel
+	}
 	return
 }
 
@@ -102,9 +110,7 @@ func NewFileHandle(in *Inode) *FileHandle {
 }
 
 func (inode *Inode) logFuse(op string, args ...interface{}) {
-	if inode.flags.DebugFuse {
-		log.Printf("%v: %v [%v] %v", op, inode.Id, *inode.FullName, args)
-	}
+	fuseLog.Debugln(op, inode.Id, *inode.FullName, args)
 }
 
 // LOCKS_REQUIRED(parent.mu)
@@ -185,7 +191,7 @@ func (parent *Inode) Unlink(fs *Goofys, name string) (err error) {
 		return mapAwsError(err)
 	}
 
-	fs.logS3(resp)
+	s3Log.Debug(resp)
 
 	return
 }
@@ -350,7 +356,7 @@ func (fh *FileHandle) initMPU(fs *Goofys) {
 		fh.lastWriteError = mapAwsError(err)
 	}
 
-	fs.logS3(resp)
+	s3Log.Debug(resp)
 
 	fh.mpuId = resp.UploadId
 	fh.etags = make([]*string, 10000) // at most 10K parts
@@ -376,7 +382,7 @@ func (fh *FileHandle) mpuPartNoSpawn(fs *Goofys, buf []byte, part int) (err erro
 		Body:       bytes.NewReader(buf),
 	}
 
-	fs.logS3(params)
+	s3Log.Debug(params)
 
 	resp, err := fs.s3.UploadPart(params)
 	if err != nil {
@@ -640,7 +646,7 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 
 					fh.mpuId = nil
 					resp, _ := fs.s3.AbortMultipartUpload(params)
-					fs.logS3(resp)
+					s3Log.Debug(resp)
 				}()
 			}
 		}
@@ -695,14 +701,14 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 		},
 	}
 
-	fs.logS3(params)
+	s3Log.Debug(params)
 
 	resp, err := fs.s3.CompleteMultipartUpload(params)
 	if err != nil {
 		return mapAwsError(err)
 	}
 
-	fs.logS3(resp)
+	s3Log.Debug(resp)
 	fh.mpuId = nil
 
 	return
@@ -846,7 +852,7 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 			return nil, mapAwsError(err)
 		}
 
-		fs.logS3(resp)
+		s3Log.Debug(resp)
 
 		dh.Entries = make([]fuseutil.Dirent, 0, len(resp.CommonPrefixes)+len(resp.Contents))
 

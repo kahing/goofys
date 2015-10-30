@@ -19,7 +19,6 @@ import (
 	. "github.com/kahing/goofys/internal"
 
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 
@@ -31,7 +30,11 @@ import (
 
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseutil"
+
+	"github.com/Sirupsen/logrus"
 )
+
+var log = GetLogger("main")
 
 func registerSIGINTHandler(mountPoint string) {
 	// Register for SIGINT.
@@ -46,7 +49,7 @@ func registerSIGINTHandler(mountPoint string) {
 
 			err := fuse.Unmount(mountPoint)
 			if err != nil {
-				log.Printf("Failed to unmount in response to SIGINT: %v", err)
+				log.Error("Failed to unmount in response to SIGINT: %v", err)
 			} else {
 				log.Printf("Successfully unmounted in response to SIGINT.")
 				return
@@ -80,6 +83,7 @@ func mount(
 
 	awsConfig := &aws.Config{
 		Region: aws.String("us-west-2"),
+		Logger: GetLogger("s3"),
 		//LogLevel: aws.LogLevel(aws.LogDebug),
 	}
 	if len(flags.Endpoint) > 0 {
@@ -96,16 +100,19 @@ func mount(
 	}
 	server := fuseutil.NewFileSystemServer(goofys)
 
+	fuseLog := GetLogger("fuse")
+
 	// Mount the file system.
 	mountCfg := &fuse.MountConfig{
 		FSName:                  bucketName,
 		Options:                 flags.MountOptions,
-		ErrorLogger:             log.New(os.Stderr, "fuse: ", log.Flags()),
+		ErrorLogger:             GetStdLogger(NewLogger("fuse"), logrus.ErrorLevel),
 		DisableWritebackCaching: true,
 	}
 
 	if flags.DebugFuse {
-		mountCfg.DebugLogger = log.New(os.Stderr, "fuse_debug: ", 0)
+		fuseLog.Level = logrus.DebugLevel
+		mountCfg.DebugLogger = GetStdLogger(fuseLog, logrus.DebugLevel)
 	}
 
 	mfs, err = fuse.Mount(mountPoint, server, mountCfg)
@@ -118,9 +125,6 @@ func mount(
 }
 
 func main() {
-	// Make logging output better.
-	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
-
 	app := NewApp()
 	app.Action = func(c *cli.Context) {
 		var err error
