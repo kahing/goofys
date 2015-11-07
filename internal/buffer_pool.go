@@ -22,6 +22,7 @@ package internal
 // XXX investigate using sync.Pool
 
 import (
+	"io"
 	"sync"
 )
 
@@ -127,5 +128,183 @@ func (h *BufferPoolHandle) Copy(to *[]byte, from []byte) (nCopied int) {
 		*to = (*to)[0 : toLen+nCopied]
 		copy((*to)[toLen:], from)
 	}
+	return
+}
+
+var mbufLog = GetLogger("mbuf")
+
+type MBuf struct {
+	pool    *BufferPoolHandle
+	buffers [][]byte
+	rbuf    int
+	wbuf    int
+	rp      int
+	wp      int
+}
+
+func (mb MBuf) Init(h *BufferPoolHandle, size uint64) *MBuf {
+	allocated := uint64(0)
+	mb.pool = h
+
+	for allocated < size {
+		b := h.Request()
+		allocated += uint64(cap(b))
+		mb.buffers = append(mb.buffers, b)
+	}
+
+	return &mb
+}
+
+func (mb *MBuf) Read(p []byte) (n int, err error) {
+	if mb.rbuf == mb.wbuf && mb.rp == mb.wp {
+		return
+	}
+
+	if mb.rp == cap(mb.buffers[mb.rbuf]) {
+		mb.rbuf++
+		mb.rp = 0
+	}
+
+	if mb.rbuf == len(mb.buffers) {
+		err = io.EOF
+		return
+	} else if mb.rbuf > len(mb.buffers) {
+		panic("mb.cur > len(mb.buffers)")
+	}
+
+	n = copy(p, mb.buffers[mb.rbuf][mb.rp:])
+	mb.rp += n
+
+	return
+}
+
+func (mb *MBuf) WriteFrom(r io.Reader) (n int, err error) {
+	b := mb.buffers[mb.wbuf]
+
+	if mb.wp == cap(b) {
+		if mb.wbuf+1 == len(mb.buffers) {
+			return
+		}
+		mb.wbuf++
+		b = mb.buffers[mb.wbuf]
+		mb.wp = 0
+	} else if mb.wp > cap(b) {
+		panic("mb.wp > cap(b)")
+	}
+
+	n, err = r.Read(b[mb.wp:cap(b)])
+	mb.wp += n
+	// resize the buffer to account for what we just read
+	mb.buffers[mb.wbuf] = mb.buffers[mb.wbuf][:mb.wp]
+
+	return
+}
+
+func (mb *MBuf) Free() {
+	for _, b := range mb.buffers {
+		mb.pool.Free(b)
+	}
+}
+
+var bufferLog = GetLogger("buffer")
+
+type Buffer struct {
+	mu   sync.Mutex
+	cond *sync.Cond
+
+	buf    *MBuf
+	rp     int
+	wp     int
+	reader io.ReadCloser
+	err    error
+}
+
+type ReaderProvider func() (io.ReadCloser, error)
+
+func (b Buffer) Init(buf *MBuf, r ReaderProvider) *Buffer {
+	b.buf = buf
+	b.cond = sync.NewCond(&b.mu)
+
+	go func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+
+		b.readLoop(r)
+	}()
+
+	return &b
+}
+
+func (b *Buffer) readLoop(r ReaderProvider) {
+	for {
+		if b.reader == nil {
+			b.reader, b.err = r()
+			b.cond.Broadcast()
+			if b.err != nil {
+				break
+			}
+		}
+
+		if b.buf == nil {
+			break
+		}
+
+		nread, err := b.buf.WriteFrom(b.reader)
+		if err != nil {
+			b.err = err
+			break
+		}
+
+		if nread == 0 {
+			b.reader.Close()
+			break
+		}
+	}
+}
+
+func (b *Buffer) Read(p []byte) (n int, err error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for b.reader == nil && b.err == nil {
+		bufferLog.Debugf("waiting for stream")
+		b.cond.Wait()
+	}
+
+	if b.buf != nil {
+		bufferLog.Debugf("reading %v from buffer", len(p))
+
+		n, err = b.buf.Read(p)
+		if n == 0 {
+			b.buf.Free()
+			b.buf = nil
+		}
+	} else if b.err != nil {
+		err = b.err
+	} else {
+		bufferLog.Debugf("reading %v from stream", len(p))
+
+		n, err = b.reader.Read(p)
+		if err == io.ErrUnexpectedEOF {
+			err = nil
+		}
+	}
+
+	return
+}
+
+func (b *Buffer) Close() (err error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.wp = -1
+
+	if b.reader != nil {
+		err = b.reader.Close()
+	}
+
+	if b.buf != nil {
+		b.buf.Free()
+	}
+
 	return
 }

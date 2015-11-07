@@ -17,6 +17,7 @@ package internal
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"io"
 	"math/rand"
 	"net"
@@ -46,6 +47,9 @@ import (
 
 	. "gopkg.in/check.v1"
 )
+
+// so I don't get complains about unused imports
+var ignored = logrus.DebugLevel
 
 func currentUid() uint32 {
 	user, err := user.Current()
@@ -163,7 +167,11 @@ func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker)
 
 	for path, r := range env {
 		if r == nil {
-			r = bytes.NewReader([]byte(path))
+			if strings.HasSuffix(path, "/") {
+				r = bytes.NewReader([]byte{})
+			} else {
+				r = bytes.NewReader([]byte(path))
+			}
 		}
 
 		params := &s3.PutObjectInput{
@@ -418,6 +426,16 @@ func (s *GoofysTest) TestReadOffset(t *C) {
 	t.Assert(err, IsNil)
 	t.Assert(nread, Equals, len(f)-1)
 	t.Assert(string(buf[0:nread]), DeepEquals, f[1:])
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	for i := 0; i < 3; i++ {
+		off := r.Int31n(int32(len(f)))
+		nread, err = fh.ReadFile(s.fs, int64(off), buf)
+		t.Assert(err, IsNil)
+		t.Assert(nread, Equals, len(f)-int(off))
+		t.Assert(string(buf[0:nread]), DeepEquals, f[off:])
+	}
 }
 
 func (s *GoofysTest) TestCreateFiles(t *C) {
@@ -463,20 +481,50 @@ func (s *GoofysTest) TestUnlink(t *C) {
 	t.Assert(mapAwsError(err), Equals, fuse.ENOENT)
 }
 
+type FileHandleReader struct {
+	fs     *Goofys
+	fh     *FileHandle
+	offset int64
+}
+
+func (r *FileHandleReader) Read(p []byte) (nread int, err error) {
+	nread, err = r.fh.ReadFile(r.fs, r.offset, p)
+	r.offset += int64(nread)
+	return
+}
+
+func (r *FileHandleReader) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case 0:
+		r.offset = offset
+	case 1:
+		r.offset += offset
+	default:
+		panic(fmt.Sprintf("unsupported whence: %v", whence))
+	}
+
+	return r.offset, nil
+}
+
 func (s *GoofysTest) testWriteFile(t *C, fileName string, size int64, write_size int) {
 	_, fh := s.getRoot(t).Create(s.fs, fileName)
 
 	buf := make([]byte, write_size)
 	nwritten := int64(0)
 
-	for nwritten < size {
-		towrite := int64(write_size)
-		if nwritten+towrite > size {
-			towrite = size - nwritten
+	src := io.LimitReader(&SeqReader{}, size)
+
+	for {
+		nread, err := src.Read(buf)
+		if err == io.EOF {
+			t.Assert(nwritten, Equals, size)
+			break
 		}
-		err := fh.WriteFile(s.fs, nwritten, buf[:towrite])
 		t.Assert(err, IsNil)
-		nwritten += towrite
+
+		err = fh.WriteFile(s.fs, nwritten, buf[:nread])
+		t.Assert(err, IsNil)
+		nwritten += int64(nread)
 	}
 
 	err := fh.FlushFile(s.fs)
@@ -486,59 +534,18 @@ func (s *GoofysTest) testWriteFile(t *C, fileName string, size int64, write_size
 	t.Assert(err, IsNil)
 	t.Assert(*resp.ContentLength, DeepEquals, size)
 
-	fh = fh.inode.OpenFile(s.fs)
-	offset := int64(0)
-	rbuf := [64 * 1024]byte{}
+	fr := &FileHandleReader{s.fs, fh, 0}
+	diff, err := CompareReader(fr, io.LimitReader(&SeqReader{}, size))
+	t.Assert(err, IsNil)
+	t.Assert(diff, Equals, -1)
+	t.Assert(fr.offset, Equals, size)
 
-	for {
-		var nread int
-		nread, err = fh.ReadFile(s.fs, offset, rbuf[:])
-		offset += int64(nread)
-		if err != nil || nread == 0 {
-			break
-		}
-	}
-
-	if err != nil {
-		t.Assert(err, Equals, io.EOF)
-	}
-	t.Assert(offset, Equals, size)
+	fh.Release()
 }
 
 func (s *GoofysTest) TestWriteLargeFile(t *C) {
 	s.testWriteFile(t, "testLargeFile", 21*1024*1024, 128*1024)
 	s.testWriteFile(t, "testLargeFile2", 20*1024*1024, 128*1024)
-}
-
-func (s *GoofysTest) TestReadLargeFile(t *C) {
-	s.testWriteFile(t, "testLargeFile", 20*1024*1024, 128*1024)
-
-	root := s.getRoot(t)
-
-	in, err := root.LookUp(s.fs, "testLargeFile")
-	t.Assert(err, IsNil)
-
-	fh := in.OpenFile(s.fs)
-
-	buf := [128 * 1024]byte{}
-
-	totalRead := int64(0)
-	nread, err := fh.ReadFile(s.fs, 0, buf[:32*1024])
-	t.Assert(err, IsNil)
-	t.Assert(nread, Equals, 32*1024)
-	totalRead += int64(nread)
-
-	for {
-		nread, err := fh.ReadFile(s.fs, totalRead, buf[:])
-		t.Assert(err, IsNil)
-		totalRead += int64(nread)
-
-		if totalRead != 20*1024*1024 {
-			t.Assert(nread, Equals, len(buf))
-		} else {
-			break
-		}
-	}
 }
 
 func (s *GoofysTest) TestWriteManyFilesFile(t *C) {
@@ -558,6 +565,31 @@ func (s *GoofysTest) TestWriteManyFilesFile(t *C) {
 
 func (s *GoofysTest) testWriteFileNonAlign(t *C) {
 	s.testWriteFile(t, "testWriteFileNonAlign", 6*1024*1024, 128*1024+1)
+}
+
+func (s *GoofysTest) TestReadRandom(t *C) {
+	size := int64(21 * 1024 * 1024)
+
+	s.testWriteFile(t, "testLargeFile", size, 128*1024)
+	in, err := s.LookUpInode(t, "testLargeFile")
+	t.Assert(err, IsNil)
+
+	fh := in.OpenFile(s.fs)
+	fr := &FileHandleReader{s.fs, fh, 0}
+
+	src := rand.NewSource(time.Now().UnixNano())
+	truth := &SeqReader{}
+
+	for i := 0; i < 10; i++ {
+		offset := src.Int63() % (size / 2)
+
+		fr.Seek(offset, 0)
+		truth.Seek(offset, 0)
+
+		// read 5MB+1 from that offset
+		nread := int64(5*1024*1024 + 1)
+		CompareReader(io.LimitReader(fr, nread), io.LimitReader(truth, nread))
+	}
 }
 
 func (s *GoofysTest) TestMkDir(t *C) {

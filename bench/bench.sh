@@ -154,3 +154,26 @@ if [ "$t" = "" -o "$t" = "io" ]; then
         rm largefile
     done
 fi
+
+function write_md5 {
+    seed=$(dd if=/dev/urandom bs=128 count=1 status=none | base64 -w 0)
+    random_cmd="openssl enc -aes-256-ctr -pass pass:$seed -nosalt"
+    MD5=$(dd if=/dev/zero bs=1MB count=1000 status=none | $random_cmd | tee >(md5sum) >largefile | cut -f 1 '-d ')
+}
+
+function read_md5 {
+    READ_MD5=$(md5sum largefile | cut -f 1 '-d ')
+    if [ "$READ_MD5" != "$MD5" ]; then
+        echo "$READ_MD5 != $MD5" >&2
+        rm largefile
+        exit 1
+    fi
+}
+
+if [ "$t" = "" -o "$t" = "md5" ]; then
+    write_md5
+    for i in $(seq 1 10); do
+        run_test read_md5
+    done
+    rm largefile
+fi

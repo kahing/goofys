@@ -713,6 +713,11 @@ func (fs *Goofys) ReleaseFileHandle(
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
+	fh := fs.fileHandles[op.Handle]
+	fh.Release()
+
+	fuseLog.Debugln("ReleaseFileHandle", *fh.inode.FullName)
+
 	delete(fs.fileHandles, op.Handle)
 	return
 }

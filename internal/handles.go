@@ -16,6 +16,7 @@ package internal
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -112,6 +113,11 @@ type FileHandle struct {
 	// read
 	reader        io.ReadCloser
 	readBufOffset int64
+
+	// parallel read
+	buffers           []*S3ReadBuffer
+	existingReadahead int
+	seqReadAmount     uint64
 }
 
 func NewFileHandle(in *Inode) *FileHandle {
@@ -516,8 +522,6 @@ func tryReadAll(r io.ReadCloser, buf []byte) (bytesRead int, err error) {
 }
 
 func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, err error) {
-	fh.mu.Lock()
-	defer fh.mu.Unlock()
 	if fh.inode.flags.DebugFuse {
 		defer func() {
 			fh.inode.logFuse("< readFromStream", bytesRead)
@@ -526,37 +530,209 @@ func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, e
 
 	if fh.reader != nil {
 		// try to service read from existing stream
-		if offset == fh.readBufOffset {
-			bytesRead, err = tryReadAll(fh.reader, buf)
-			if err == io.EOF {
-				fh.reader.Close()
-				fh.reader = nil
-			}
-			fh.readBufOffset += int64(bytesRead)
+		bytesRead, err = tryReadAll(fh.reader, buf)
+		if err == io.EOF {
+			fh.reader.Close()
+			fh.reader = nil
+		}
+		return
+	}
+
+	return
+}
+
+type S3ReadBuffer struct {
+	s3     *s3.S3
+	offset int64
+	size   int
+	buf    *Buffer
+}
+
+func (b S3ReadBuffer) Init(fs *Goofys, fh *FileHandle, offset int64, size int) *S3ReadBuffer {
+	b.s3 = fs.s3
+	b.offset = offset
+	b.size = size
+
+	mbuf := MBuf{}.Init(fh.poolHandle, uint64(size))
+
+	b.buf = Buffer{}.Init(mbuf, func() (io.ReadCloser, error) {
+		params := &s3.GetObjectInput{
+			Bucket: &fs.bucket,
+			Key:    fh.inode.FullName,
+		}
+
+		bytes := fmt.Sprintf("bytes=%v-%v", offset, offset+int64(size)-1)
+		params.Range = &bytes
+
+		resp, err := fs.s3.GetObject(params)
+		if err != nil {
+			return nil, mapAwsError(err)
+		}
+
+		return resp.Body, nil
+	})
+
+	return &b
+}
+
+func (b *S3ReadBuffer) Read(offset int64, p []byte) (n int, err error) {
+	if b.offset == offset {
+		fuseLog.Debugf("trying to read %v bytes", len(p))
+		n, err = io.ReadFull(b.buf, p)
+		if err == io.ErrUnexpectedEOF {
+			err = nil
+		}
+		if err == nil {
+			b.offset += int64(n)
+			b.size -= n
+		}
+		fuseLog.Debugf("reading %v @ %v = %v, size=%v", len(p), offset, n, b.size)
+		if b.size < 0 {
+			panic("size < 0")
+		}
+
+		return
+	} else {
+		panic(fmt.Sprintf("not the right buffer, expecting %v got %v, %v left", b.offset, offset, b.size))
+		err = errors.New(fmt.Sprintf("not the right buffer, expecting %v got %v", b.offset, offset))
+		return
+	}
+}
+
+func (fh *FileHandle) readFromReadAhead(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
+	var nread int
+	for len(fh.buffers) != 0 {
+		nread, err = fh.buffers[0].Read(offset+int64(bytesRead), buf)
+		bytesRead += nread
+		if err != nil {
 			return
-		} else {
-			// XXX out of order read, maybe disable prefetching
-			fh.inode.logFuse("out of order read", offset, fh.readBufOffset)
-			fh.readBufOffset = offset
-			if fh.reader != nil {
-				fh.reader.Close()
-				fh.reader = nil
-			}
+		}
+
+		if fh.buffers[0].size == 0 {
+			// we've exhausted the first buffer
+			fh.buffers[0].buf.Close()
+			fh.buffers = fh.buffers[1:]
+		}
+
+		buf = buf[nread:]
+
+		if len(buf) == 0 {
+			// we've filled the user buffer
+			return
 		}
 	}
 
 	return
 }
 
+func (fh *FileHandle) readAhead(fs *Goofys, offset int64, needAtLeast int) {
+	const MAX_READAHEAD = 100 * 1024 * 1024
+	const READAHEAD_CHUNK = 20 * 1024 * 1024
+
+	existingReadahead := 0
+	for _, b := range fh.buffers {
+		existingReadahead += int(b.size)
+	}
+
+	readAheadAmount := MAX_READAHEAD
+
+	for readAheadAmount-existingReadahead >= READAHEAD_CHUNK {
+		off := offset + int64(existingReadahead)
+		remaining := fh.inode.Attributes.Size - uint64(off)
+
+		// only read up to readahead chunk each time
+		size := MinInt(readAheadAmount-existingReadahead, READAHEAD_CHUNK)
+		size = int(MinUInt64(uint64(size), remaining))
+
+		if size != 0 {
+			fh.inode.logFuse("readahead", off, size, existingReadahead)
+
+			fh.buffers = append(fh.buffers, S3ReadBuffer{}.Init(fs, fh, int64(off), int(size)))
+			existingReadahead += size
+		}
+
+		if size != READAHEAD_CHUNK {
+			break
+		}
+	}
+}
+
 func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
 	fh.inode.logFuse("ReadFile", offset, len(buf), fh.readBufOffset)
+
+	fh.mu.Lock()
+	defer fh.mu.Unlock()
+
 	defer func() {
+		fh.readBufOffset += int64(bytesRead)
+		fh.seqReadAmount += uint64(bytesRead)
+
 		if bytesRead != 0 && err != nil {
 			err = nil
 		}
 
-		if fh.inode.flags.DebugFuse {
-			fh.inode.logFuse("< ReadFile", bytesRead)
+		fh.inode.logFuse("< ReadFile", bytesRead)
+	}()
+
+	if uint64(offset) >= fh.inode.Attributes.Size {
+		// nothing to read
+		return
+	}
+
+	if fh.poolHandle == nil {
+		fh.poolHandle = fs.bufferPool.NewPoolHandle()
+	}
+
+	if fh.readBufOffset != offset {
+		// XXX out of order read, maybe disable prefetching
+		fh.inode.logFuse("out of order read", offset, fh.readBufOffset)
+
+		fh.readBufOffset = offset
+		fh.seqReadAmount = 0
+		if fh.reader != nil {
+			fh.reader.Close()
+			fh.reader = nil
+		}
+
+		for _, b := range fh.buffers {
+			b.buf.Close()
+		}
+		fh.buffers = nil
+	}
+
+	if fh.seqReadAmount >= BUF_SIZE {
+		if fh.reader != nil {
+			fh.inode.logFuse("cutover to the parallel algorithm")
+			fh.reader.Close()
+			fh.reader = nil
+		}
+
+		fh.readAhead(fs, offset, len(buf))
+		bytesRead, err = fh.readFromReadAhead(fs, offset, buf)
+	} else {
+		bytesRead, err = fh.readFileSerial(fs, offset, buf)
+	}
+
+	return
+}
+
+func (fh *FileHandle) Release() {
+	for _, b := range fh.buffers {
+		b.buf.Close()
+	}
+	fh.buffers = nil
+
+	if fh.poolHandle != nil {
+		if fh.poolHandle.inUseBuffers != 0 {
+			panic(fmt.Sprintf("%v != 0", fh.poolHandle.inUseBuffers))
+		}
+	}
+}
+
+func (fh *FileHandle) readFileSerial(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
+	defer func() {
+		if bytesRead != 0 && err != nil {
+			err = nil
 		}
 	}()
 
@@ -600,7 +776,7 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 		fh.reader.Close()
 		fh.reader = nil
 	}
-	fh.readBufOffset += int64(nread)
+
 	bytesRead += nread
 
 	return

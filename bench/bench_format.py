@@ -16,6 +16,7 @@ op_str = {
     'write_large_file' : 'Write 1GB',
     'read_large_file' : 'Read 1GB',
     'read_first_byte' : 'Time to 1st byte',
+    'read_md5' : 'md5sum over 1GB',
 }
 
 f = sys.argv[1]
