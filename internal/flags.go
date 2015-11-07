@@ -234,3 +234,33 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 	}
 	return
 }
+
+func MassageMountFlags(args []string) (ret []string) {
+	if len(args) == 5 && args[3] == "-o" {
+		// looks like it's coming from fstab!
+		mountOptions := ""
+
+		for _, p := range strings.Split(args[4], ",") {
+			if strings.HasPrefix(p, "--") {
+				ret = append(ret, p)
+			} else {
+				mountOptions += p
+				mountOptions += ","
+			}
+		}
+
+		if len(mountOptions) != 0 {
+			// remove trailing ,
+			mountOptions = mountOptions[:len(mountOptions)-1]
+			ret = append(ret, "-o")
+			ret = append(ret, mountOptions)
+		}
+
+		ret = append(ret, args[1])
+		ret = append(ret, args[2])
+	} else {
+		return args
+	}
+
+	return
+}

@@ -129,6 +129,9 @@ func main() {
 		mountPoint := c.Args()[1]
 		flags := PopulateFlags(c)
 
+		// ensure that fusermount is in the PATH
+		os.Setenv("PATH", "/bin")
+
 		// Mount the file system.
 		mfs, err := mount(
 			context.Background(),
@@ -155,7 +158,7 @@ func main() {
 		log.Println("Successfully exiting.")
 	}
 
-	err := app.Run(os.Args)
+	err := app.Run(MassageMountFlags(os.Args))
 	if err != nil {
 		log.Fatalln(err)
 	}
