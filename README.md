@@ -29,7 +29,8 @@ Users can also configure credentials via the
 [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html)
 or the `AWS_ACCESS_KEY` and `AWS_SECRET_KEY` environment variables.
 
-To mount an S3 bucket on startup, you can add this to `/etc/fstab`:
+To mount an S3 bucket on startup, make sure the credential is
+configured for `root`, and can add this to `/etc/fstab`:
 
 ```
 goofys#bucket   /mnt/mountpoint        fuse    allow_other,--file-mode=0666    0       0
