@@ -152,6 +152,11 @@ func NewApp() (app *cli.App) {
 				Name:  "debug_s3",
 				Usage: "Enable S3-related debugging output.",
 			},
+
+			cli.BoolFlag{
+				Name:  "f",
+				Usage: "Run goofys in foreground.",
+			},
 		},
 	}
 
@@ -176,8 +181,9 @@ type FlagStorage struct {
 	TypeCacheTTL time.Duration
 
 	// Debugging
-	DebugFuse bool
-	DebugS3   bool
+	DebugFuse  bool
+	DebugS3    bool
+	Foreground bool
 }
 
 func parseOptions(m map[string]string, s string) {
@@ -224,8 +230,9 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		UsePathRequest: c.Bool("use-path-request"),
 
 		// Debugging,
-		DebugFuse: c.Bool("debug_fuse"),
-		DebugS3:   c.Bool("debug_s3"),
+		DebugFuse:  c.Bool("debug_fuse"),
+		DebugS3:    c.Bool("debug_s3"),
+		Foreground: c.Bool("f"),
 	}
 
 	// Handle the repeated "-o" flag.

@@ -32,6 +32,8 @@ import (
 	"github.com/jacobsa/fuse/fuseutil"
 
 	"github.com/Sirupsen/logrus"
+
+	daemon "github.com/sevlyar/go-daemon"
 )
 
 var log = GetLogger("main")
@@ -128,6 +130,17 @@ func main() {
 		bucketName := c.Args()[0]
 		mountPoint := c.Args()[1]
 		flags := PopulateFlags(c)
+
+		if !flags.Foreground {
+			ctx := new(daemon.Context)
+			child, _ := ctx.Reborn()
+
+			if child != nil {
+				return
+			} else {
+				defer ctx.Release()
+			}
+		}
 
 		// ensure that fusermount is in the PATH
 		os.Setenv("PATH", "/bin")
