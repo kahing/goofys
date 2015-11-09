@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 
 	"golang.org/x/net/context"
 
@@ -111,6 +112,18 @@ func mount(
 	return
 }
 
+func massagePath() {
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "PATH=") {
+			return
+		}
+	}
+
+	// mount -a seems to run goofys without PATH
+	// usually fusermount is in /bin
+	os.Setenv("PATH", "/bin")
+}
+
 func main() {
 	app := NewApp()
 	app.Action = func(c *cli.Context) {
@@ -139,11 +152,11 @@ func main() {
 				return
 			} else {
 				defer ctx.Release()
-			}
-		}
 
-		// ensure that fusermount is in the PATH
-		os.Setenv("PATH", "/bin")
+				massagePath()
+			}
+
+		}
 
 		// Mount the file system.
 		mfs, err := mount(
