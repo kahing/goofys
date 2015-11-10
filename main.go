@@ -146,7 +146,11 @@ func main() {
 
 		if !flags.Foreground {
 			ctx := new(daemon.Context)
-			child, _ := ctx.Reborn()
+			child, err := ctx.Reborn()
+
+			if err != nil {
+				panic(fmt.Sprintf("unable to daemonize: %v", err))
+			}
 
 			if child != nil {
 				return
