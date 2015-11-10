@@ -32,6 +32,8 @@ import (
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseutil"
 
+	"github.com/kardianos/osext"
+
 	"github.com/Sirupsen/logrus"
 
 	daemon "github.com/sevlyar/go-daemon"
@@ -124,6 +126,14 @@ func massagePath() {
 	os.Setenv("PATH", "/bin")
 }
 
+func massageArg0() {
+	var err error
+	os.Args[0], err = osext.Executable()
+	if err != nil {
+		panic(fmt.Sprintf("Unable to discover current executable: %v", err))
+	}
+}
+
 func main() {
 	app := NewApp()
 	app.Action = func(c *cli.Context) {
@@ -145,6 +155,8 @@ func main() {
 		flags := PopulateFlags(c)
 
 		if !flags.Foreground {
+			massageArg0()
+
 			ctx := new(daemon.Context)
 			child, err := ctx.Reborn()
 
