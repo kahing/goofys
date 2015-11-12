@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 
 	"golang.org/x/net/context"
 
@@ -44,19 +45,19 @@ var log = GetLogger("main")
 func registerSIGINTHandler(mountPoint string) {
 	// Register for SIGINT.
 	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 
 	// Start a goroutine that will unmount when the signal is received.
 	go func() {
 		for {
-			<-signalChan
-			log.Println("Received SIGINT, attempting to unmount...")
+			s := <-signalChan
+			log.Infof("Received %v, attempting to unmount...", s)
 
 			err := fuse.Unmount(mountPoint)
 			if err != nil {
-				log.Error("Failed to unmount in response to SIGINT: %v", err)
+				log.Errorf("Failed to unmount in response to %v: %v", s, err)
 			} else {
-				log.Printf("Successfully unmounted in response to SIGINT.")
+				log.Printf("Successfully unmounted in response to %v", s)
 				return
 			}
 		}
