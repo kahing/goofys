@@ -17,11 +17,13 @@ package internal
 import (
 	"fmt"
 	glog "log"
+	"log/syslog"
 	"os"
 	"strings"
 	"sync"
 
 	"github.com/Sirupsen/logrus"
+	logrus_syslog "github.com/Sirupsen/logrus/hooks/syslog"
 )
 
 var mu sync.Mutex
@@ -29,6 +31,22 @@ var loggers = make(map[string]*logHandle)
 
 var log = GetLogger("main")
 var fuseLog = GetLogger("fuse")
+
+var syslogHook *logrus_syslog.SyslogHook
+
+func InitLoggers(logToSyslog bool) {
+	if logToSyslog {
+		var err error
+		syslogHook, err = logrus_syslog.NewSyslogHook("", "", syslog.LOG_DEBUG, "")
+		if err != nil {
+			panic("Unable to connect to local syslog daemon")
+		}
+
+		for _, l := range loggers {
+			l.Hooks.Add(syslogHook)
+		}
+	}
+}
 
 type logHandle struct {
 	logrus.Logger
@@ -39,13 +57,20 @@ type logHandle struct {
 
 func (l *logHandle) Format(e *logrus.Entry) ([]byte, error) {
 	// Mon Jan 2 15:04:05 -0700 MST 2006
-	const timeFormat = "2006/01/02 15:04:05.000000"
+	timestamp := ""
 	lvl := e.Level
 	if l.lvl != nil {
 		lvl = *l.lvl
 	}
-	str := fmt.Sprintf("%v %v.%v %v",
-		e.Time.Format(timeFormat),
+
+	if syslogHook == nil {
+		const timeFormat = "2006/01/02 15:04:05.000000"
+
+		timestamp = e.Time.Format(timeFormat) + " "
+	}
+
+	str := fmt.Sprintf("%v%v.%v %v",
+		timestamp,
 		l.name,
 		strings.ToUpper(lvl.String()),
 		e.Message)
@@ -68,6 +93,10 @@ func NewLogger(name string) *logHandle {
 	l.Out = os.Stderr
 	l.Formatter = l
 	l.Level = logrus.InfoLevel
+	l.Hooks = make(logrus.LevelHooks)
+	if syslogHook != nil {
+		l.Hooks.Add(syslogHook)
+	}
 	return l
 }
 
