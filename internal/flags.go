@@ -246,9 +246,10 @@ func MassageMountFlags(args []string) (ret []string) {
 	if len(args) == 5 && args[3] == "-o" {
 		// looks like it's coming from fstab!
 		mountOptions := ""
+		ret = append(ret, args[0])
 
 		for _, p := range strings.Split(args[4], ",") {
-			if strings.HasPrefix(p, "--") {
+			if strings.HasPrefix(p, "-") {
 				ret = append(ret, p)
 			} else {
 				mountOptions += p

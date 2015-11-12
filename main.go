@@ -154,6 +154,8 @@ func main() {
 		mountPoint := c.Args()[1]
 		flags := PopulateFlags(c)
 
+		massagePath()
+
 		if !flags.Foreground {
 			massageArg0()
 
@@ -168,8 +170,6 @@ func main() {
 				return
 			} else {
 				defer ctx.Release()
-
-				massagePath()
 			}
 
 		}
