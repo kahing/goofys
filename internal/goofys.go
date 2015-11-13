@@ -777,6 +777,7 @@ func (fs *Goofys) MkDir(
 
 	inode.Id = nextInode
 
+	fs.inodesCache[*inode.FullName] = inode
 	fs.inodes[inode.Id] = inode
 	op.Entry.Child = inode.Id
 	op.Entry.Attributes = *inode.Attributes

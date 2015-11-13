@@ -33,8 +33,8 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
@@ -563,6 +563,7 @@ func (s *GoofysTest) TestMkDir(t *C) {
 	dirName := "new_dir"
 	inode, err := s.getRoot(t).MkDir(s.fs, dirName)
 	t.Assert(err, IsNil)
+	t.Assert(*inode.FullName, Equals, dirName)
 
 	_, err = s.LookUpInode(t, dirName)
 	t.Assert(err, IsNil)

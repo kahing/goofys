@@ -233,11 +233,11 @@ func (parent *Inode) MkDir(
 
 	parent.logFuse("MkDir", name)
 
-	fullName := parent.getChildName(name) + "/"
+	fullName := parent.getChildName(name)
 
 	params := &s3.PutObjectInput{
 		Bucket: &fs.bucket,
-		Key:    &fullName,
+		Key:    aws.String(fullName + "/"),
 		Body:   nil,
 	}
 	_, err = fs.s3.PutObject(params)
@@ -822,6 +822,7 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 
 	if i >= len(dh.Entries) {
 		if dh.Marker != nil {
+			// we need to fetch the next page
 			dh.Entries = nil
 			dh.BaseOffset += i
 			i = 0
