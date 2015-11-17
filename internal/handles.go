@@ -44,7 +44,10 @@ type Inode struct {
 
 	mu      sync.Mutex          // everything below is protected by mu
 	handles map[*DirHandle]bool // value is ignored
-	refcnt  uint64
+
+	// the refcnt is an exception, it's protected by the global lock
+	// Goofys.mu
+	refcnt uint64
 }
 
 func NewInode(name *string, fullName *string, flags *FlagStorage) (inode *Inode) {
@@ -59,10 +62,17 @@ func NewInode(name *string, fullName *string, flags *FlagStorage) (inode *Inode)
 	return
 }
 
-func (inode *Inode) Ref() {
-	inode.mu.Lock()
-	defer inode.mu.Unlock()
+// LOCKS_REQUIRED(fs.mu)
+func (inode *Inode) Ref() (resurrect bool) {
+	inode.logFuse("Ref", inode.refcnt)
+
+	if inode.refcnt == 0 {
+		fuseLog.Errorln("Ref", inode.Id, *inode.FullName, "refcnt == 0")
+		panic("refcnt == 0")
+	}
+
 	inode.refcnt++
+	return
 }
 
 type DirHandle struct {
@@ -118,12 +128,6 @@ func (parent *Inode) lookupFromDirHandles(name string) (inode *Inode) {
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
-	defer func() {
-		if inode != nil {
-			inode.Ref()
-		}
-	}()
-
 	for dh := range parent.handles {
 		attr, ok := dh.NameToEntry[name]
 		if ok {
@@ -161,11 +165,9 @@ func (parent *Inode) getChildName(name string) string {
 	}
 }
 
+// LOCKS_REQUIRED(fs.mu)
 func (inode *Inode) DeRef(n uint64) (stale bool) {
-	inode.logFuse("ForgetInode", n)
-
-	inode.mu.Lock()
-	defer inode.mu.Unlock()
+	inode.logFuse("DeRef", n, inode.refcnt)
 
 	if inode.refcnt < n {
 		panic(fmt.Sprintf("deref %v from %v", n, inode.refcnt))
@@ -173,7 +175,8 @@ func (inode *Inode) DeRef(n uint64) (stale bool) {
 
 	inode.refcnt -= n
 
-	return inode.refcnt == 0
+	stale = (inode.refcnt == 0)
+	return
 }
 
 func (parent *Inode) Unlink(fs *Goofys, name string) (err error) {

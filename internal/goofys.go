@@ -518,10 +518,11 @@ func (fs *Goofys) LookUpInode(
 	parent := fs.getInodeOrDie(op.Parent)
 	inode, ok := fs.inodesCache[parent.getChildName(op.Name)]
 	if ok {
-		defer inode.Ref()
-	} else {
-		fs.mu.Unlock()
+		inode.Ref()
+	}
+	fs.mu.Unlock()
 
+	if !ok {
 		inode, err = parent.LookUp(fs, op.Name)
 		if err != nil {
 			return err
@@ -530,14 +531,14 @@ func (fs *Goofys) LookUpInode(
 		fs.mu.Lock()
 		inode.Id = fs.allocateInodeId()
 		fs.inodesCache[*inode.FullName] = inode
+		fs.inodes[inode.Id] = inode
+		fs.mu.Unlock()
 	}
 
-	fs.inodes[inode.Id] = inode
 	op.Entry.Child = inode.Id
 	op.Entry.Attributes = *inode.Attributes
 	op.Entry.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
 	op.Entry.EntryExpiration = time.Now().Add(fs.flags.TypeCacheTTL)
-	fs.mu.Unlock()
 
 	inode.logFuse("<-- LookUpInode")
 
@@ -550,15 +551,12 @@ func (fs *Goofys) ForgetInode(
 	op *fuseops.ForgetInodeOp) (err error) {
 
 	fs.mu.Lock()
-	inode := fs.getInodeOrDie(op.Inode)
-	fs.mu.Unlock()
+	defer fs.mu.Unlock()
 
+	inode := fs.getInodeOrDie(op.Inode)
 	stale := inode.DeRef(op.N)
 
 	if stale {
-		fs.mu.Lock()
-		defer fs.mu.Unlock()
-
 		delete(fs.inodes, op.Inode)
 		delete(fs.inodesCache, *inode.FullName)
 	}

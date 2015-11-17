@@ -22,6 +22,7 @@ import (
 	"net"
 	"os/exec"
 	"os/user"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -647,4 +648,40 @@ func (s *GoofysTest) TestRename(t *C) {
 	from, to = s.fs.bucket+"/file2", "new_file"
 	err = s.fs.copyObjectMultipart(int64(len(from)), from, to, "")
 	t.Assert(err, IsNil)
+}
+
+func (s *GoofysTest) TestConcurrentRefDeref(t *C) {
+	root := s.getRoot(t)
+
+	lookupOp := fuseops.LookUpInodeOp{
+		Parent: root.Id,
+		Name:   "file1",
+	}
+
+	for i := 0; i < 20; i++ {
+		err := s.fs.LookUpInode(nil, &lookupOp)
+		t.Assert(err, IsNil)
+
+		var wg sync.WaitGroup
+
+		wg.Add(2)
+		go func() {
+			// we want to yield to the forget goroutine so that it's run first
+			// to trigger this bug
+			if i%2 == 0 {
+				runtime.Gosched()
+			}
+			s.fs.LookUpInode(nil, &lookupOp)
+			wg.Done()
+		}()
+		go func() {
+			s.fs.ForgetInode(nil, &fuseops.ForgetInodeOp{
+				Inode: lookupOp.Entry.Child,
+				N:     1,
+			})
+			wg.Done()
+		}()
+
+		wg.Wait()
+	}
 }
