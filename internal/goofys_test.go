@@ -619,6 +619,10 @@ func (s *GoofysTest) TestRename(t *C) {
 	err = root.Rename(s.fs, from, root, to)
 	t.Assert(err, Equals, syscall.EISDIR)
 
+	from, to = "empty_dir", "new_dir"
+	err = root.Rename(s.fs, from, root, to)
+	t.Assert(err, IsNil)
+
 	from, to = "file1", "new_file"
 	err = root.Rename(s.fs, from, root, to)
 	t.Assert(err, IsNil)

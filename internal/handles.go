@@ -745,7 +745,15 @@ func (parent *Inode) Rename(fs *Goofys, from string, newParent *Inode, to string
 	}
 
 	if fromIsDir && !toIsDir {
-		return fuse.ENOTDIR
+		_, err = fs.s3.HeadObject(&s3.HeadObjectInput{Bucket: &fs.bucket, Key: &toFullName})
+		if err == nil {
+			return fuse.ENOTDIR
+		} else {
+			err = mapAwsError(err)
+			if err != fuse.ENOENT {
+				return
+			}
+		}
 	} else if !fromIsDir && toIsDir {
 		return syscall.EISDIR
 	}
