@@ -20,6 +20,7 @@ import (
 	"io"
 	"math/rand"
 	"net"
+	"os"
 	"os/exec"
 	"os/user"
 	"runtime"
@@ -40,6 +41,8 @@ import (
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
 	"github.com/jacobsa/fuse/fuseutil"
+
+	"github.com/Sirupsen/logrus"
 
 	. "gopkg.in/check.v1"
 )
@@ -79,12 +82,6 @@ type GoofysTest struct {
 	s3        *s3.S3
 	sess      *session.Session
 	env       map[string]io.ReadSeeker
-}
-
-type S3Proxy struct {
-	jar    string
-	config string
-	cmd    *exec.Cmd
 }
 
 func Test(t *testing.T) {
@@ -235,8 +232,14 @@ func (s *GoofysTest) SetUpTest(t *C) {
 	bucket := s.setupDefaultEnv(t)
 
 	s.ctx = context.Background()
+
+	uid, gid := MyUserAndGroup()
 	flags := &FlagStorage{
 		StorageClass: "STANDARD",
+		DirMode:      0700,
+		FileMode:     0700,
+		Uid:          uint32(uid),
+		Gid:          uint32(gid),
 	}
 	s.fs = NewGoofys(bucket, s.awsConfig, flags)
 }
@@ -688,4 +691,54 @@ func (s *GoofysTest) TestConcurrentRefDeref(t *C) {
 
 		wg.Wait()
 	}
+}
+
+func isTravis() bool {
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "TRAVIS=") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (s *GoofysTest) TestFuse(t *C) {
+	server := fuseutil.NewFileSystemServer(s.fs)
+
+	// Mount the file system.
+	mountCfg := &fuse.MountConfig{
+		FSName:                  s.fs.bucket,
+		Options:                 s.fs.flags.MountOptions,
+		ErrorLogger:             GetStdLogger(NewLogger("fuse"), logrus.ErrorLevel),
+		DisableWritebackCaching: true,
+	}
+
+	mountPoint := "/tmp/mnt"
+
+	_, err := fuse.Mount(mountPoint, server, mountCfg)
+	t.Assert(err, IsNil)
+
+	defer func() {
+		err := fuse.Unmount(mountPoint)
+		t.Assert(err, IsNil)
+	}()
+
+	time.Sleep(3 * time.Second)
+
+	cmd := exec.Command("../test/fuse-test.sh", mountPoint)
+
+	if isTravis() {
+		logger := NewLogger("fuse-test")
+		lvl := logrus.InfoLevel
+		logger.Formatter.(*logHandle).lvl = &lvl
+		w := logger.Writer()
+
+		cmd.Stdout = w
+		cmd.Stderr = w
+	}
+
+	err = cmd.Run()
+	t.Assert(err, IsNil)
+
 }
