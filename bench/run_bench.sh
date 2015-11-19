@@ -19,5 +19,6 @@ $dir/bench.sh "s3fs -ostat_cache_expire=1 -ourl=https://s3.amazonaws.com -f goof
 $dir/bench.sh "riofs -f -c riofs.conf.xml goofys bench-mnt" bench-mnt $t |& tee bench.riofs
 rmdir bench-mnt
 
-$dir/format_bench.sh bench.s3fs bench.goofys
-$dir/format_bench.sh bench.s3fs bench.local
+$dir/bench_format.py <(paste bench.goofys bench.s3fs bench.riofs) > $dir/bench.data
+
+gnuplot $dir/bench_graph.gnuplot && convert -rotate 90 $dir/bench.png $dir/bench.png
