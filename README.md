@@ -1,4 +1,6 @@
-Goofys is a Filey-System interface to [S3](https://aws.amazon.com/s3/)
+Goofys is a Filey-System interface to [Amazon S3](https://aws.amazon.com/s3/)
+
+[![Build Status](https://travis-ci.org/kahing/goofys.svg?branch=master)](https://travis-ci.org/kahing/goofys)
 
 # Overview
 
