@@ -700,6 +700,9 @@ func (fs *Goofys) FlushFile(
 	fs.mu.Unlock()
 
 	err = fh.FlushFile(fs)
+	if err == nil {
+		fs.inodesCache[*fh.inode.FullName] = fh.inode
+	}
 
 	return
 }
@@ -733,7 +736,6 @@ func (fs *Goofys) CreateFile(
 	inode.Id = nextInode
 
 	fs.inodes[inode.Id] = inode
-	fs.inodesCache[*inode.FullName] = inode
 
 	op.Entry.Child = inode.Id
 	op.Entry.Attributes = *inode.Attributes

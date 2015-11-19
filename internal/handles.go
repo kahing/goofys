@@ -624,6 +624,9 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 	_, err = fs.s3.PutObject(params)
 	if err != nil {
 		err = mapAwsError(err)
+		fh.mu.Lock()
+		fh.lastWriteError = err
+		fh.mu.Unlock()
 	}
 	return
 }
@@ -631,9 +634,13 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 	fh.inode.logFuse("FlushFile")
 
-	if !fh.dirty {
+	fh.mu.Lock()
+	if !fh.dirty || fh.lastWriteError != nil {
+		err = fh.lastWriteError
+		fh.mu.Unlock()
 		return
 	}
+	fh.mu.Unlock()
 
 	// abort mpu on error
 	defer func() {
@@ -652,12 +659,13 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 					s3Log.Debug(resp)
 				}()
 			}
+		} else {
+			fh.dirty = false
 		}
 
 		fh.writeInit = sync.Once{}
 		fh.nextWriteOffset = 0
 		fh.lastPartId = 0
-		fh.dirty = false
 	}()
 
 	if fh.lastPartId == 0 {
