@@ -39,7 +39,6 @@ type BufferPool struct {
 	mu   sync.Mutex
 	cond *sync.Cond
 
-	freelist            [][]byte // list of free buffers
 	numBuffers          int64
 	maxBuffersGlobal    int64
 	maxBuffersPerHandle int64
@@ -66,18 +65,12 @@ func (pool *BufferPool) requestBuffer() (buf []byte) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	for len(pool.freelist) == 0 {
-		if pool.numBuffers < pool.maxBuffersGlobal {
-			pool.numBuffers++
-			buf = make([]byte, 0, BUF_SIZE)
-			return
-		} else {
-			pool.cond.Wait()
-		}
+	for pool.numBuffers == pool.maxBuffersGlobal {
+		pool.cond.Wait()
 	}
 
-	buf = pool.freelist[len(pool.freelist)-1]
-	pool.freelist = pool.freelist[0 : len(pool.freelist)-1]
+	pool.numBuffers++
+	buf = make([]byte, 0, BUF_SIZE)
 	return
 }
 
@@ -85,8 +78,7 @@ func (pool *BufferPool) freeBuffer(buf []byte) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	// XXX return some buffers if we have too many on freelist
-	pool.freelist = append(pool.freelist, buf)
+	pool.numBuffers--
 	pool.cond.Signal()
 }
 
