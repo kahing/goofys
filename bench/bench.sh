@@ -1,5 +1,14 @@
 #!/bin/bash
 
+: ${TRAVIS:="false"}
+
+iter=10
+
+if [ "$TRAVIS" != "false" ]; then
+    set -o xtrace
+    iter=3
+fi
+
 set -o errexit
 set -o nounset
 
@@ -47,12 +56,16 @@ function cleanup_err {
 trap cleanup EXIT
 trap cleanup_err ERR
 
-sleep 5
+if [ "$TRAVIS" == "false" ]; then
+    sleep 5
+fi
 mkdir "$prefix"
 pushd "$prefix" >/dev/null
 
 function drop_cache {
-    (echo 3 | sudo tee /proc/sys/vm/drop_caches) > /dev/null
+    if [ "$TRAVIS" == "false" ]; then
+        (echo 3 | sudo tee /proc/sys/vm/drop_caches) > /dev/null
+    fi
 }
 
 export TIMEFORMAT=%R
@@ -66,10 +79,14 @@ function run_test {
 }
 
 function get_howmany {
-    if [ $# == 0 ]; then
-        howmany=100
+    if [ "$TRAVIS" != "false" ]; then
+        howmany=10
     else
-        howmany=$1
+        if [ $# == 0 ]; then
+            howmany=100
+        else
+            howmany=$1
+        fi
     fi
 }
 
@@ -125,14 +142,14 @@ function read_first_byte {
 }
 
 if [ "$t" = "" -o "$t" = "create" ]; then
-    for i in $(seq 1 10); do
+    for i in $(seq 1 $iter); do
         run_test create_files
         run_test rm_files
     done
 fi
 
 if [ "$t" = "" -o "$t" = "create_parallel" ]; then
-    for i in $(seq 1 10); do
+    for i in $(seq 1 $iter); do
         run_test create_files_parallel
         run_test rm_files_parallel
     done
@@ -140,14 +157,14 @@ fi
 
 if [ "$t" = "" -o "$t" = "ls" ]; then
     create_files_parallel 1000
-    for i in $(seq 1 10); do
+    for i in $(seq 1 $iter); do
         run_test ls_files
     done
     rm_files 1000
 fi
 
 if [ "$t" = "" -o "$t" = "io" ]; then
-    for i in $(seq 1 10); do
+    for i in $(seq 1 $iter); do
         run_test write_large_file
         run_test read_large_file
         run_test read_first_byte
@@ -172,7 +189,7 @@ function read_md5 {
 
 if [ "$t" = "" -o "$t" = "md5" ]; then
     write_md5
-    for i in $(seq 1 10); do
+    for i in $(seq 1 $iter); do
         run_test read_md5
     done
     rm largefile

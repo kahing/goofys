@@ -756,8 +756,6 @@ func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs .
 		}()
 	}
 
-	time.Sleep(3 * time.Second)
-
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 
 	if isTravis() {
