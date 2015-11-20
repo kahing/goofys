@@ -757,6 +757,8 @@ func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs .
 	}
 
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+	cmd.Env = append(cmd.Env, os.Environ()...)
+	cmd.Env = append(cmd.Env, "TRAVIS=true")
 
 	if isTravis() {
 		logger := NewLogger("test")
