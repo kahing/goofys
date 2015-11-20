@@ -237,6 +237,10 @@ func (s *GoofysTest) setupDefaultEnv(t *C) (bucket string) {
 }
 
 func (s *GoofysTest) SetUpTest(t *C) {
+	if isTravis() {
+		SetDefaultLogLevel(logrus.DebugLevel)
+	}
+
 	bucket := s.setupDefaultEnv(t)
 
 	s.ctx = context.Background()
