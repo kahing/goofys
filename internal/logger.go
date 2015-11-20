@@ -32,8 +32,6 @@ var loggers = make(map[string]*logHandle)
 var log = GetLogger("main")
 var fuseLog = GetLogger("fuse")
 
-var defaultLogLevel = logrus.InfoLevel
-
 var syslogHook *logrus_syslog.SyslogHook
 
 func InitLoggers(logToSyslog bool) {
@@ -47,13 +45,6 @@ func InitLoggers(logToSyslog bool) {
 		for _, l := range loggers {
 			l.Hooks.Add(syslogHook)
 		}
-	}
-}
-
-func SetDefaultLogLevel(level logrus.Level) {
-	defaultLogLevel = level
-	for _, l := range loggers {
-		l.Level = level
 	}
 }
 
@@ -101,7 +92,7 @@ func NewLogger(name string) *logHandle {
 	l := &logHandle{name: name}
 	l.Out = os.Stderr
 	l.Formatter = l
-	l.Level = defaultLogLevel
+	l.Level = logrus.InfoLevel
 	l.Hooks = make(logrus.LevelHooks)
 	if syslogHook != nil {
 		l.Hooks.Add(syslogHook)
