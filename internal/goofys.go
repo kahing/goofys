@@ -701,7 +701,9 @@ func (fs *Goofys) FlushFile(
 
 	err = fh.FlushFile(fs)
 	if err == nil {
+		fs.mu.Lock()
 		fs.inodesCache[*fh.inode.FullName] = fh.inode
+		fs.mu.Unlock()
 	}
 
 	return
