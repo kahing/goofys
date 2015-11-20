@@ -735,7 +735,7 @@ func isTravis() bool {
 	return false
 }
 
-func (s *GoofysTest) TestFuse(t *C) {
+func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs ...string) {
 	server := fuseutil.NewFileSystemServer(s.fs)
 
 	// Mount the file system.
@@ -746,22 +746,22 @@ func (s *GoofysTest) TestFuse(t *C) {
 		DisableWritebackCaching: true,
 	}
 
-	mountPoint := "/tmp/mnt"
-
 	_, err := fuse.Mount(mountPoint, server, mountCfg)
 	t.Assert(err, IsNil)
 
-	defer func() {
-		err := fuse.Unmount(mountPoint)
-		t.Assert(err, IsNil)
-	}()
+	if umount {
+		defer func() {
+			err := fuse.Unmount(mountPoint)
+			t.Assert(err, IsNil)
+		}()
+	}
 
 	time.Sleep(3 * time.Second)
 
-	cmd := exec.Command("../test/fuse-test.sh", mountPoint)
+	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 
 	if isTravis() {
-		logger := NewLogger("fuse-test")
+		logger := NewLogger("test")
 		lvl := logrus.InfoLevel
 		logger.Formatter.(*logHandle).lvl = &lvl
 		w := logger.Writer()
@@ -772,5 +772,48 @@ func (s *GoofysTest) TestFuse(t *C) {
 
 	err = cmd.Run()
 	t.Assert(err, IsNil)
+}
 
+func (s *GoofysTest) TestFuse(t *C) {
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	err := os.MkdirAll(mountPoint, 0700)
+	t.Assert(err, IsNil)
+
+	defer os.Remove(mountPoint)
+
+	s.runFuseTest(t, mountPoint, true, "../test/fuse-test.sh", mountPoint)
+}
+
+func (s *GoofysTest) TestBenchLs(t *C) {
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	err := os.MkdirAll(mountPoint, 0700)
+	t.Assert(err, IsNil)
+
+	defer os.Remove(mountPoint)
+
+	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "ls")
+}
+
+func (s *GoofysTest) TestBenchCreate(t *C) {
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	err := os.MkdirAll(mountPoint, 0700)
+	t.Assert(err, IsNil)
+
+	defer os.Remove(mountPoint)
+
+	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "create")
+}
+
+func (s *GoofysTest) TestBenchCreateParallel(t *C) {
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	err := os.MkdirAll(mountPoint, 0700)
+	t.Assert(err, IsNil)
+
+	defer os.Remove(mountPoint)
+
+	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "create_parallel")
 }

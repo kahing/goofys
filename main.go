@@ -57,7 +57,7 @@ func registerSIGINTHandler(mountPoint string) {
 			if err != nil {
 				log.Errorf("Failed to unmount in response to %v: %v", s, err)
 			} else {
-				log.Printf("Successfully unmounted in response to %v", s)
+				log.Printf("Successfully unmounted %v in response to %v", s, mountPoint)
 				return
 			}
 		}
