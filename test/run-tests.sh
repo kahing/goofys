@@ -12,6 +12,8 @@ function cleanup {
 
 trap cleanup EXIT
 
+mkdir -p /tmp/s3proxy
+
 export LOG_LEVEL=warn
 PROXY_BIN="java -jar s3proxy.jar --properties test/s3proxy.properties"
 stdbuf -oL -eL $PROXY_BIN &
