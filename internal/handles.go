@@ -717,14 +717,24 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 }
 
 func (fh *FileHandle) Release() {
+	// read buffers
 	for _, b := range fh.buffers {
 		b.buf.Close()
 	}
 	fh.buffers = nil
 
+	// write buffers
 	if fh.poolHandle != nil {
 		if fh.poolHandle.inUseBuffers != 0 {
-			panic(fmt.Sprintf("%v != 0", fh.poolHandle.inUseBuffers))
+			if fh.lastWriteError == nil {
+				panic("buf not freed but error is nil")
+			}
+
+			if fh.buf != nil {
+				fh.poolHandle.Free(fh.buf)
+			}
+			// the other in-flight multipart PUT buffers will be
+			// freed when they finish/error out
 		}
 	}
 }
