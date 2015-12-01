@@ -59,23 +59,18 @@ Licensed under the Apache License, Version 2.0
 
 # Current Status
 
-List of not yet implemented fuse operations:
-  * in terms of syscalls
-    * `readlink`
-    * `chmod`/`utimes`/`ftruncate`
-    * `fsync`
-
 List of non-POSIX behaviors/limitations:
   * only sequential writes supported
-  * does not support appending to a file yet
-  * file mode is always 0644 for regular files and 0700 for directories
-  * directories link count is always 2
-  * file owner is always the user running goofys
+  * does not store file mode/owner/group
+    * use `--(dir|file)-mode` or `--(uid|gid)` options
+  * does not support symlink or hardlink
   * `ctime`, `atime` is always the same as `mtime`
   * cannot rename non-empty directories
   * `unlink` returns success even if file is not present
-  * can only create files up to 50GB
-  * no `symlink` support
+
+In addition to the items above, the following supportable but not yet implemented:
+  * appending to a file
+  * creating files larger than 50GB
 
 # References
 
