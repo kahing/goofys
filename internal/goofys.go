@@ -488,7 +488,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 					err = nil
 				}
 			} else {
-				// XXX retry
+				return
 			}
 		case resp := <-dirChan:
 			if len(resp.CommonPrefixes) != 0 || len(resp.Contents) != 0 {
@@ -504,7 +504,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 				}
 			}
 		case err = <-errDirChan:
-			// XXX retry
+			return
 		}
 	}
 }
