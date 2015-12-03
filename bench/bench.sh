@@ -1,12 +1,13 @@
 #!/bin/bash
 
 : ${TRAVIS:="false"}
+: ${FAST:="false"}
 
 iter=10
 
 if [ "$TRAVIS" != "false" ]; then
     set -o xtrace
-    iter=3
+    iter=1
 fi
 
 set -o errexit
@@ -175,7 +176,11 @@ fi
 function write_md5 {
     seed=$(dd if=/dev/urandom bs=128 count=1 status=none | base64 -w 0)
     random_cmd="openssl enc -aes-256-ctr -pass pass:$seed -nosalt"
-    MD5=$(dd if=/dev/zero bs=1MB count=1000 status=none | $random_cmd | tee >(md5sum) >largefile | cut -f 1 '-d ')
+    count=1000
+    if [ "$FAST" == "true" ]; then
+        count=100
+    fi
+    MD5=$(dd if=/dev/zero bs=1MB count=$count status=none | $random_cmd | tee >(md5sum) >largefile | cut -f 1 '-d ')
 }
 
 function read_md5 {

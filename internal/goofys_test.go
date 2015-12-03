@@ -759,6 +759,7 @@ func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs .
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	cmd.Env = append(cmd.Env, os.Environ()...)
 	cmd.Env = append(cmd.Env, "TRAVIS=true")
+	cmd.Env = append(cmd.Env, "FAST=true")
 
 	if isTravis() {
 		logger := NewLogger("test")
@@ -807,6 +808,8 @@ func (s *GoofysTest) TestBenchCreate(t *C) {
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "create")
 }
 
+// this can trigger race condition in s3proxy/jclouds local blob store
+/*
 func (s *GoofysTest) TestBenchCreateParallel(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
@@ -816,4 +819,16 @@ func (s *GoofysTest) TestBenchCreateParallel(t *C) {
 	defer os.Remove(mountPoint)
 
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "create_parallel")
+}
+*/
+
+func (s *GoofysTest) TestBenchIO(t *C) {
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	err := os.MkdirAll(mountPoint, 0700)
+	t.Assert(err, IsNil)
+
+	defer os.Remove(mountPoint)
+
+	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "md5")
 }
