@@ -27,19 +27,17 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 
-	"github.com/jacobsa/fuse"
-	"github.com/jacobsa/fuse/fuseops"
-	"github.com/jacobsa/fuse/fuseutil"
+	"bazil.org/fuse"
 
 	"github.com/Sirupsen/logrus"
 )
 
 type Inode struct {
-	Id         fuseops.InodeID
+	Id         uint64
 	Name       *string
 	FullName   *string
 	flags      *FlagStorage
-	Attributes *fuseops.InodeAttributes
+	Attributes *fuse.Attr
 
 	log *logHandle
 
@@ -63,32 +61,19 @@ func NewInode(name *string, fullName *string, flags *FlagStorage) (inode *Inode)
 	return
 }
 
-// LOCKS_REQUIRED(fs.mu)
-func (inode *Inode) Ref() (resurrect bool) {
-	inode.logFuse("Ref", inode.refcnt)
-
-	if inode.refcnt == 0 {
-		fuseLog.Errorln("Ref", inode.Id, *inode.FullName, "refcnt == 0")
-		panic("refcnt == 0")
-	}
-
-	inode.refcnt++
-	return
-}
-
 type DirHandle struct {
 	inode *Inode
 
 	mu          sync.Mutex // everything below is protected by mu
-	Entries     []fuseutil.Dirent
-	NameToEntry map[string]fuseops.InodeAttributes // XXX use a smaller struct
+	Entries     []fuse.Dirent
+	NameToEntry map[string]fuse.Attr // XXX use a smaller struct
 	Marker      *string
 	BaseOffset  int
 }
 
 func NewDirHandle(inode *Inode) (dh *DirHandle) {
 	dh = &DirHandle{inode: inode}
-	dh.NameToEntry = make(map[string]fuseops.InodeAttributes)
+	dh.NameToEntry = make(map[string]fuse.Attr)
 	return
 }
 
@@ -126,7 +111,7 @@ func NewFileHandle(in *Inode) *FileHandle {
 }
 
 func (inode *Inode) logFuse(op string, args ...interface{}) {
-	fuseLog.Debugln(op, inode.Id, *inode.FullName, args)
+	fuseLog.Debugln(op, inode.Attributes.Inode, *inode.FullName, args)
 }
 
 // LOCKS_REQUIRED(parent.mu)
@@ -164,7 +149,7 @@ func (parent *Inode) LookUp(fs *Goofys, name string) (inode *Inode, err error) {
 }
 
 func (parent *Inode) getChildName(name string) string {
-	if parent.Id == fuseops.RootInodeID {
+	if parent.Id == 1 {
 		return name
 	} else {
 		return fmt.Sprintf("%v/%v", *parent.FullName, name)
@@ -217,7 +202,7 @@ func (parent *Inode) Create(
 
 	now := time.Now()
 	inode = NewInode(&name, &fullName, parent.flags)
-	inode.Attributes = &fuseops.InodeAttributes{
+	inode.Attributes = &fuse.Attr{
 		Size:   0,
 		Nlink:  1,
 		Mode:   fs.flags.FileMode,
@@ -280,7 +265,7 @@ func isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
 	}
 
 	if len(resp.CommonPrefixes) > 0 || len(resp.Contents) > 1 {
-		err = fuse.ENOTEMPTY
+		err = fuse.Errno(syscall.ENOTEMPTY)
 		isDir = true
 		return
 	}
@@ -289,7 +274,7 @@ func isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
 		isDir = true
 
 		if *resp.Contents[0].Key != fullName {
-			err = fuse.ENOTEMPTY
+			err = fuse.Errno(syscall.ENOTEMPTY)
 		}
 	}
 
@@ -301,6 +286,9 @@ func (parent *Inode) RmDir(
 	name string) (err error) {
 
 	parent.logFuse("Rmdir", name)
+	defer func() {
+		parent.logFuse("<-- Rmdir", err)
+	}()
 
 	fullName := parent.getChildName(name)
 
@@ -327,7 +315,7 @@ func (parent *Inode) RmDir(
 	return
 }
 
-func (inode *Inode) GetAttributes(fs *Goofys) (*fuseops.InodeAttributes, error) {
+func (inode *Inode) GetAttributes(fs *Goofys) (*fuse.Attr, error) {
 	// XXX refresh attributes
 	inode.logFuse("GetAttributes")
 	return inode.Attributes, nil
@@ -459,7 +447,7 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 
 	if offset != fh.nextWriteOffset {
 		fh.inode.logFuse("WriteFile: only sequential writes supported", fh.nextWriteOffset, offset)
-		fh.lastWriteError = fuse.EINVAL
+		fh.lastWriteError = fuse.Errno(syscall.EINVAL)
 		return fh.lastWriteError
 	}
 
@@ -941,7 +929,7 @@ func (parent *Inode) Rename(fs *Goofys, from string, newParent *Inode, to string
 	if fromIsDir && !toIsDir {
 		_, err = fs.s3.HeadObject(&s3.HeadObjectInput{Bucket: &fs.bucket, Key: &toFullName})
 		if err == nil {
-			return fuse.ENOTDIR
+			return fuse.Errno(syscall.ENOTDIR)
 		} else {
 			err = mapAwsError(err)
 			if err != fuse.ENOENT {
@@ -949,7 +937,7 @@ func (parent *Inode) Rename(fs *Goofys, from string, newParent *Inode, to string
 			}
 		}
 	} else if !fromIsDir && toIsDir {
-		return syscall.EISDIR
+		return fuse.Errno(syscall.EISDIR)
 	}
 
 	size := int64(-1)
@@ -991,17 +979,19 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 }
 
 // Dirents, sorted by name.
-type sortedDirents []fuseutil.Dirent
+type sortedDirents []fuse.Dirent
 
 func (p sortedDirents) Len() int           { return len(p) }
 func (p sortedDirents) Less(i, j int) bool { return p[i].Name < p[j].Name }
 func (p sortedDirents) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
-func makeDirEntry(name string, t fuseutil.DirentType) fuseutil.Dirent {
-	return fuseutil.Dirent{Name: name, Type: t, Inode: fuseops.RootInodeID + 1}
+func makeDirEntry(name string, t fuse.DirentType) fuse.Dirent {
+	return fuse.Dirent{Name: name, Type: t, Inode: 0}
 }
 
-func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Dirent, error) {
+func (dh *DirHandle) ReadDir(fs *Goofys, offset int) (*fuse.Dirent, error) {
+	dh.inode.logFuse("ReadDir", offset)
+
 	// If the request is for offset zero, we assume that either this is the first
 	// call or rewinddir has been called. Reset state.
 	if offset == 0 {
@@ -1009,13 +999,11 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 	}
 
 	if offset == 0 {
-		e := makeDirEntry(".", fuseutil.DT_Directory)
-		e.Offset = 1
+		e := makeDirEntry(".", fuse.DT_Dir)
 		dh.NameToEntry["."] = fs.rootAttrs
 		return &e, nil
 	} else if offset == 1 {
-		e := makeDirEntry("..", fuseutil.DT_Directory)
-		e.Offset = 2
+		e := makeDirEntry("..", fuse.DT_Dir)
 		dh.NameToEntry[".."] = fs.rootAttrs
 		return &e, nil
 	}
@@ -1060,14 +1048,14 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 
 		s3Log.Debug(resp)
 
-		dh.Entries = make([]fuseutil.Dirent, 0, len(resp.CommonPrefixes)+len(resp.Contents))
+		dh.Entries = make([]fuse.Dirent, 0, len(resp.CommonPrefixes)+len(resp.Contents))
 
 		for _, dir := range resp.CommonPrefixes {
 			// strip trailing /
 			dirName := (*dir.Prefix)[0 : len(*dir.Prefix)-1]
 			// strip previous prefix
 			dirName = dirName[len(*params.Prefix):]
-			dh.Entries = append(dh.Entries, makeDirEntry(dirName, fuseutil.DT_Directory))
+			dh.Entries = append(dh.Entries, makeDirEntry(dirName, fuse.DT_Dir))
 			dh.NameToEntry[dirName] = fs.rootAttrs
 		}
 
@@ -1077,8 +1065,8 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 				// this is a directory blob
 				continue
 			}
-			dh.Entries = append(dh.Entries, makeDirEntry(baseName, fuseutil.DT_File))
-			dh.NameToEntry[baseName] = fuseops.InodeAttributes{
+			dh.Entries = append(dh.Entries, makeDirEntry(baseName, fuse.DT_File))
+			dh.NameToEntry[baseName] = fuse.Attr{
 				Size:   uint64(*obj.Size),
 				Nlink:  1,
 				Mode:   fs.flags.FileMode,
@@ -1093,13 +1081,6 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 
 		sort.Sort(sortedDirents(dh.Entries))
 
-		// Fix up offset fields.
-		for i := 0; i < len(dh.Entries); i++ {
-			en := &dh.Entries[i]
-			// offset is 1 based, also need to account for "." and ".."
-			en.Offset = fuseops.DirOffset(i+dh.BaseOffset) + 1 + 2
-		}
-
 		if *resp.IsTruncated {
 			dh.Marker = resp.NextMarker
 		} else {
@@ -1111,7 +1092,7 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 		// we've reached the end
 		return nil, nil
 	} else if i > len(dh.Entries) {
-		return nil, fuse.EINVAL
+		return nil, fuse.Errno(syscall.EINVAL)
 	}
 
 	return &dh.Entries[i], nil

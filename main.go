@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 
 	"golang.org/x/net/context"
@@ -30,12 +31,11 @@ import (
 
 	"github.com/codegangsta/cli"
 
-	"github.com/jacobsa/fuse"
-	"github.com/jacobsa/fuse/fuseutil"
-
-	"github.com/kardianos/osext"
+	"bazil.org/fuse"
+	"bazil.org/fuse/fs"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/kardianos/osext"
 
 	daemon "github.com/sevlyar/go-daemon"
 )
@@ -57,7 +57,7 @@ func registerSIGINTHandler(mountPoint string) {
 			if err != nil {
 				log.Errorf("Failed to unmount in response to %v: %v", s, err)
 			} else {
-				log.Printf("Successfully unmounted %v in response to %v", s, mountPoint)
+				log.Printf("Successfully unmounted %v in response to %v", mountPoint, s)
 				return
 			}
 		}
@@ -70,7 +70,7 @@ func mount(
 	ctx context.Context,
 	bucketName string,
 	mountPoint string,
-	flags *FlagStorage) (mfs *fuse.MountedFileSystem, err error) {
+	flags *FlagStorage) (wg *sync.WaitGroup, err error) {
 
 	awsConfig := &aws.Config{
 		Region: aws.String("us-west-2"),
@@ -89,28 +89,45 @@ func mount(
 		err = fmt.Errorf("Mount: initialization failed")
 		return
 	}
-	server := fuseutil.NewFileSystemServer(goofys)
-
-	fuseLog := GetLogger("fuse")
-
-	// Mount the file system.
-	mountCfg := &fuse.MountConfig{
-		FSName:                  bucketName,
-		Options:                 flags.MountOptions,
-		ErrorLogger:             GetStdLogger(NewLogger("fuse"), logrus.ErrorLevel),
-		DisableWritebackCaching: true,
-	}
 
 	if flags.DebugFuse {
-		fuseLog.Level = logrus.DebugLevel
-		mountCfg.DebugLogger = GetStdLogger(fuseLog, logrus.DebugLevel)
+		fuselog := GetLogger("fuse")
+		fuselog.Level = logrus.DebugLevel
+		fuse.Debug = func(msg interface{}) {
+			fuselog.Debug(msg)
+		}
 	}
 
-	mfs, err = fuse.Mount(mountPoint, server, mountCfg)
+	c, err := fuse.Mount(
+		mountPoint,
+		fuse.FSName("goofys#"+bucketName),
+		fuse.Subtype("goofys"),
+		fuse.VolumeName(bucketName),
+		fuse.MaxReadahead(1*1024*1024),
+	)
 	if err != nil {
-		err = fmt.Errorf("Mount: %v", err)
 		return
 	}
+
+	var waitgroup sync.WaitGroup
+	wg = &waitgroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		err = fs.Serve(c, goofys)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// check if the mount process has an error to report
+		<-c.Ready
+		if err := c.MountError; err != nil {
+			log.Fatal(err)
+		}
+
+		log.Info("Server shutdown")
+	}()
 
 	return
 }
@@ -178,7 +195,7 @@ func main() {
 		}
 
 		// Mount the file system.
-		mfs, err := mount(
+		wg, err := mount(
 			context.Background(),
 			bucketName,
 			mountPoint,
@@ -191,14 +208,10 @@ func main() {
 		log.Println("File system has been successfully mounted.")
 
 		// Let the user unmount with Ctrl-C (SIGINT).
-		registerSIGINTHandler(mfs.Dir())
+		registerSIGINTHandler(mountPoint)
 
 		// Wait for the file system to be unmounted.
-		err = mfs.Join(context.Background())
-		if err != nil {
-			err = fmt.Errorf("MountedFileSystem.Join: %v", err)
-			return
-		}
+		wg.Wait()
 
 		log.Println("Successfully exiting.")
 	}

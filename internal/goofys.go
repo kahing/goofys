@@ -28,9 +28,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 
-	"github.com/jacobsa/fuse"
-	"github.com/jacobsa/fuse/fuseops"
-	"github.com/jacobsa/fuse/fuseutil"
+	"bazil.org/fuse"
+	"bazil.org/fuse/fs"
 
 	"github.com/Sirupsen/logrus"
 )
@@ -45,7 +44,6 @@ import (
 // close-to-open.
 
 type Goofys struct {
-	fuseutil.NotImplementedFileSystem
 	bucket string
 
 	flags *FlagStorage
@@ -55,7 +53,8 @@ type Goofys struct {
 	awsConfig *aws.Config
 	sess      *session.Session
 	s3        *s3.S3
-	rootAttrs fuseops.InodeAttributes
+	rootAttrs fuse.Attr
+	root      *Inode
 
 	bufferPool *BufferPool
 
@@ -63,29 +62,7 @@ type Goofys struct {
 	// from per-inode locks). Make sure to see the notes on lock ordering above.
 	mu sync.Mutex
 
-	// The next inode ID to hand out. We assume that this will never overflow,
-	// since even if we were handing out inode IDs at 4 GHz, it would still take
-	// over a century to do so.
-	//
-	// GUARDED_BY(mu)
-	nextInodeID fuseops.InodeID
-
-	// The collection of live inodes, keyed by inode ID. No ID less than
-	// fuseops.RootInodeID is ever used.
-	//
-	// INVARIANT: For all keys k, fuseops.RootInodeID <= k < nextInodeID
-	// INVARIANT: For all keys k, inodes[k].ID() == k
-	// INVARIANT: inodes[fuseops.RootInodeID] is missing or of type inode.DirInode
-	// INVARIANT: For all v, if IsDirName(v.Name()) then v is inode.DirInode
-	//
-	// GUARDED_BY(mu)
-	inodes      map[fuseops.InodeID]*Inode
 	inodesCache map[string]*Inode // fullname to inode
-
-	nextHandleID fuseops.HandleID
-	dirHandles   map[fuseops.HandleID]*DirHandle
-
-	fileHandles map[fuseops.HandleID]*FileHandle
 }
 
 var s3Log = GetLogger("s3")
@@ -143,7 +120,8 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 	}
 
 	now := time.Now()
-	fs.rootAttrs = fuseops.InodeAttributes{
+	fs.rootAttrs = fuse.Attr{
+		Inode:  0,
 		Size:   4096,
 		Nlink:  2,
 		Mode:   flags.DirMode | os.ModeDir,
@@ -154,69 +132,218 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 		Uid:    fs.flags.Uid,
 		Gid:    fs.flags.Gid,
 	}
+	rootName := ""
+	fs.root = NewInode(&rootName, &rootName, flags)
+	fs.root.Id = 1
+	fs.root.Attributes = &fs.rootAttrs
 
 	fs.bufferPool = NewBufferPool(1000*1024*1024, 200*1024*1024)
 
-	fs.nextInodeID = fuseops.RootInodeID + 1
-	fs.inodes = make(map[fuseops.InodeID]*Inode)
-	root := NewInode(aws.String(""), aws.String(""), flags)
-	root.Id = fuseops.RootInodeID
-	root.Attributes = &fs.rootAttrs
-
-	fs.inodes[fuseops.RootInodeID] = root
 	fs.inodesCache = make(map[string]*Inode)
-
-	fs.nextHandleID = 1
-	fs.dirHandles = make(map[fuseops.HandleID]*DirHandle)
-
-	fs.fileHandles = make(map[fuseops.HandleID]*FileHandle)
 
 	return fs
 }
 
-// Find the given inode. Panic if it doesn't exist.
-//
-// LOCKS_REQUIRED(fs.mu)
-func (fs *Goofys) getInodeOrDie(id fuseops.InodeID) (inode *Inode) {
-	inode = fs.inodes[id]
-	if inode == nil {
-		panic(fmt.Sprintf("Unknown inode: %v", id))
-	}
-
-	return
+type node struct {
+	fs    *Goofys
+	inode *Inode
 }
 
-func (fs *Goofys) StatFS(
+type fhandle struct {
+	fs     *Goofys
+	handle *FileHandle
+}
+
+type dhandle struct {
+	fs     *Goofys
+	handle *DirHandle
+}
+
+func (fs *Goofys) Root() (fs.Node, error) {
+	return &node{fs, fs.root}, nil
+}
+
+func (fs *Goofys) Statfs(
 	ctx context.Context,
-	op *fuseops.StatFSOp) (err error) {
+	req *fuse.StatfsRequest,
+	resp *fuse.StatfsResponse) (err error) {
 
 	const BLOCK_SIZE = 4096
 	const TOTAL_SPACE = 1 * 1024 * 1024 * 1024 * 1024 * 1024 // 1PB
 	const TOTAL_BLOCKS = TOTAL_SPACE / BLOCK_SIZE
 	const INODES = 1 * 1000 * 1000 * 1000 // 1 billion
-	op.BlockSize = BLOCK_SIZE
-	op.Blocks = TOTAL_BLOCKS
-	op.BlocksFree = TOTAL_BLOCKS
-	op.BlocksAvailable = TOTAL_BLOCKS
-	op.IoSize = 1 * 1024 * 1024 // 1MB
-	op.Inodes = INODES
-	op.InodesFree = INODES
+	resp.Blocks = TOTAL_BLOCKS
+	resp.Bfree = TOTAL_BLOCKS
+	resp.Bavail = TOTAL_BLOCKS
+	resp.Files = 2
+	resp.Ffree = INODES
+	resp.Bsize = 1 * 1024 * 1024
+	resp.Namelen = 1024 // s3 max key length
+	resp.Frsize = BLOCK_SIZE
+
 	return
 }
 
-func (fs *Goofys) GetInodeAttributes(
+func (n *node) Attr(ctx context.Context, attr *fuse.Attr) error {
+	*attr = *n.inode.Attributes
+	attr.Inode = n.inode.Id
+	return nil
+}
+
+func (n *node) Create(
 	ctx context.Context,
-	op *fuseops.GetInodeAttributesOp) (err error) {
+	req *fuse.CreateRequest,
+	resp *fuse.CreateResponse) (fs.Node, fs.Handle, error) {
 
-	fs.mu.Lock()
-	inode := fs.getInodeOrDie(op.Inode)
-	fs.mu.Unlock()
+	inode, fh := n.inode.Create(n.fs, req.Name)
+	if inode != nil {
+		n.fs.mu.Lock()
+		n.fs.inodesCache[*inode.FullName] = inode
+		n.fs.mu.Unlock()
+	}
 
-	attr, err := inode.GetAttributes(fs)
-	op.Attributes = *attr
-	op.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
+	return &node{n.fs, inode}, &fhandle{n.fs, fh}, nil
+}
+
+func (n *node) Forget() {
+	n.fs.mu.Lock()
+	delete(n.fs.inodesCache, *n.inode.FullName)
+	n.fs.mu.Unlock()
+}
+
+func (n *node) Getattr(
+	ctx context.Context,
+	req *fuse.GetattrRequest,
+	resp *fuse.GetattrResponse) error {
+
+	attr, err := n.inode.GetAttributes(n.fs)
+	resp.Attr = *attr
+	resp.Attr.Inode = n.inode.Id
+	return err
+}
+
+func (n *node) Mkdir(
+	ctx context.Context,
+	req *fuse.MkdirRequest) (fs.Node, error) {
+
+	inode, err := n.inode.MkDir(n.fs, req.Name)
+	return &node{n.fs, inode}, err
+}
+
+func (n *node) Open(
+	ctx context.Context,
+	req *fuse.OpenRequest,
+	resp *fuse.OpenResponse) (fs.Handle, error) {
+
+	if req.Dir {
+		dh := n.inode.OpenDir()
+		return &dhandle{n.fs, dh}, nil
+	} else {
+		fh := n.inode.OpenFile(n.fs)
+		resp.Flags |= /*fuse.OpenDirectIO | */ fuse.OpenKeepCache
+		return &fhandle{n.fs, fh}, nil
+	}
+}
+
+func (n *node) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
+	if req.Dir {
+		return n.inode.RmDir(n.fs, req.Name)
+	} else {
+		return n.inode.Unlink(n.fs, req.Name)
+	}
+}
+
+func (n *node) Rename(
+	ctx context.Context,
+	req *fuse.RenameRequest,
+	newDir fs.Node) error {
+
+	newParent := newDir.(*node)
+	n.fs.mu.Lock()
+	inode := n.fs.inodesCache[n.inode.getChildName(req.OldName)]
+	n.fs.mu.Unlock()
+
+	err := n.inode.Rename(n.fs, req.OldName, newParent.inode, req.NewName)
+
+	if inode != nil {
+		n.fs.mu.Lock()
+		inode.Name = &req.NewName
+		inode.FullName = aws.String(newParent.inode.getChildName(req.NewName))
+		n.fs.mu.Unlock()
+	}
+
+	return err
+}
+
+func (n *node) Lookup(
+	ctx context.Context,
+	name string) (fs.Node, error) {
+
+	inode, err := n.inode.LookUp(n.fs, name)
+	if inode != nil {
+		n.fs.mu.Lock()
+		n.fs.inodesCache[*inode.FullName] = inode
+		n.fs.mu.Unlock()
+	}
+	return &node{n.fs, inode}, err
+}
+
+func (f *fhandle) Flush(
+	ctx context.Context,
+	req *fuse.FlushRequest) error {
+
+	return f.handle.FlushFile(f.fs)
+}
+
+func (f *fhandle) Read(
+	ctx context.Context,
+	req *fuse.ReadRequest,
+	resp *fuse.ReadResponse) error {
+
+	resp.Data = resp.Data[0:req.Size]
+	nread, err := f.handle.ReadFile(f.fs, req.Offset, resp.Data)
+	if err == nil {
+		resp.Data = resp.Data[:nread]
+	}
+	return err
+}
+
+func (f *fhandle) Release(
+	ctx context.Context,
+	req *fuse.ReleaseRequest) error {
+
+	f.handle.Release()
+	return nil
+}
+
+func (f *fhandle) Write(
+	ctx context.Context,
+	req *fuse.WriteRequest,
+	resp *fuse.WriteResponse) error {
+
+	err := f.handle.WriteFile(f.fs, req.Offset, req.Data)
+	if err == nil {
+		resp.Size = len(req.Data)
+	}
+	return err
+}
+
+func (d *dhandle) ReadDir(ctx context.Context, offset int64) (dir *fuse.Dirent, err error) {
+	dir, err = d.handle.ReadDir(d.fs, int(offset))
+	if err != nil || dir == nil {
+		return
+	}
+
+	d.handle.inode.logFuse("<-- ReadDir", dir.Name)
 
 	return
+}
+
+func (d *dhandle) Release(
+	ctx context.Context,
+	req *fuse.ReleaseRequest) error {
+
+	return d.handle.CloseDir()
 }
 
 const REGION_ERROR_MSG = "The authorization header is malformed; the region %s is wrong; expecting %s"
@@ -252,7 +379,7 @@ func mapAwsError(err error) error {
 			case 404:
 				return fuse.ENOENT
 			case 405:
-				return syscall.ENOTSUP
+				return fuse.Errno(syscall.ENOTSUP)
 			default:
 				s3Log.Errorf("code=%v msg=%v request=%v\n", reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
 				return reqErr
@@ -436,17 +563,13 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 		StorageClass: &fs.flags.StorageClass,
 	}
 
+	s3Log.Debug(params)
+
 	_, err = fs.s3.CopyObject(params)
 	if err != nil {
 		err = mapAwsError(err)
 	}
 
-	return
-}
-
-func (fs *Goofys) allocateInodeId() (id fuseops.InodeID) {
-	id = fs.nextInodeID
-	fs.nextInodeID++
 	return
 }
 
@@ -467,7 +590,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 		case resp := <-objectChan:
 			// XXX/TODO if both object and object/ exists, return dir
 			inode = NewInode(&name, &fullName, fs.flags)
-			inode.Attributes = &fuseops.InodeAttributes{
+			inode.Attributes = &fuse.Attr{
 				Size:   uint64(*resp.ContentLength),
 				Nlink:  1,
 				Mode:   fs.flags.FileMode,
@@ -507,349 +630,4 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 			return
 		}
 	}
-}
-
-func (fs *Goofys) LookUpInode(
-	ctx context.Context,
-	op *fuseops.LookUpInodeOp) (err error) {
-
-	fs.mu.Lock()
-
-	parent := fs.getInodeOrDie(op.Parent)
-	inode, ok := fs.inodesCache[parent.getChildName(op.Name)]
-	if ok {
-		inode.Ref()
-	}
-	fs.mu.Unlock()
-
-	if !ok {
-		inode, err = parent.LookUp(fs, op.Name)
-		if err != nil {
-			return err
-		}
-
-		fs.mu.Lock()
-		inode.Id = fs.allocateInodeId()
-		fs.inodesCache[*inode.FullName] = inode
-		fs.inodes[inode.Id] = inode
-		fs.mu.Unlock()
-	}
-
-	op.Entry.Child = inode.Id
-	op.Entry.Attributes = *inode.Attributes
-	op.Entry.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
-	op.Entry.EntryExpiration = time.Now().Add(fs.flags.TypeCacheTTL)
-
-	inode.logFuse("<-- LookUpInode")
-
-	return
-}
-
-// LOCKS_EXCLUDED(fs.mu)
-func (fs *Goofys) ForgetInode(
-	ctx context.Context,
-	op *fuseops.ForgetInodeOp) (err error) {
-
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
-	inode := fs.getInodeOrDie(op.Inode)
-	stale := inode.DeRef(op.N)
-
-	if stale {
-		delete(fs.inodes, op.Inode)
-		delete(fs.inodesCache, *inode.FullName)
-	}
-
-	return
-}
-
-func (fs *Goofys) OpenDir(
-	ctx context.Context,
-	op *fuseops.OpenDirOp) (err error) {
-	fs.mu.Lock()
-
-	handleID := fs.nextHandleID
-	fs.nextHandleID++
-
-	in := fs.getInodeOrDie(op.Inode)
-	fs.mu.Unlock()
-
-	// XXX/is this a dir?
-	dh := in.OpenDir()
-
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
-	fs.dirHandles[handleID] = dh
-	op.Handle = handleID
-
-	return
-}
-
-// LOCKS_EXCLUDED(fs.mu)
-func (fs *Goofys) ReadDir(
-	ctx context.Context,
-	op *fuseops.ReadDirOp) (err error) {
-
-	// Find the handle.
-	fs.mu.Lock()
-	dh := fs.dirHandles[op.Handle]
-	//inode := fs.inodes[op.Inode]
-	fs.mu.Unlock()
-
-	if dh == nil {
-		panic(fmt.Sprintf("can't find dh=%v", op.Handle))
-	}
-
-	dh.inode.logFuse("ReadDir", op.Offset)
-
-	for i := op.Offset; ; i++ {
-		e, err := dh.ReadDir(fs, i)
-		if err != nil {
-			return err
-		}
-		if e == nil {
-			break
-		}
-
-		n := fuseutil.WriteDirent(op.Dst[op.BytesRead:], *e)
-		if n == 0 {
-			break
-		}
-
-		dh.inode.logFuse("<-- ReadDir", e.Name, e.Offset)
-
-		op.BytesRead += n
-	}
-
-	return
-}
-
-func (fs *Goofys) ReleaseDirHandle(
-	ctx context.Context,
-	op *fuseops.ReleaseDirHandleOp) (err error) {
-
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
-	dh := fs.dirHandles[op.Handle]
-	dh.CloseDir()
-
-	fuseLog.Debugln("ReleaseDirHandle", *dh.inode.FullName)
-
-	delete(fs.dirHandles, op.Handle)
-
-	return
-}
-
-func (fs *Goofys) OpenFile(
-	ctx context.Context,
-	op *fuseops.OpenFileOp) (err error) {
-	fs.mu.Lock()
-	in := fs.getInodeOrDie(op.Inode)
-	fs.mu.Unlock()
-
-	fh := in.OpenFile(fs)
-
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
-	handleID := fs.nextHandleID
-	fs.nextHandleID++
-
-	fs.fileHandles[handleID] = fh
-
-	op.Handle = handleID
-	op.KeepPageCache = true
-
-	return
-}
-
-func (fs *Goofys) ReadFile(
-	ctx context.Context,
-	op *fuseops.ReadFileOp) (err error) {
-
-	fs.mu.Lock()
-	fh := fs.fileHandles[op.Handle]
-	fs.mu.Unlock()
-
-	op.BytesRead, err = fh.ReadFile(fs, op.Offset, op.Dst)
-
-	return
-}
-
-func (fs *Goofys) SyncFile(
-	ctx context.Context,
-	op *fuseops.SyncFileOp) (err error) {
-
-	fs.mu.Lock()
-	fh := fs.fileHandles[op.Handle]
-	fs.mu.Unlock()
-
-	err = fh.FlushFile(fs)
-	return
-}
-
-func (fs *Goofys) FlushFile(
-	ctx context.Context,
-	op *fuseops.FlushFileOp) (err error) {
-
-	fs.mu.Lock()
-	fh := fs.fileHandles[op.Handle]
-	fs.mu.Unlock()
-
-	err = fh.FlushFile(fs)
-	if err == nil {
-		fs.mu.Lock()
-		fs.inodesCache[*fh.inode.FullName] = fh.inode
-		fs.mu.Unlock()
-	}
-
-	return
-}
-
-func (fs *Goofys) ReleaseFileHandle(
-	ctx context.Context,
-	op *fuseops.ReleaseFileHandleOp) (err error) {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
-	fh := fs.fileHandles[op.Handle]
-	fh.Release()
-
-	fuseLog.Debugln("ReleaseFileHandle", *fh.inode.FullName)
-
-	delete(fs.fileHandles, op.Handle)
-	return
-}
-
-func (fs *Goofys) CreateFile(
-	ctx context.Context,
-	op *fuseops.CreateFileOp) (err error) {
-
-	fs.mu.Lock()
-	parent := fs.getInodeOrDie(op.Parent)
-	fs.mu.Unlock()
-
-	inode, fh := parent.Create(fs, op.Name)
-
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
-	nextInode := fs.nextInodeID
-	fs.nextInodeID++
-
-	inode.Id = nextInode
-
-	fs.inodes[inode.Id] = inode
-
-	op.Entry.Child = inode.Id
-	op.Entry.Attributes = *inode.Attributes
-	op.Entry.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
-	op.Entry.EntryExpiration = time.Now().Add(fs.flags.TypeCacheTTL)
-
-	// Allocate a handle.
-	handleID := fs.nextHandleID
-	fs.nextHandleID++
-
-	fs.fileHandles[handleID] = fh
-
-	op.Handle = handleID
-
-	inode.logFuse("<-- CreateFile")
-
-	return
-}
-
-func (fs *Goofys) MkDir(
-	ctx context.Context,
-	op *fuseops.MkDirOp) (err error) {
-
-	fs.mu.Lock()
-	parent := fs.getInodeOrDie(op.Parent)
-	fs.mu.Unlock()
-
-	// ignore op.Mode for now
-	inode, err := parent.MkDir(fs, op.Name)
-	if err != nil {
-		return err
-	}
-
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
-	nextInode := fs.nextInodeID
-	fs.nextInodeID++
-
-	inode.Id = nextInode
-
-	fs.inodesCache[*inode.FullName] = inode
-	fs.inodes[inode.Id] = inode
-	op.Entry.Child = inode.Id
-	op.Entry.Attributes = *inode.Attributes
-	op.Entry.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
-	op.Entry.EntryExpiration = time.Now().Add(fs.flags.TypeCacheTTL)
-
-	return
-}
-
-func (fs *Goofys) RmDir(
-	ctx context.Context,
-	op *fuseops.RmDirOp) (err error) {
-
-	fs.mu.Lock()
-	parent := fs.getInodeOrDie(op.Parent)
-	fs.mu.Unlock()
-
-	err = parent.RmDir(fs, op.Name)
-	return
-}
-
-func (fs *Goofys) SetInodeAttributes(
-	ctx context.Context,
-	op *fuseops.SetInodeAttributesOp) (err error) {
-	// do nothing, we don't support any of the changes
-	return
-}
-
-func (fs *Goofys) WriteFile(
-	ctx context.Context,
-	op *fuseops.WriteFileOp) (err error) {
-
-	fs.mu.Lock()
-
-	fh, ok := fs.fileHandles[op.Handle]
-	if !ok {
-		panic(fmt.Sprintf("WriteFile: can't find handle %v", op.Handle))
-	}
-	fs.mu.Unlock()
-
-	err = fh.WriteFile(fs, op.Offset, op.Data)
-
-	return
-}
-
-func (fs *Goofys) Unlink(
-	ctx context.Context,
-	op *fuseops.UnlinkOp) (err error) {
-
-	fs.mu.Lock()
-	parent := fs.getInodeOrDie(op.Parent)
-	fs.mu.Unlock()
-
-	err = parent.Unlink(fs, op.Name)
-	return
-}
-
-func (fs *Goofys) Rename(
-	ctx context.Context,
-	op *fuseops.RenameOp) (err error) {
-
-	fs.mu.Lock()
-	parent := fs.getInodeOrDie(op.OldParent)
-	newParent := fs.getInodeOrDie(op.NewParent)
-	fs.mu.Unlock()
-
-	return parent.Rename(fs, op.OldName, newParent, op.NewName)
 }

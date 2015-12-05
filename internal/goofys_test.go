@@ -24,7 +24,6 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,9 +38,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 
-	"github.com/jacobsa/fuse"
-	"github.com/jacobsa/fuse/fuseops"
-	"github.com/jacobsa/fuse/fuseutil"
+	"bazil.org/fuse"
+	"bazil.org/fuse/fs"
 
 	"github.com/Sirupsen/logrus"
 
@@ -253,21 +251,16 @@ func (s *GoofysTest) SetUpTest(t *C) {
 }
 
 func (s *GoofysTest) getRoot(t *C) *Inode {
-	return s.fs.inodes[fuseops.RootInodeID]
+	return s.fs.root
 }
 
 func (s *GoofysTest) TestGetRootInode(t *C) {
 	root := s.getRoot(t)
-	t.Assert(root.Id, Equals, fuseops.InodeID(fuseops.RootInodeID))
+	t.Assert(root.Id, Equals, uint64(1))
 }
 
 func (s *GoofysTest) TestGetRootAttributes(t *C) {
 	_, err := s.getRoot(t).GetAttributes(s.fs)
-	t.Assert(err, IsNil)
-}
-
-func (s *GoofysTest) ForgetInode(t *C, inode fuseops.InodeID) {
-	err := s.fs.ForgetInode(s.ctx, &fuseops.ForgetInodeOp{Inode: inode})
 	t.Assert(err, IsNil)
 }
 
@@ -319,16 +312,16 @@ func (s *GoofysTest) TestGetInodeAttributes(t *C) {
 	t.Assert(attr.Size, Equals, uint64(len("file1")))
 }
 
-func (s *GoofysTest) readDirFully(t *C, dh *DirHandle) (entries []fuseutil.Dirent) {
-	en, err := dh.ReadDir(s.fs, fuseops.DirOffset(0))
+func (s *GoofysTest) readDirFully(t *C, dh *DirHandle) (entries []fuse.Dirent) {
+	en, err := dh.ReadDir(s.fs, 0)
 	t.Assert(err, IsNil)
 	t.Assert(en.Name, Equals, ".")
 
-	en, err = dh.ReadDir(s.fs, fuseops.DirOffset(1))
+	en, err = dh.ReadDir(s.fs, 1)
 	t.Assert(err, IsNil)
 	t.Assert(en.Name, Equals, "..")
 
-	for i := fuseops.DirOffset(2); ; i++ {
+	for i := 2; ; i++ {
 		en, err = dh.ReadDir(s.fs, i)
 		t.Assert(err, IsNil)
 
@@ -340,7 +333,7 @@ func (s *GoofysTest) readDirFully(t *C, dh *DirHandle) (entries []fuseutil.Diren
 	}
 }
 
-func namesOf(entries []fuseutil.Dirent) (names []string) {
+func namesOf(entries []fuse.Dirent) (names []string) {
 	for _, en := range entries {
 		names = append(names, en.Name)
 	}
@@ -382,7 +375,7 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 	dh := parent.OpenDir()
 	defer dh.CloseDir()
 
-	for i := fuseops.DirOffset(0); ; i++ {
+	for i := 0; ; i++ {
 		en, err := dh.ReadDir(s.fs, i)
 		t.Assert(err, IsNil)
 
@@ -390,7 +383,7 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 			break
 		}
 
-		if en.Type == fuseutil.DT_File {
+		if en.Type == fuse.DT_File {
 			in, err := parent.LookUp(s.fs, en.Name)
 			t.Assert(err, IsNil)
 
@@ -618,10 +611,10 @@ func (s *GoofysTest) TestRmDir(t *C) {
 	root := s.getRoot(t)
 
 	err := root.RmDir(s.fs, "dir1")
-	t.Assert(err, Equals, fuse.ENOTEMPTY)
+	t.Assert(err, Equals, fuse.Errno(syscall.ENOTEMPTY))
 
 	err = root.RmDir(s.fs, "dir2")
-	t.Assert(err, Equals, fuse.ENOTEMPTY)
+	t.Assert(err, Equals, fuse.Errno(syscall.ENOTEMPTY))
 
 	err = root.RmDir(s.fs, "empty_dir")
 	t.Assert(err, IsNil)
@@ -633,26 +626,26 @@ func (s *GoofysTest) TestRename(t *C) {
 
 	from, to := "dir1", "new_dir"
 	err := root.Rename(s.fs, from, root, to)
-	t.Assert(err, Equals, fuse.ENOTEMPTY)
+	t.Assert(err, Equals, fuse.Errno(syscall.ENOTEMPTY))
 
 	dir2, err := root.LookUp(s.fs, "dir2")
 	t.Assert(err, IsNil)
 
 	from, to = "dir3", "new_dir"
 	err = dir2.Rename(s.fs, from, root, to)
-	t.Assert(err, Equals, fuse.ENOTEMPTY)
+	t.Assert(err, Equals, fuse.Errno(syscall.ENOTEMPTY))
 
 	from, to = "empty_dir", "dir1"
 	err = root.Rename(s.fs, from, root, to)
-	t.Assert(err, Equals, fuse.ENOTEMPTY)
+	t.Assert(err, Equals, fuse.Errno(syscall.ENOTEMPTY))
 
 	from, to = "empty_dir", "file1"
 	err = root.Rename(s.fs, from, root, to)
-	t.Assert(err, Equals, fuse.ENOTDIR)
+	t.Assert(err, Equals, fuse.Errno(syscall.ENOTDIR))
 
 	from, to = "file1", "empty_dir"
 	err = root.Rename(s.fs, from, root, to)
-	t.Assert(err, Equals, syscall.EISDIR)
+	t.Assert(err, Equals, fuse.Errno(syscall.EISDIR))
 
 	from, to = "empty_dir", "new_dir"
 	err = root.Rename(s.fs, from, root, to)
@@ -689,42 +682,6 @@ func (s *GoofysTest) TestRename(t *C) {
 	t.Assert(err, IsNil)
 }
 
-func (s *GoofysTest) TestConcurrentRefDeref(t *C) {
-	root := s.getRoot(t)
-
-	lookupOp := fuseops.LookUpInodeOp{
-		Parent: root.Id,
-		Name:   "file1",
-	}
-
-	for i := 0; i < 20; i++ {
-		err := s.fs.LookUpInode(nil, &lookupOp)
-		t.Assert(err, IsNil)
-
-		var wg sync.WaitGroup
-
-		wg.Add(2)
-		go func() {
-			// we want to yield to the forget goroutine so that it's run first
-			// to trigger this bug
-			if i%2 == 0 {
-				runtime.Gosched()
-			}
-			s.fs.LookUpInode(nil, &lookupOp)
-			wg.Done()
-		}()
-		go func() {
-			s.fs.ForgetInode(nil, &fuseops.ForgetInodeOp{
-				Inode: lookupOp.Entry.Child,
-				N:     1,
-			})
-			wg.Done()
-		}()
-
-		wg.Wait()
-	}
-}
-
 func isTravis() bool {
 	for _, e := range os.Environ() {
 		if strings.HasPrefix(e, "TRAVIS=") {
@@ -736,18 +693,18 @@ func isTravis() bool {
 }
 
 func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs ...string) {
-	server := fuseutil.NewFileSystemServer(s.fs)
-
 	// Mount the file system.
-	mountCfg := &fuse.MountConfig{
-		FSName:                  s.fs.bucket,
-		Options:                 s.fs.flags.MountOptions,
-		ErrorLogger:             GetStdLogger(NewLogger("fuse"), logrus.ErrorLevel),
-		DisableWritebackCaching: true,
-	}
-
-	_, err := fuse.Mount(mountPoint, server, mountCfg)
+	c, err := fuse.Mount(
+		mountPoint,
+		fuse.FSName("fuse"),
+		fuse.Subtype("goofys"),
+		fuse.VolumeName(s.fs.bucket),
+		fuse.MaxReadahead(1*1024*1024),
+	)
 	t.Assert(err, IsNil)
+
+	go fs.Serve(c, s.fs)
+	time.Sleep(1 * time.Second)
 
 	if umount {
 		defer func() {
@@ -762,6 +719,11 @@ func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs .
 	cmd.Env = append(cmd.Env, "FAST=true")
 
 	if isTravis() {
+		// XXX not working
+		fuse.Debug = func(msg interface{}) {
+			fuseLog.Debugln(msg)
+		}
+
 		logger := NewLogger("test")
 		lvl := logrus.InfoLevel
 		logger.Formatter.(*logHandle).lvl = &lvl

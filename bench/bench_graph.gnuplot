@@ -3,7 +3,7 @@
 reset
 #fontsize = 12
 set terminal pngcairo crop size 1000,640
-set output "bench.png"
+set output "bench/bench.png"
 
 #set key at graph 0.24, 0.8 horizontal samplen 0.1
 
