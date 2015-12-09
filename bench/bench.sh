@@ -131,7 +131,11 @@ function rm_files_parallel {
 }
 
 function write_large_file {
-    dd if=/dev/zero of=largefile bs=1MB count=1000 status=none
+    count=1000
+    if [ "$FAST" == "true" ]; then
+        count=100
+    fi
+    dd if=/dev/zero of=largefile bs=1MB count=$count status=none
 }
 
 function read_large_file {
@@ -180,7 +184,8 @@ function write_md5 {
     if [ "$FAST" == "true" ]; then
         count=100
     fi
-    MD5=$(dd if=/dev/zero bs=1MB count=$count status=none | $random_cmd | tee >(md5sum) >largefile | cut -f 1 '-d ')
+    MD5=$(dd if=/dev/zero bs=1MB count=$count status=none | $random_cmd | \
+        tee >(md5sum) >(cat > largefile) >/dev/null | cut -f 1 '-d ')
 }
 
 function read_md5 {
