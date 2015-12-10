@@ -142,15 +142,15 @@ function write_large_file {
     if [ "$FAST" == "true" ]; then
         count=100
     fi
-    dd if=/dev/zero of=largefile bs=1MB count=$count status=none
+    dd if=/dev/zero of=largefile bs=1MB count=$count oflag=nocache status=none
 }
 
 function read_large_file {
-    dd if=largefile of=/dev/null bs=1MB status=none
+    dd if=largefile of=/dev/null bs=1MB iflag=nocache status=none
 }
 
 function read_first_byte {
-    dd if=largefile of=/dev/null bs=1 count=1 status=none
+    dd if=largefile of=/dev/null bs=1 count=1 iflag=nocache status=none
 }
 
 if [ "$t" = "" -o "$t" = "create" ]; then
@@ -192,7 +192,7 @@ function write_md5 {
         count=100
     fi
     MD5=$(dd if=/dev/zero bs=1MB count=$count status=none | $random_cmd | \
-        tee >(md5sum) >(cat > largefile) >/dev/null | cut -f 1 '-d ')
+        tee >(md5sum) >(dd of=largefile bs=1MB oflag=nocache status=none) >/dev/null | cut -f 1 '-d ')
 }
 
 function read_md5 {

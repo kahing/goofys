@@ -10,6 +10,11 @@ function cleanup {
     fi
 }
 
+T=
+if [ $# == 1 ]; then
+    T="-check.f $1"
+fi
+
 trap cleanup EXIT
 
 mkdir -p /tmp/s3proxy
@@ -19,5 +24,5 @@ PROXY_BIN="java -jar s3proxy.jar --properties test/s3proxy.properties"
 stdbuf -oL -eL $PROXY_BIN &
 PROXY_PID=$!
 
-go test -v ./... #-check.f TestUnlink
+go test -v ./... $T
 exit $?
