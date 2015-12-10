@@ -808,8 +808,6 @@ func (s *GoofysTest) TestBenchCreate(t *C) {
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "create")
 }
 
-// this can trigger race condition in s3proxy/jclouds local blob store
-/*
 func (s *GoofysTest) TestBenchCreateParallel(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
@@ -820,7 +818,6 @@ func (s *GoofysTest) TestBenchCreateParallel(t *C) {
 
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "create_parallel")
 }
-*/
 
 func (s *GoofysTest) TestBenchIO(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
