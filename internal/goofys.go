@@ -809,7 +809,14 @@ func (fs *Goofys) RmDir(
 func (fs *Goofys) SetInodeAttributes(
 	ctx context.Context,
 	op *fuseops.SetInodeAttributesOp) (err error) {
-	// do nothing, we don't support any of the changes
+
+	fs.mu.Lock()
+	inode := fs.getInodeOrDie(op.Inode)
+	fs.mu.Unlock()
+
+	attr, err := inode.GetAttributes(fs)
+	op.Attributes = *attr
+	op.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
 	return
 }
 

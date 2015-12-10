@@ -832,3 +832,22 @@ func (s *GoofysTest) TestBenchIO(t *C) {
 
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "md5")
 }
+
+func (s *GoofysTest) TestChmod(t *C) {
+	root := s.getRoot(t)
+
+	lookupOp := fuseops.LookUpInodeOp{
+		Parent: root.Id,
+		Name:   "file1",
+	}
+
+	err := s.fs.LookUpInode(nil, &lookupOp)
+	t.Assert(err, IsNil)
+
+	targetMode := os.FileMode(0777)
+	setOp := fuseops.SetInodeAttributesOp{Inode: lookupOp.Entry.Child, Mode: &targetMode}
+
+	err = s.fs.SetInodeAttributes(s.ctx, &setOp)
+	t.Assert(err, IsNil)
+	t.Assert(setOp.Attributes, NotNil)
+}
