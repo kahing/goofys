@@ -577,7 +577,6 @@ func (b S3ReadBuffer) Init(fs *Goofys, fh *FileHandle, offset int64, size int) *
 
 func (b *S3ReadBuffer) Read(offset int64, p []byte) (n int, err error) {
 	if b.offset == offset {
-		fuseLog.Debugf("trying to read %v bytes", len(p))
 		n, err = io.ReadFull(b.buf, p)
 		if err == io.ErrUnexpectedEOF {
 			err = nil
@@ -586,7 +585,6 @@ func (b *S3ReadBuffer) Read(offset int64, p []byte) (n int, err error) {
 			b.offset += int64(n)
 			b.size -= n
 		}
-		fuseLog.Debugf("reading %v @ %v = %v, size=%v", len(p), offset, n, b.size)
 		if b.size < 0 {
 			panic("size < 0")
 		}
@@ -658,7 +656,7 @@ func (fh *FileHandle) readAhead(fs *Goofys, offset int64, needAtLeast int) {
 }
 
 func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
-	fh.inode.logFuse("ReadFile", offset, len(buf), fh.readBufOffset)
+	fh.inode.logFuse("ReadFile", offset, len(buf))
 
 	fh.mu.Lock()
 	defer fh.mu.Unlock()
