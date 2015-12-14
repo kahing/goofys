@@ -25,6 +25,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/corehandlers"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 
@@ -55,6 +56,7 @@ type Goofys struct {
 	awsConfig *aws.Config
 	sess      *session.Session
 	s3        *s3.S3
+	v2Signer  bool
 	rootAttrs fuseops.InodeAttributes
 
 	bufferPool *BufferPool
@@ -105,41 +107,11 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 
 	fs.awsConfig = awsConfig
 	fs.sess = session.New(awsConfig)
-	fs.s3 = s3.New(fs.sess)
+	fs.s3 = fs.newS3()
 
-	params := &s3.GetBucketLocationInput{Bucket: &bucket}
-	resp, err := fs.s3.GetBucketLocation(params)
-	var fromRegion, toRegion string
+	err := fs.detectBucketLocation()
 	if err != nil {
-		if mapAwsError(err) == fuse.ENOENT {
-			log.Errorf("bucket %v does not exist", bucket)
-			return nil
-		}
-		fromRegion, toRegion = parseRegionError(err)
-	} else {
-		s3Log.Debug(resp)
-
-		if resp.LocationConstraint == nil {
-			toRegion = "us-east-1"
-		} else {
-			toRegion = *resp.LocationConstraint
-		}
-
-		fromRegion = *awsConfig.Region
-	}
-
-	if len(toRegion) != 0 && fromRegion != toRegion {
-		s3Log.Infof("Switching from region '%v' to '%v'", fromRegion, toRegion)
-		awsConfig.Region = &toRegion
-		fs.sess = session.New(awsConfig)
-		fs.s3 = s3.New(fs.sess)
-		_, err = fs.s3.GetBucketLocation(params)
-		if err != nil {
-			log.Errorln(err)
-			return nil
-		}
-	} else if len(toRegion) == 0 && *awsConfig.Region != "milkyway" {
-		s3Log.Infof("Unable to detect bucket region, staying at '%v'", *awsConfig.Region)
+		return nil
 	}
 
 	now := time.Now()
@@ -172,6 +144,77 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 	fs.fileHandles = make(map[fuseops.HandleID]*FileHandle)
 
 	return fs
+}
+
+func (fs *Goofys) fallbackV2Signer() (err error) {
+	if fs.v2Signer {
+		return fuse.EINVAL
+	}
+
+	s3Log.Infoln("Falling back to v2 signer")
+	fs.v2Signer = true
+	fs.s3 = fs.newS3()
+	return
+}
+
+func (fs *Goofys) newS3() *s3.S3 {
+	svc := s3.New(fs.sess)
+	if fs.v2Signer {
+		svc.Handlers.Sign.Clear()
+		svc.Handlers.Sign.PushBack(SignV2)
+		svc.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
+	}
+	return svc
+}
+
+func (fs *Goofys) detectBucketLocation() (err error) {
+	params := &s3.GetBucketLocationInput{Bucket: &fs.bucket}
+	resp, err := fs.s3.GetBucketLocation(params)
+	var fromRegion, toRegion string
+	if err != nil {
+		switch mapAwsError(err) {
+		case fuse.ENOENT:
+			log.Errorf("bucket %v does not exist", fs.bucket)
+			return fuse.ENOENT
+		}
+
+		fromRegion, toRegion, err = parseRegionError(err)
+		if err != nil {
+			err = fs.fallbackV2Signer()
+			if err != nil {
+				return err
+			}
+
+			// try again
+			return fs.detectBucketLocation()
+		}
+	} else {
+		s3Log.Debug(resp)
+
+		if resp.LocationConstraint == nil {
+			toRegion = "us-east-1"
+		} else {
+			toRegion = *resp.LocationConstraint
+		}
+
+		fromRegion = *fs.awsConfig.Region
+	}
+
+	if len(toRegion) != 0 && fromRegion != toRegion {
+		s3Log.Infof("Switching from region '%v' to '%v'", fromRegion, toRegion)
+		fs.awsConfig.Region = &toRegion
+		fs.sess = session.New(fs.awsConfig)
+		fs.s3 = fs.newS3()
+		_, err = fs.s3.GetBucketLocation(params)
+		if err != nil {
+			log.Errorln(err)
+			return mapAwsError(err)
+		}
+	} else if len(toRegion) == 0 && *fs.awsConfig.Region != "milkyway" {
+		s3Log.Infof("Unable to detect bucket region, staying at '%v'", *fs.awsConfig.Region)
+	}
+
+	return nil
 }
 
 // Find the given inode. Panic if it doesn't exist.
@@ -221,25 +264,33 @@ func (fs *Goofys) GetInodeAttributes(
 
 const REGION_ERROR_MSG = "The authorization header is malformed; the region %s is wrong; expecting %s"
 
-func parseRegionError(err error) (fromRegion, toRegion string) {
-	if reqErr, ok := err.(awserr.RequestFailure); ok {
+func parseRegionError(resp error) (fromRegion, toRegion string, err error) {
+	if reqErr, ok := resp.(awserr.RequestFailure); ok {
 		// A service error occurred
-		if reqErr.StatusCode() == 400 && reqErr.Code() == "AuthorizationHeaderMalformed" {
-			n, scanErr := fmt.Sscanf(reqErr.Message(), REGION_ERROR_MSG, &fromRegion, &toRegion)
-			if n != 2 || scanErr != nil {
-				fmt.Println(n, scanErr)
+		switch reqErr.StatusCode() {
+		case 400:
+			if reqErr.Code() == "AuthorizationHeaderMalformed" {
+				n, scanErr := fmt.Sscanf(reqErr.Message(), REGION_ERROR_MSG, &fromRegion, &toRegion)
+				if n != 2 || scanErr != nil {
+					fmt.Println(n, scanErr)
+					return
+				}
+				fromRegion = fromRegion[1 : len(fromRegion)-1]
+				toRegion = toRegion[1 : len(toRegion)-1]
+				return
+			} else {
+				// probably need to fallback to v2 signer
+				err = fuse.EINVAL
 				return
 			}
-			fromRegion = fromRegion[1 : len(fromRegion)-1]
-			toRegion = toRegion[1 : len(toRegion)-1]
-			return
-		} else if reqErr.StatusCode() == 501 {
+		case 501:
 			// method not implemented,
 			// do nothing, use existing region
-		} else {
-			s3Log.Errorf("code=%v msg=%v request=%v\n",
-				reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
+			return
 		}
+
+		s3Log.Errorf("code=%v msg=%v request=%v\n",
+			reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
 	}
 	return
 }
@@ -249,6 +300,8 @@ func mapAwsError(err error) error {
 		if reqErr, ok := err.(awserr.RequestFailure); ok {
 			// A service error occurred
 			switch reqErr.StatusCode() {
+			case 400:
+				return fuse.EINVAL
 			case 404:
 				return fuse.ENOENT
 			case 405:

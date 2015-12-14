@@ -35,6 +35,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/corehandlers"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -144,13 +145,17 @@ func (s *GoofysTest) SetUpSuite(t *C) {
 		}
 	} else {
 		s.awsConfig = &aws.Config{
-			Region:     aws.String("us-west-2"),
-			DisableSSL: aws.Bool(true),
+			Region:           aws.String("us-west-2"),
+			DisableSSL:       aws.Bool(true),
+			LogLevel:         aws.LogLevel(aws.LogDebug | aws.LogDebugWithSigning),
+			S3ForcePathStyle: aws.Bool(true),
 		}
 	}
 	s.sess = session.New(s.awsConfig)
 	s.s3 = s3.New(s.sess)
-
+	s.s3.Handlers.Sign.Clear()
+	s.s3.Handlers.Sign.PushBack(SignV2)
+	s.s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
 	_, err := s.s3.ListBuckets(nil)
 	t.Assert(err, IsNil)
 }
