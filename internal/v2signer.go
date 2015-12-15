@@ -38,7 +38,7 @@ var (
 const (
 	signatureVersion = "2"
 	signatureMethod  = "HmacSHA1"
-	timeFormat       = "Mon, 2 Jan 2006 15:04:05 UTC"
+	timeFormat       = "Mon, 2 Jan 2006 15:04:05 +0000"
 )
 
 var subresources = []string{
@@ -110,7 +110,7 @@ func (v2 *signer) Sign() error {
 	contentMD5 := v2.Request.Header.Get("Content-MD5")
 	contentType := v2.Request.Header.Get("Content-Type")
 	date := v2.Time.UTC().Format(timeFormat)
-	v2.Request.Header.Set("Date", date)
+	v2.Request.Header.Set("x-amz-date", date)
 
 	if credValue.SessionToken != "" {
 		v2.Request.Header.Set("x-amz-security-token", credValue.SessionToken)
@@ -138,6 +138,7 @@ func (v2 *signer) Sign() error {
 	if path == "" {
 		path = "/"
 	}
+	v2.Request.URL.Opaque = path
 
 	// build URL-encoded query keys and values
 	queryKeysAndValues := []string{}
@@ -154,6 +155,7 @@ func (v2 *signer) Sign() error {
 
 	// join into one query string
 	query := strings.Join(queryKeysAndValues, "&")
+
 	if query != "" {
 		path += "?" + query
 	}
@@ -162,7 +164,7 @@ func (v2 *signer) Sign() error {
 		method,
 		contentMD5,
 		contentType,
-		date,
+		"",
 	}
 
 	var headers []string

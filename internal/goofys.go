@@ -521,7 +521,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 			// XXX/TODO if both object and object/ exists, return dir
 			inode = NewInode(&name, &fullName, fs.flags)
 			inode.Attributes = &fuseops.InodeAttributes{
-				Size:   uint64(*resp.ContentLength),
+				Size:   uint64(aws.Int64Value(resp.ContentLength)),
 				Nlink:  1,
 				Mode:   fs.flags.FileMode,
 				Atime:  *resp.LastModified,
