@@ -80,9 +80,12 @@ func mount(
 	if len(flags.Endpoint) > 0 {
 		awsConfig.Endpoint = &flags.Endpoint
 	}
+
+	// deprecate flags.UsePathRequest
 	if flags.UsePathRequest {
-		awsConfig.S3ForcePathStyle = aws.Bool(true)
+		log.Infoln("--use-path-request is deprecated, it's always on")
 	}
+	awsConfig.S3ForcePathStyle = aws.Bool(true)
 
 	goofys := NewGoofys(bucketName, awsConfig, flags)
 	if goofys == nil {
