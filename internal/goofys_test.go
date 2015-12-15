@@ -706,7 +706,7 @@ func (s *GoofysTest) TestRename(t *C) {
 
 	// not really rename but can be used by rename
 	from, to = s.fs.bucket+"/file2", "new_file"
-	err = s.fs.copyObjectMultipart(int64(len(from)), from, to, "")
+	err = s.fs.copyObjectMultipart(int64(len(from)), from, to)
 	t.Assert(err, IsNil)
 }
 

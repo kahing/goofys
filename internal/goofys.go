@@ -394,25 +394,23 @@ func (fs *Goofys) mpuCopyParts(size int64, from string, to string, mpuId string,
 	}
 }
 
-func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId string) (err error) {
+func (fs *Goofys) copyObjectMultipart(size int64, from string, to string) (err error) {
 	var wg sync.WaitGroup
 	nParts := sizeToParts(size)
 	etags := make([]*string, nParts)
 
-	if mpuId == "" {
-		params := &s3.CreateMultipartUploadInput{
-			Bucket:       &fs.bucket,
-			Key:          &to,
-			StorageClass: &fs.flags.StorageClass,
-		}
-
-		resp, err := fs.s3.CreateMultipartUpload(params)
-		if err != nil {
-			return mapAwsError(err)
-		}
-
-		mpuId = *resp.UploadId
+	params := &s3.CreateMultipartUploadInput{
+		Bucket:       &fs.bucket,
+		Key:          &to,
+		StorageClass: &fs.flags.StorageClass,
 	}
+
+	resp, err := fs.s3.CreateMultipartUpload(params)
+	if err != nil {
+		return mapAwsError(err)
+	}
+
+	mpuId := *resp.UploadId
 
 	fs.mpuCopyParts(size, from, to, mpuId, &wg, etags, &err)
 	wg.Wait()
@@ -462,7 +460,7 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 	from = fs.bucket + "/" + from
 
 	if size > 5*1024*1024*1024 {
-		return fs.copyObjectMultipart(size, from, to, "")
+		return fs.copyObjectMultipart(size, from, to)
 	}
 
 	params := &s3.CopyObjectInput{
