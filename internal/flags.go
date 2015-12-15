@@ -119,7 +119,7 @@ func NewApp() (app *cli.App) {
 			cli.BoolFlag{
 				Name: "use-path-request",
 				Usage: "Use a path-style request instead of virtual host-style." +
-					" (depreated, always on)",
+					" (deprecated, always on)",
 			},
 
 			/////////////////////////
