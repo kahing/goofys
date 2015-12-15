@@ -533,12 +533,12 @@ func (s *GoofysTest) testWriteFileAt(t *C, fileName string, offset int64, size i
 	buf := make([]byte, write_size)
 	nwritten := offset
 
-	src := io.LimitReader(&SeqReader{}, size)
+	src := io.LimitReader(&SeqReader{offset}, size)
 
 	for {
 		nread, err := src.Read(buf)
 		if err == io.EOF {
-			t.Assert(nwritten, Equals, size)
+			t.Assert(nwritten, Equals, size+offset)
 			break
 		}
 		t.Assert(err, IsNil)
@@ -868,4 +868,10 @@ func (s *GoofysTest) TestChmod(t *C) {
 	err = s.fs.SetInodeAttributes(s.ctx, &setOp)
 	t.Assert(err, IsNil)
 	t.Assert(setOp.Attributes, NotNil)
+}
+
+func (s *GoofysTest) TestAppend(t *C) {
+	s.testWriteFile(t, "testLargeFile", 21*1024*1024, 128*1024)
+	s3Log.Level = logrus.DebugLevel
+	s.testWriteFileAt(t, "testLargeFile", 21*1024*1024, 1, 128*1024)
 }

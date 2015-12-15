@@ -108,6 +108,7 @@ type FileHandle struct {
 	mu              sync.Mutex
 	mpuId           *string
 	nextWriteOffset int64
+	appendMode      bool
 	lastPartId      int
 
 	poolHandle *BufferPoolHandle
@@ -132,6 +133,10 @@ func NewFileHandle(in *Inode) *FileHandle {
 
 func (inode *Inode) logFuse(op string, args ...interface{}) {
 	fuseLog.Debugln(op, inode.Id, *inode.FullName, args)
+}
+
+func (inode *Inode) errFuse(op string, args ...interface{}) {
+	fuseLog.Errorln(op, inode.Id, *inode.FullName, args)
 }
 
 // LOCKS_REQUIRED(parent.mu)
@@ -235,7 +240,6 @@ func (parent *Inode) Create(
 	}
 
 	fh = NewFileHandle(inode)
-	fh.poolHandle = fs.bufferPool.NewPoolHandle()
 	fh.dirty = true
 
 	return
@@ -452,6 +456,80 @@ func (fh *FileHandle) waitForCreateMPU(fs *Goofys) (err error) {
 	return
 }
 
+/*
+ * similar to mpuCopyParts, but we want to make sure that the last part we
+ * copied is > 5MB, because we will still append more data after
+ *
+ * if that's unavoidable (because the object is less than 5MB), return the range we need
+ * to read from to do read modify write
+ */
+func (fh *FileHandle) mpuAppendParts(fs *Goofys) (readModifyWriteRange string) {
+	// max part size is 5GB
+	const PART_SIZE = 5 * 1024 * 1024 * 1024
+	const MIN_PART_SIZE = 5 * 1024 * 1024
+
+	size := int64(fh.inode.Attributes.Size)
+	if size < MIN_PART_SIZE {
+		readModifyWriteRange = fmt.Sprintf("bytes=%v-%v", 0, size-1)
+		return
+	}
+
+	obj := *fh.inode.FullName
+	r := size % PART_SIZE
+
+	if r == 0 || r >= MIN_PART_SIZE {
+		fh.lastPartId = sizeToParts(size)
+		go fs.mpuCopyParts(size, obj, obj, *fh.mpuId, &fh.mpuWG,
+			fh.etags, &fh.lastWriteError)
+		return
+	}
+
+	// size % PART_SIZE = r -> size = a * PART_SIZE + r,
+	// so we want to find
+	// size = b * c + r2 such that r2 >= MIN_PART_SIZE
+	// let r2 = r + MIN_PART_SIZE
+	// size = b * c + r + MIN_PART_SIZE
+	// we want minimum parts, so let b = a + 1
+	// size = (a + 1) * c + r + MIN_PART_SIZE
+	// c = (size - r - MIN_PART_SIZE) / (a + 1)
+	// recall that a = size / PART_SIZE with integer division
+
+	new_part_size := (size - r - MIN_PART_SIZE) / (size/PART_SIZE + 1)
+	r2 := size % new_part_size
+	if r2 != 0 && r2 < MIN_PART_SIZE {
+		panic(fmt.Sprintf("size = %v r2 = %v new_part_size = %v", size, r2, new_part_size))
+	}
+
+	rangeTo := int64(0)
+	i := int64(1)
+
+	for ; rangeTo < size; i++ {
+		rangeFrom := rangeTo
+		rangeTo = i * new_part_size
+		if rangeTo > size {
+			rangeTo = size
+		}
+		bytes := fmt.Sprintf("bytes=%v-%v", rangeFrom, rangeTo-1)
+
+		fh.mpuWG.Add(1)
+		go fs.mpuCopyPart(obj, obj, *fh.mpuId, bytes, i, &fh.mpuWG,
+			&fh.etags[i-1], &fh.lastWriteError)
+	}
+	fh.lastPartId = int(i) + 1
+
+	return
+}
+
+func (fh *FileHandle) initAppend(fs *Goofys, size int64) {
+	fh.writeInit.Do(func() {
+		fh.mu.Unlock()
+		fh.mpuWG.Add(1)
+		fh.initMPU(fs)
+		fh.mu.Lock()
+		fh.mpuAppendParts(fs)
+	})
+}
+
 func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err error) {
 	fh.inode.logFuse("WriteFile", offset, len(data))
 
@@ -462,13 +540,20 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 		return fh.lastWriteError
 	}
 
-	if offset != fh.nextWriteOffset {
-		fh.inode.logFuse("WriteFile: only sequential writes supported", fh.nextWriteOffset, offset)
+	fileSize := int64(fh.inode.Attributes.Size)
+	if fileSize != 0 && fh.nextWriteOffset == 0 && offset == fileSize {
+		fh.appendMode = true
+		fh.initAppend(fs, fileSize)
+		fh.poolHandle = fs.bufferPool.NewPoolHandle()
+		fh.dirty = true
+		fh.nextWriteOffset = fileSize
+	} else if offset != fh.nextWriteOffset {
+		fh.inode.errFuse("WriteFile: only sequential writes supported", fh.nextWriteOffset, offset)
 		fh.lastWriteError = fuse.EINVAL
 		return fh.lastWriteError
 	}
 
-	if offset == 0 {
+	if fh.nextWriteOffset == 0 {
 		fh.poolHandle = fs.bufferPool.NewPoolHandle()
 		fh.dirty = true
 	}
@@ -821,7 +906,7 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 }
 
 func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
-	fh.inode.logFuse("FlushFile")
+	fh.inode.errFuse("FlushFile", fh.dirty, fh.lastPartId)
 
 	fh.mu.Lock()
 	if !fh.dirty || fh.lastWriteError != nil {

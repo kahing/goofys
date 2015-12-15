@@ -276,6 +276,7 @@ func mapAwsError(err error) error {
 			// A service error occurred
 			switch reqErr.StatusCode() {
 			case 400:
+				s3Log.Errorf("code=%v msg=%v, err=%v\n", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
 				return fuse.EINVAL
 			case 403:
 				return syscall.EACCES
@@ -355,6 +356,7 @@ func (fs *Goofys) mpuCopyPart(from string, to string, mpuId string, bytes string
 
 	resp, err := fs.s3.UploadPartCopy(params)
 	if err != nil {
+		s3Log.Error(err, params)
 		*errout = mapAwsError(err)
 		return
 	}
@@ -376,6 +378,7 @@ func sizeToParts(size int64) int {
 func (fs *Goofys) mpuCopyParts(size int64, from string, to string, mpuId string,
 	wg *sync.WaitGroup, etags []*string, err *error) {
 
+	// max part size is 5GB
 	const PART_SIZE = 5 * 1024 * 1024 * 1024
 
 	rangeFrom := int64(0)
