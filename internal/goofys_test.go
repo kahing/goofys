@@ -512,10 +512,23 @@ func (r *FileHandleReader) Seek(offset int64, whence int) (int64, error) {
 }
 
 func (s *GoofysTest) testWriteFile(t *C, fileName string, size int64, write_size int) {
-	_, fh := s.getRoot(t).Create(s.fs, fileName)
+	s.testWriteFileAt(t, fileName, int64(0), size, write_size)
+}
+
+func (s *GoofysTest) testWriteFileAt(t *C, fileName string, offset int64, size int64, write_size int) {
+	var fh *FileHandle
+
+	if offset == 0 {
+		_, fh = s.getRoot(t).Create(s.fs, fileName)
+	} else {
+		in, err := s.getRoot(t).LookUp(s.fs, fileName)
+		t.Assert(err, IsNil)
+
+		fh = in.OpenFile(s.fs)
+	}
 
 	buf := make([]byte, write_size)
-	nwritten := int64(0)
+	nwritten := offset
 
 	src := io.LimitReader(&SeqReader{}, size)
 
@@ -537,10 +550,10 @@ func (s *GoofysTest) testWriteFile(t *C, fileName string, size int64, write_size
 
 	resp, err := s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &fileName})
 	t.Assert(err, IsNil)
-	t.Assert(*resp.ContentLength, DeepEquals, size)
+	t.Assert(*resp.ContentLength, DeepEquals, size+offset)
 
-	fr := &FileHandleReader{s.fs, fh, 0}
-	diff, err := CompareReader(fr, io.LimitReader(&SeqReader{}, size))
+	fr := &FileHandleReader{s.fs, fh, offset}
+	diff, err := CompareReader(fr, io.LimitReader(&SeqReader{offset}, size))
 	t.Assert(err, IsNil)
 	t.Assert(diff, Equals, -1)
 	t.Assert(fr.offset, Equals, size)
