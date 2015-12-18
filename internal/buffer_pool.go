@@ -44,7 +44,7 @@ type BufferPool struct {
 	maxBuffersPerHandle int64
 }
 
-const BUF_SIZE = 5 * 1024 * 1024
+const BUF_SIZE = 10 * 1024 * 1024
 
 func NewBufferPool(maxSizeGlobal int64, maxSizePerHandle int64) *BufferPool {
 	pool := &BufferPool{
