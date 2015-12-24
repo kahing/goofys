@@ -23,6 +23,7 @@ package internal
 
 import (
 	"io"
+	"runtime"
 	"sync"
 
 	"github.com/shirou/gopsutil/mem"
@@ -44,25 +45,40 @@ type BufferPool struct {
 	numBuffers          int64
 	maxBuffersGlobal    int64
 	maxBuffersPerHandle int64
+
+	totalBuffers             int64
+	computedMaxBuffersGlobal int64
 }
 
 const BUF_SIZE = 10 * 1024 * 1024
 
-func (pool BufferPool) Init() *BufferPool {
+func maxMemToUse() int64 {
 	m, err := mem.VirtualMemory()
 	if err != nil {
 		panic(err)
 	}
-	max := int64(m.Free) / 2
-	pool.maxBuffersGlobal = max/BUF_SIZE + 1
+
+	log.Debugf("amount of free memory: %v", m.Free)
+
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+
+	log.Debugf("amount of allocated memory: %v", ms.Alloc)
+
+	max := int64(m.Free+ms.Alloc) / 2
+	maxBuffersGlobal := max/BUF_SIZE + 1
+	log.Debugf("using up to %v %vMB buffers", maxBuffersGlobal, BUF_SIZE/1024/1024)
+	return max
+}
+
+func (pool BufferPool) Init() *BufferPool {
 	pool.maxBuffersPerHandle = 200 * 1024 * 1024 / BUF_SIZE
 	pool.cond = sync.NewCond(&pool.mu)
-	log.Debugf("amounnt of free memory: %v", m.Free)
-	log.Debugf("using up to %v %vMB buffers", pool.maxBuffersGlobal, BUF_SIZE/1024/1024)
 
 	return &pool
 }
 
+// for testing
 func NewBufferPool(maxSizeGlobal int64, maxSizePerHandle int64) *BufferPool {
 	pool := &BufferPool{
 		maxBuffersGlobal:    maxSizeGlobal / BUF_SIZE,
@@ -82,11 +98,21 @@ func (pool *BufferPool) requestBuffer() (buf []byte) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	for pool.numBuffers == pool.maxBuffersGlobal {
+	maxBuffersGlobal := pool.computedMaxBuffersGlobal
+	if pool.totalBuffers%100 == 0 {
+		pool.computedMaxBuffersGlobal = maxMemToUse()/BUF_SIZE + 1
+	}
+
+	if maxBuffersGlobal == 0 {
+		maxBuffersGlobal = pool.computedMaxBuffersGlobal
+	}
+
+	for pool.numBuffers >= maxBuffersGlobal {
 		pool.cond.Wait()
 	}
 
 	pool.numBuffers++
+	pool.totalBuffers++
 	buf = make([]byte, 0, BUF_SIZE)
 	return
 }
