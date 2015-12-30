@@ -175,15 +175,6 @@ if [ "$t" = "" -o "$t" = "ls" ]; then
     rm_files 1000
 fi
 
-if [ "$t" = "" -o "$t" = "io" ]; then
-    for i in $(seq 1 $iter); do
-        run_test write_large_file
-        run_test read_large_file
-        run_test read_first_byte
-        rm largefile
-    done
-fi
-
 function write_md5 {
     seed=$(dd if=/dev/urandom bs=128 count=1 status=none | base64 -w 0)
     random_cmd="openssl enc -aes-256-ctr -pass pass:$seed -nosalt"
@@ -204,10 +195,11 @@ function read_md5 {
     fi
 }
 
-if [ "$t" = "" -o "$t" = "md5" ]; then
-    write_md5
+if [ "$t" = "" -o "$t" = "io" ]; then
     for i in $(seq 1 $iter); do
+        run_test write_md5
         run_test read_md5
+        run_test read_first_byte
+        rm largefile
     done
-    rm largefile
 fi
