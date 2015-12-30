@@ -276,7 +276,6 @@ func mapAwsError(err error) error {
 			// A service error occurred
 			switch reqErr.StatusCode() {
 			case 400:
-				s3Log.Errorf("code=%v msg=%v, err=%v\n", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
 				return fuse.EINVAL
 			case 403:
 				return syscall.EACCES

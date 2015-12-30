@@ -20,7 +20,7 @@ trap cleanup EXIT
 rm -Rf /tmp/s3proxy
 mkdir -p /tmp/s3proxy
 
-export LOG_LEVEL=trace
+export LOG_LEVEL=warn
 PROXY_BIN="java -jar s3proxy.jar --properties test/s3proxy.properties"
 stdbuf -oL -eL $PROXY_BIN &
 PROXY_PID=$!

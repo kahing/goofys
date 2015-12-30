@@ -121,11 +121,11 @@ func (s *GoofysTest) waitFor(t *C, addr string) (err error) {
 	return
 }
 
-func (s *GoofysTest) SetUpSuite(t *C) {
+func (s *GoofysTest) setupEndpoint(t *C) {
 	//addr := "play.minio.io:9000"
-	const LOCAL_TEST = true
+	endpoint := os.Getenv("TEST_ENDPOINT")
 
-	if LOCAL_TEST {
+	if endpoint == "" {
 		addr := "127.0.0.1:8080"
 
 		err := s.waitFor(t, addr)
@@ -143,7 +143,7 @@ func (s *GoofysTest) SetUpSuite(t *C) {
 			//LogLevel: aws.LogLevel(aws.LogDebug),
 			//LogLevel: aws.LogLevel(aws.LogDebug | aws.LogDebugWithHTTPBody),
 		}
-	} else {
+	} else if endpoint == "s3" {
 		s.awsConfig = &aws.Config{
 			Region:     aws.String("us-west-2"),
 			DisableSSL: aws.Bool(true),
@@ -151,6 +151,11 @@ func (s *GoofysTest) SetUpSuite(t *C) {
 			S3ForcePathStyle: aws.Bool(true),
 		}
 	}
+}
+
+func (s *GoofysTest) SetUpSuite(t *C) {
+	s.setupEndpoint(t)
+
 	s.sess = session.New(s.awsConfig)
 	s.s3 = s3.New(s.sess)
 	s.s3.Handlers.Sign.Clear()
@@ -559,7 +564,7 @@ func (s *GoofysTest) testWriteFileAt(t *C, fileName string, offset int64, size i
 	diff, err := CompareReader(fr, io.LimitReader(&SeqReader{offset}, size))
 	t.Assert(err, IsNil)
 	t.Assert(diff, Equals, -1)
-	t.Assert(fr.offset, Equals, size)
+	t.Assert(fr.offset, Equals, size+offset)
 
 	fh.Release()
 }
@@ -871,7 +876,6 @@ func (s *GoofysTest) TestChmod(t *C) {
 }
 
 func (s *GoofysTest) TestAppend(t *C) {
-	s.testWriteFile(t, "testLargeFile", 21*1024*1024, 128*1024)
-	s3Log.Level = logrus.DebugLevel
-	s.testWriteFileAt(t, "testLargeFile", 21*1024*1024, 1, 128*1024)
+	s.testWriteFile(t, "testLargeFile", 5*1024*1024, 128*1024)
+	s.testWriteFileAt(t, "testLargeFile", 5*1024*1024, 1, 128*1024)
 }

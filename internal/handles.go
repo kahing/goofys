@@ -476,10 +476,11 @@ func (fh *FileHandle) mpuAppendParts(fs *Goofys) (readModifyWriteRange string) {
 
 	obj := *fh.inode.FullName
 	r := size % PART_SIZE
+	from := fs.bucket + "/" + obj
 
 	if r == 0 || r >= MIN_PART_SIZE {
 		fh.lastPartId = sizeToParts(size)
-		go fs.mpuCopyParts(size, obj, obj, *fh.mpuId, &fh.mpuWG,
+		go fs.mpuCopyParts(size, from, obj, *fh.mpuId, &fh.mpuWG,
 			fh.etags, &fh.lastWriteError)
 		return
 	}
@@ -512,7 +513,7 @@ func (fh *FileHandle) mpuAppendParts(fs *Goofys) (readModifyWriteRange string) {
 		bytes := fmt.Sprintf("bytes=%v-%v", rangeFrom, rangeTo-1)
 
 		fh.mpuWG.Add(1)
-		go fs.mpuCopyPart(obj, obj, *fh.mpuId, bytes, i, &fh.mpuWG,
+		go fs.mpuCopyPart(from, obj, *fh.mpuId, bytes, i, &fh.mpuWG,
 			&fh.etags[i-1], &fh.lastWriteError)
 	}
 	fh.lastPartId = int(i) + 1
@@ -906,7 +907,7 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 }
 
 func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
-	fh.inode.errFuse("FlushFile", fh.dirty, fh.lastPartId)
+	//fh.inode.errFuse("FlushFile", fh.dirty, fh.lastPartId)
 
 	fh.mu.Lock()
 	if !fh.dirty || fh.lastWriteError != nil {
