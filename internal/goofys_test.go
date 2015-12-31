@@ -876,6 +876,11 @@ func (s *GoofysTest) TestChmod(t *C) {
 }
 
 func (s *GoofysTest) TestAppend(t *C) {
-	s.testWriteFile(t, "testLargeFile", 5*1024*1024, 128*1024)
-	s.testWriteFileAt(t, "testLargeFile", 5*1024*1024, 1, 128*1024)
+	initSize := int64(5 * 1024 * 1024)
+
+	s.testWriteFile(t, "testLargeFile", initSize, 128*1024)
+
+	for i := int64(0); i < 10; i++ {
+		s.testWriteFileAt(t, "testLargeFile", initSize+i, 1, 128*1024)
+	}
 }
