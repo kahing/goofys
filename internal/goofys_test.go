@@ -175,24 +175,34 @@ func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker)
 	})
 	t.Assert(err, IsNil)
 
+	var wg sync.WaitGroup
 	for path, r := range env {
-		if r == nil {
-			if strings.HasSuffix(path, "/") {
-				r = bytes.NewReader([]byte{})
-			} else {
-				r = bytes.NewReader([]byte(path))
+		thisPath := path
+		thisR := r
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			if thisR == nil {
+				if strings.HasSuffix(path, "/") {
+					thisR = bytes.NewReader([]byte{})
+				} else {
+					thisR = bytes.NewReader([]byte(path))
+				}
 			}
-		}
 
-		params := &s3.PutObjectInput{
-			Bucket: &bucket,
-			Key:    &path,
-			Body:   r,
-		}
+			params := &s3.PutObjectInput{
+				Bucket: &bucket,
+				Key:    &thisPath,
+				Body:   thisR,
+			}
 
-		_, err := s.s3.PutObject(params)
-		t.Assert(err, IsNil)
+			_, err := s.s3.PutObject(params)
+			t.Assert(err, IsNil)
+		}()
 	}
+	wg.Wait()
 
 	// double check
 	for path := range env {
@@ -876,7 +886,17 @@ func (s *GoofysTest) TestChmod(t *C) {
 }
 
 func (s *GoofysTest) TestAppend(t *C) {
-	initSize := int64(5 * 1024 * 1024)
+	initSize := int64(5*1024*1024 - 5)
+
+	s.testWriteFile(t, "testLargeFile", initSize, 128*1024)
+
+	for i := int64(0); i < 10; i++ {
+		s.testWriteFileAt(t, "testLargeFile", initSize+i, 1, 128*1024)
+	}
+}
+
+func (s *GoofysTest) TestAppendSmall(t *C) {
+	initSize := int64(1)
 
 	s.testWriteFile(t, "testLargeFile", initSize, 128*1024)
 
