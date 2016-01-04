@@ -521,14 +521,43 @@ func (fh *FileHandle) mpuAppendParts(fs *Goofys) (readModifyWriteRange string) {
 	return
 }
 
-func (fh *FileHandle) initAppend(fs *Goofys, size int64) {
+func (fh *FileHandle) initAppend(fs *Goofys, size int64) (err error) {
 	fh.writeInit.Do(func() {
 		fh.mu.Unlock()
 		fh.mpuWG.Add(1)
 		fh.initMPU(fs)
 		fh.mu.Lock()
-		fh.mpuAppendParts(fs)
+		readModifyWrite := fh.mpuAppendParts(fs)
+		if readModifyWrite != "" {
+			params := &s3.GetObjectInput{
+				Bucket: &fs.bucket,
+				Key:    fh.inode.FullName,
+			}
+
+			params.Range = &readModifyWrite
+
+			resp, err := fs.s3.GetObject(params)
+			if err != nil {
+				s3Log.Error(err, params)
+				fh.lastWriteError = mapAwsError(err)
+				return
+			}
+
+			fh.buf = fh.poolHandle.Request()
+			contentLength := int(*resp.ContentLength)
+			fh.buf = fh.buf[0:contentLength]
+
+			nread, err := io.ReadFull(resp.Body, fh.buf)
+			if err != nil || nread != contentLength {
+				s3Log.Errorf("only read %v from %v, expecting %v: %v",
+					nread, readModifyWrite, contentLength, err)
+				fh.lastWriteError = fuse.EINVAL
+				return
+			}
+		}
 	})
+
+	return fh.lastWriteError
 }
 
 func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err error) {
@@ -544,8 +573,11 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 	fileSize := int64(fh.inode.Attributes.Size)
 	if fileSize != 0 && fh.nextWriteOffset == 0 && offset == fileSize {
 		fh.appendMode = true
-		fh.initAppend(fs, fileSize)
 		fh.poolHandle = fs.bufferPool.NewPoolHandle()
+		err = fh.initAppend(fs, fileSize)
+		if err != nil {
+			return
+		}
 		fh.dirty = true
 		fh.nextWriteOffset = fileSize
 	} else if offset != fh.nextWriteOffset {

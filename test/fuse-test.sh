@@ -383,7 +383,7 @@ function run_all_tests {
     #test_truncate_file
     test_mv_file
     test_mv_directory
-    #test_redirects
+    test_redirects
     test_mkdir_rmdir
     #test_chmod
     #test_chown
