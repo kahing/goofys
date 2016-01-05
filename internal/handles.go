@@ -480,7 +480,7 @@ func (fh *FileHandle) mpuAppendParts(fs *Goofys) (readModifyWriteRange string) {
 
 	if r == 0 || r >= MIN_PART_SIZE {
 		fh.lastPartId = sizeToParts(size)
-		go fs.mpuCopyParts(size, from, obj, *fh.mpuId, &fh.mpuWG,
+		fs.mpuCopyParts(size, from, obj, *fh.mpuId, &fh.mpuWG,
 			fh.etags, &fh.lastWriteError)
 		return
 	}
