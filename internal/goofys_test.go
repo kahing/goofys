@@ -175,13 +175,14 @@ func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker)
 	})
 	t.Assert(err, IsNil)
 
+	endpoint := os.Getenv("TEST_ENDPOINT")
 	var wg sync.WaitGroup
 	for path, r := range env {
 		thisPath := path
 		thisR := r
 
 		wg.Add(1)
-		go func() {
+		upload := func() {
 			defer wg.Done()
 
 			if thisR == nil {
@@ -199,8 +200,17 @@ func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker)
 			}
 
 			_, err := s.s3.PutObject(params)
+			if err != nil {
+				s3Log.Error(err, params)
+			}
 			t.Assert(err, IsNil)
-		}()
+		}
+
+		if endpoint == "" {
+			upload()
+		} else {
+			go upload()
+		}
 	}
 	wg.Wait()
 
