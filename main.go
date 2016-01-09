@@ -27,6 +27,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 
 	"github.com/codegangsta/cli"
 
@@ -72,9 +73,15 @@ func mount(
 	mountPoint string,
 	flags *FlagStorage) (mfs *fuse.MountedFileSystem, err error) {
 
+	var creds *credentials.Credentials
+	if len(flags.Profile) > 0 {
+		creds = credentials.NewSharedCredentials(os.Getenv("HOME")+"/.aws/credentials", flags.Profile)
+	}
+
 	awsConfig := &aws.Config{
-		Region: aws.String("us-west-2"),
-		Logger: GetLogger("s3"),
+		Region:      aws.String("us-west-2"),
+		Logger:      GetLogger("s3"),
+		Credentials: creds,
 		//LogLevel: aws.LogLevel(aws.LogDebug),
 	}
 	if len(flags.Endpoint) > 0 {

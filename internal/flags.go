@@ -122,6 +122,11 @@ func NewApp() (app *cli.App) {
 					" (deprecated, always on)",
 			},
 
+			cli.StringFlag{
+				Name:  "profile",
+				Usage: "Use a named profile from $HOME/.aws/credentials instead of \"default\"",
+			},
+
 			/////////////////////////
 			// Tuning
 			/////////////////////////
@@ -175,6 +180,7 @@ type FlagStorage struct {
 	Endpoint       string
 	StorageClass   string
 	UsePathRequest bool
+	Profile        string
 
 	// Tuning
 	StatCacheTTL time.Duration
@@ -228,6 +234,7 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		Endpoint:       c.String("endpoint"),
 		StorageClass:   c.String("storage-class"),
 		UsePathRequest: c.Bool("use-path-request"),
+		Profile:        c.String("profile"),
 
 		// Debugging,
 		DebugFuse:  c.Bool("debug_fuse"),
