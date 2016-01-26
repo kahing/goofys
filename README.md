@@ -35,7 +35,7 @@ To mount an S3 bucket on startup, make sure the credential is
 configured for `root`, and can add this to `/etc/fstab`:
 
 ```
-goofys#bucket   /mnt/mountpoint        fuse    allow_other,--file-mode=0666    0       0
+goofys#bucket   /mnt/mountpoint        fuse     _netdev,allow_other,--file-mode=0666    0       0
 ```
 
 # Benchmark
