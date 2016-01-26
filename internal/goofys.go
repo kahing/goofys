@@ -257,7 +257,7 @@ func (fs *Goofys) GetInodeAttributes(
 
 	attr, err := inode.GetAttributes(fs)
 	op.Attributes = *attr
-	op.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
+	op.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
 
 	return
 }
@@ -869,7 +869,7 @@ func (fs *Goofys) SetInodeAttributes(
 
 	attr, err := inode.GetAttributes(fs)
 	op.Attributes = *attr
-	op.AttributesExpiration = time.Now().Add(365 * 24 * time.Hour)
+	op.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
 	return
 }
 
