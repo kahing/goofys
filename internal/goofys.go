@@ -572,20 +572,36 @@ func (fs *Goofys) LookUpInode(
 	inode, ok := fs.inodesCache[parent.getChildName(op.Name)]
 	if ok {
 		inode.Ref()
+		expireTime := inode.AttrTime.Add(fs.flags.StatCacheTTL)
+		if !expireTime.After(time.Now()) {
+			ok = false
+		}
 	}
 	fs.mu.Unlock()
 
 	if !ok {
-		inode, err = parent.LookUp(fs, op.Name)
+		var newInode *Inode
+
+		newInode, err = parent.LookUp(fs, op.Name)
 		if err != nil {
+			if inode != nil {
+				// just kidding! pretend we didn't up the ref
+				inode.DeRef(1)
+			}
 			return err
 		}
 
-		fs.mu.Lock()
-		inode.Id = fs.allocateInodeId()
-		fs.inodesCache[*inode.FullName] = inode
-		fs.inodes[inode.Id] = inode
-		fs.mu.Unlock()
+		if inode == nil {
+			fs.mu.Lock()
+			inode = newInode
+			inode.Id = fs.allocateInodeId()
+			fs.inodesCache[*inode.FullName] = inode
+			fs.inodes[inode.Id] = inode
+			fs.mu.Unlock()
+		} else {
+			inode.Attributes = newInode.Attributes
+			inode.AttrTime = time.Now()
+		}
 	}
 
 	op.Entry.Child = inode.Id

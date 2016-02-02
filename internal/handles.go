@@ -40,6 +40,7 @@ type Inode struct {
 	FullName   *string
 	flags      *FlagStorage
 	Attributes *fuseops.InodeAttributes
+	AttrTime   time.Time
 
 	log *logHandle
 
@@ -56,6 +57,7 @@ func NewInode(name *string, fullName *string, flags *FlagStorage) (inode *Inode)
 	inode.handles = make(map[*DirHandle]bool)
 	inode.refcnt = 1
 	inode.log = GetLogger(*fullName)
+	inode.AttrTime = time.Now()
 
 	if inode.flags.DebugFuse {
 		inode.log.Level = logrus.DebugLevel
@@ -64,7 +66,10 @@ func NewInode(name *string, fullName *string, flags *FlagStorage) (inode *Inode)
 }
 
 // LOCKS_REQUIRED(fs.mu)
-func (inode *Inode) Ref() (resurrect bool) {
+// XXX why did I put lock required? This used to return a resurrect bool
+// which no long does anything, need to look into that to see if
+// that was legacy
+func (inode *Inode) Ref() {
 	inode.logFuse("Ref", inode.refcnt)
 
 	if inode.refcnt == 0 {
