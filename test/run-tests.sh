@@ -24,5 +24,5 @@ PROXY_BIN="java -jar s3proxy.jar --properties test/s3proxy.properties"
 stdbuf -oL -eL $PROXY_BIN &
 PROXY_PID=$!
 
-go test -v ./... $T
+go test -v $(go list ./... | grep -v /vendor/) $T
 exit $?

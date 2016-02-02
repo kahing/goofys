@@ -1,0 +1,15 @@
+[submodule "vendor/github.com/aws/aws-sdk-go"]
+	path = vendor/github.com/aws/aws-sdk-go
+	url = https://github.com/aws/aws-sdk-go
+[submodule "vendor/github.com/lsegal/gucumber"]
+	path = vendor/github.com/lsegal/gucumber
+	url = https://github.com/lsegal/gucumber
+[submodule "vendor/github.com/smartystreets/goconvey"]
+	path = vendor/github.com/smartystreets/goconvey
+	url = https://github.com/smartystreets/goconvey
+[submodule "vendor/github.com/smartystreets/assertions"]
+	path = vendor/github.com/smartystreets/assertions
+	url = https://github.com/smartystreets/assertions
+[submodule "vendor/github.com/jtolds/gls"]
+	path = vendor/github.com/jtolds/gls
+	url = https://github.com/jtolds/gls
