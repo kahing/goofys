@@ -4,8 +4,10 @@ dist: trusty
 addons:
   apt_packages:
    - openjdk-7-jre-headless
+env:
+- GO15VENDOREXPERIMENT=1
 install:
-- go get -t ./...
+- go get -t $(go list ./... | grep -v /vendor/)
 - mkdir /tmp/mnt
 - make
 go:
