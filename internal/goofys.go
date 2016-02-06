@@ -167,6 +167,19 @@ func (fs *Goofys) newS3() *s3.S3 {
 	return svc
 }
 
+func (fs *Goofys) detectBucketLocationByHEAD() (err error) {
+	// we can't actually detect bucket region this way yet due to
+	// https://github.com/aws/aws-sdk-go/issues/542
+	_, err = fs.s3.HeadObject(&s3.HeadObjectInput{Bucket: &fs.bucket, Key: aws.String(".")})
+	if err != nil {
+		err = mapAwsError(err)
+		if err == fuse.ENOENT {
+			err = nil
+		}
+	}
+	return
+}
+
 func (fs *Goofys) detectBucketLocation() (err error) {
 	params := &s3.GetBucketLocationInput{Bucket: &fs.bucket}
 	resp, err := fs.s3.GetBucketLocation(params)
@@ -176,6 +189,9 @@ func (fs *Goofys) detectBucketLocation() (err error) {
 		case fuse.ENOENT:
 			log.Errorf("bucket %v does not exist", fs.bucket)
 			return fuse.ENOENT
+		case syscall.EACCES:
+			log.Infof("GetBucketLocation failed, falling back to probe objects directly")
+			return fs.detectBucketLocationByHEAD()
 		}
 
 		fromRegion, toRegion, err = parseRegionError(err)
@@ -302,6 +318,8 @@ func mapAwsError(err error) error {
 			switch reqErr.StatusCode() {
 			case 400:
 				return fuse.EINVAL
+			case 403:
+				return syscall.EACCES
 			case 404:
 				return fuse.ENOENT
 			case 405:
@@ -311,9 +329,15 @@ func mapAwsError(err error) error {
 				return reqErr
 			}
 		} else {
-			// Generic AWS Error with Code, Message, and original error (if any)
-			s3Log.Errorf("code=%v msg=%v, err=%v\n", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
-			return awsErr
+			switch awsErr.Code() {
+			case "BucketRegionError":
+				s3Log.Errorf("%v, use --region to provide a correct region", awsErr.Message())
+				return err
+			default:
+				// Generic AWS Error with Code, Message, and original error (if any)
+				s3Log.Errorf("code=%v msg=%v, err=%v\n", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
+				return awsErr
+			}
 		}
 	} else {
 		return err
