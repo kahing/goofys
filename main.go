@@ -79,7 +79,7 @@ func mount(
 	}
 
 	awsConfig := &aws.Config{
-		Region:      aws.String("us-west-2"),
+		Region:      &flags.Region,
 		Logger:      GetLogger("s3"),
 		Credentials: creds,
 		//LogLevel: aws.LogLevel(aws.LogDebug),

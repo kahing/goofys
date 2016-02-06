@@ -110,6 +110,15 @@ func NewApp() (app *cli.App) {
 			},
 
 			cli.StringFlag{
+				Name:  "region",
+				Value: "us-west-2",
+				Usage: "The non-AWS endpoint to connect to." +
+					" Possible values: us-east-1, us-west-1, us-west-2, eu-west-1, " +
+					"eu-central-1, ap-southeast-1, ap-southeast-2, ap-northeast-1, " +
+					"sa-east-1, cn-north-1",
+			},
+
+			cli.StringFlag{
 				Name:  "storage-class",
 				Value: "STANDARD",
 				Usage: "The type of storage to use when writing objects." +
@@ -178,6 +187,7 @@ type FlagStorage struct {
 
 	// S3
 	Endpoint       string
+	Region         string
 	StorageClass   string
 	UsePathRequest bool
 	Profile        string
@@ -232,6 +242,7 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 
 		// S3
 		Endpoint:       c.String("endpoint"),
+		Region:         c.String("region"),
 		StorageClass:   c.String("storage-class"),
 		UsePathRequest: c.Bool("use-path-request"),
 		Profile:        c.String("profile"),
