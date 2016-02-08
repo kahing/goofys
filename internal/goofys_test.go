@@ -145,9 +145,9 @@ func (s *GoofysTest) SetUpSuite(t *C) {
 		}
 	} else {
 		s.awsConfig = &aws.Config{
-			Region:           aws.String("us-west-2"),
-			DisableSSL:       aws.Bool(true),
-			LogLevel:         aws.LogLevel(aws.LogDebug | aws.LogDebugWithSigning),
+			Region:     aws.String("us-west-2"),
+			DisableSSL: aws.Bool(true),
+			//LogLevel:         aws.LogLevel(aws.LogDebug | aws.LogDebugWithSigning),
 			S3ForcePathStyle: aws.Bool(true),
 		}
 	}
@@ -255,10 +255,13 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		Gid:          uint32(gid),
 	}
 	s.fs = NewGoofys(bucket, s.awsConfig, flags)
+	t.Assert(s.fs, NotNil)
 }
 
-func (s *GoofysTest) getRoot(t *C) *Inode {
-	return s.fs.inodes[fuseops.RootInodeID]
+func (s *GoofysTest) getRoot(t *C) (inode *Inode) {
+	inode = s.fs.inodes[fuseops.RootInodeID]
+	t.Assert(inode, NotNil)
+	return
 }
 
 func (s *GoofysTest) TestGetRootInode(t *C) {
