@@ -17,6 +17,7 @@ fi
 
 trap cleanup EXIT
 
+rm -Rf /tmp/s3proxy
 mkdir -p /tmp/s3proxy
 
 export LOG_LEVEL=warn
