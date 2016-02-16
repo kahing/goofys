@@ -873,7 +873,18 @@ func (s *GoofysTest) TestBenchIO(t *C) {
 
 	defer os.Remove(mountPoint)
 
-	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "md5")
+	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "io")
+}
+
+func (s *GoofysTest) TestBenchAppend(t *C) {
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	err := os.MkdirAll(mountPoint, 0700)
+	t.Assert(err, IsNil)
+
+	defer os.Remove(mountPoint)
+
+	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "append")
 }
 
 func (s *GoofysTest) TestChmod(t *C) {

@@ -182,6 +182,9 @@ function write_md5 {
     if [ "$FAST" == "true" ]; then
         count=100
     fi
+    if [ "$1" != "" ]; then
+        count=$1
+    fi
     MD5=$(dd if=/dev/zero bs=1MB count=$count status=none | $random_cmd | \
         tee >(md5sum) >(dd of=largefile bs=1MB oflag=nocache status=none) >/dev/null | cut -f 1 '-d ')
 }
@@ -202,4 +205,50 @@ if [ "$t" = "" -o "$t" = "io" ]; then
         run_test read_first_byte
         rm largefile
     done
+fi
+
+
+seed=$(dd if=/dev/urandom bs=128 count=1 status=none | base64 -w 0)
+random_cmd="openssl enc -aes-256-ctr -pass pass:$seed -nosalt"
+
+function init_append {
+    count=40
+    if [ "$FAST" == "true" ]; then
+        count=49
+    fi
+    MD5=$(dd if=/dev/zero bs=100KB count=$count status=none | $random_cmd | \
+        tee >(md5sum) >(dd of=largefile bs=1MB oflag=nocache status=none) >/dev/null | cut -f 1 '-d ')
+}
+
+function append_rmw {
+    dd if=/dev/zero bs=100KB count=1 | $random_cmd | \
+        dd of=largefile bs=100KB status=none oflag=append,nocache conv=notrunc
+}
+
+function append_mpu {
+    dd if=/dev/zero bs=100KB count=1 | $random_cmd | \
+        dd of=largefile bs=100KB status=none oflag=append,nocache conv=notrunc
+}
+
+if [ "$t" = "" -o "$t" = "append" ]; then
+    init_append
+
+    # 4 * 1MB + 10 * 100KB append = 5MB = minimum multipart size
+    for i in $(seq 1 $iter); do
+        run_test append_rmw
+    done
+
+    size=$(du -b largefile | cut -f 1 '-d ')
+    if [ $size != 5000000 ]; then
+        echo "$size != 5000000" >&2
+        rm largefile
+        exit 1
+    fi
+
+    # starting here should be multipart appends
+    for i in $(seq 1 $iter); do
+        run_test append_mpu
+    done
+
+    rm largefile
 fi
