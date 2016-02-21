@@ -33,8 +33,8 @@ type BufferPoolHandle struct {
 	mu   sync.Mutex
 	cond *sync.Cond
 
-	inUseBuffers int64
-	maxBuffers   int64 // maximum number of buffers for this handle
+	inUseBuffers uint64
+	maxBuffers   uint64 // maximum number of buffers for this handle
 	pool         *BufferPool
 }
 
@@ -42,17 +42,17 @@ type BufferPool struct {
 	mu   sync.Mutex
 	cond *sync.Cond
 
-	numBuffers          int64
-	maxBuffersGlobal    int64
-	maxBuffersPerHandle int64
+	numBuffers          uint64
+	maxBuffersGlobal    uint64
+	maxBuffersPerHandle uint64
 
-	totalBuffers             int64
-	computedMaxBuffersGlobal int64
+	totalBuffers             uint64
+	computedMaxBuffersGlobal uint64
 }
 
 const BUF_SIZE = 10 * 1024 * 1024
 
-func maxMemToUse() int64 {
+func maxMemToUse() uint64 {
 	m, err := mem.VirtualMemory()
 	if err != nil {
 		panic(err)
@@ -65,10 +65,10 @@ func maxMemToUse() int64 {
 
 	log.Debugf("amount of allocated memory: %v", ms.Alloc)
 
-	max := int64(m.Available+ms.Alloc) / 2
-	maxBuffersGlobal := max/BUF_SIZE + 1
+	max := uint64(m.Available+ms.Alloc) / 2
+	maxBuffersGlobal := MinUInt64(max/BUF_SIZE, 10)
 	log.Debugf("using up to %v %vMB buffers", maxBuffersGlobal, BUF_SIZE/1024/1024)
-	return max
+	return maxBuffersGlobal
 }
 
 func (pool BufferPool) Init() *BufferPool {
@@ -79,7 +79,7 @@ func (pool BufferPool) Init() *BufferPool {
 }
 
 // for testing
-func NewBufferPool(maxSizeGlobal int64, maxSizePerHandle int64) *BufferPool {
+func NewBufferPool(maxSizeGlobal uint64, maxSizePerHandle uint64) *BufferPool {
 	pool := &BufferPool{
 		maxBuffersGlobal:    maxSizeGlobal / BUF_SIZE,
 		maxBuffersPerHandle: maxSizePerHandle / BUF_SIZE,
@@ -100,7 +100,7 @@ func (pool *BufferPool) requestBuffer() (buf []byte) {
 
 	maxBuffersGlobal := pool.computedMaxBuffersGlobal
 	if pool.totalBuffers%100 == 0 {
-		pool.computedMaxBuffersGlobal = maxMemToUse()/BUF_SIZE + 1
+		pool.computedMaxBuffersGlobal = maxMemToUse()
 	}
 
 	if maxBuffersGlobal == 0 {
