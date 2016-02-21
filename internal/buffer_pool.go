@@ -58,14 +58,14 @@ func maxMemToUse() int64 {
 		panic(err)
 	}
 
-	log.Debugf("amount of free memory: %v", m.Free)
+	log.Debugf("amount of available memory: %v", m.Available)
 
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 
 	log.Debugf("amount of allocated memory: %v", ms.Alloc)
 
-	max := int64(m.Free+ms.Alloc) / 2
+	max := int64(m.Available+ms.Alloc) / 2
 	maxBuffersGlobal := max/BUF_SIZE + 1
 	log.Debugf("using up to %v %vMB buffers", maxBuffersGlobal, BUF_SIZE/1024/1024)
 	return max
