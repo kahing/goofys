@@ -559,6 +559,9 @@ func (b S3ReadBuffer) Init(fs *Goofys, fh *FileHandle, offset int64, size int) *
 	b.size = size
 
 	mbuf := MBuf{}.Init(fh.poolHandle, uint64(size))
+	if mbuf == nil {
+		return nil
+	}
 
 	b.buf = Buffer{}.Init(mbuf, func() (io.ReadCloser, error) {
 		params := &s3.GetObjectInput{
@@ -628,7 +631,7 @@ func (fh *FileHandle) readFromReadAhead(fs *Goofys, offset int64, buf []byte) (b
 	return
 }
 
-func (fh *FileHandle) readAhead(fs *Goofys, offset int64, needAtLeast int) {
+func (fh *FileHandle) readAhead(fs *Goofys, offset int64, needAtLeast int) (err error) {
 	const MAX_READAHEAD = 100 * 1024 * 1024
 	const READAHEAD_CHUNK = 20 * 1024 * 1024
 
@@ -650,14 +653,29 @@ func (fh *FileHandle) readAhead(fs *Goofys, offset int64, needAtLeast int) {
 		if size != 0 {
 			fh.inode.logFuse("readahead", off, size, existingReadahead)
 
-			fh.buffers = append(fh.buffers, S3ReadBuffer{}.Init(fs, fh, int64(off), int(size)))
-			existingReadahead += size
+			readAheadBuf := S3ReadBuffer{}.Init(fs, fh, int64(off), int(size))
+			if readAheadBuf != nil {
+				fh.buffers = append(fh.buffers, readAheadBuf)
+				existingReadahead += size
+			} else {
+				if existingReadahead != 0 {
+					// don't do more readahead now, but don't fail, cross our
+					// fingers that we will be able to allocate the buffers
+					// later
+					return nil
+				} else {
+					return syscall.ENOMEM
+				}
+			}
 		}
 
 		if size != READAHEAD_CHUNK {
+			// that was the last remaining chunk to readahead
 			break
 		}
 	}
+
+	return nil
 }
 
 func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
@@ -710,11 +728,18 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 			fh.reader = nil
 		}
 
-		fh.readAhead(fs, offset, len(buf))
-		bytesRead, err = fh.readFromReadAhead(fs, offset, buf)
-	} else {
-		bytesRead, err = fh.readFileSerial(fs, offset, buf)
+		err = fh.readAhead(fs, offset, len(buf))
+		if err == nil {
+			bytesRead, err = fh.readFromReadAhead(fs, offset, buf)
+			return
+		} else {
+			// fall back to read serially
+			fh.inode.logFuse("not enough memory, fallback to serial read")
+			fh.seqReadAmount = 0
+		}
 	}
+
+	bytesRead, err = fh.readFileSerial(fs, offset, buf)
 
 	return
 }

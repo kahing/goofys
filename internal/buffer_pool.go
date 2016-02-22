@@ -66,7 +66,7 @@ func maxMemToUse() uint64 {
 	log.Debugf("amount of allocated memory: %v", ms.Alloc)
 
 	max := uint64(m.Available+ms.Alloc) / 2
-	maxBuffersGlobal := MinUInt64(max/BUF_SIZE, 10)
+	maxBuffersGlobal := MaxUInt64(max/BUF_SIZE, 1)
 	log.Debugf("using up to %v %vMB buffers", maxBuffersGlobal, BUF_SIZE/1024/1024)
 	return maxBuffersGlobal
 }
@@ -117,6 +117,29 @@ func (pool *BufferPool) requestBuffer() (buf []byte) {
 	return
 }
 
+func (pool *BufferPool) requestBufferNonBlock() (buf []byte) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	maxBuffersGlobal := pool.computedMaxBuffersGlobal
+	if pool.totalBuffers%100 == 0 {
+		pool.computedMaxBuffersGlobal = maxMemToUse()
+	}
+
+	if maxBuffersGlobal == 0 {
+		maxBuffersGlobal = pool.computedMaxBuffersGlobal
+	}
+
+	for pool.numBuffers >= maxBuffersGlobal {
+		return nil
+	}
+
+	pool.numBuffers++
+	pool.totalBuffers++
+	buf = make([]byte, 0, BUF_SIZE)
+	return
+}
+
 func (pool *BufferPool) freeBuffer(buf []byte) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
@@ -135,6 +158,21 @@ func (h *BufferPoolHandle) Request() []byte {
 
 	buf := h.pool.requestBuffer()
 	h.inUseBuffers++
+	return buf
+}
+
+func (h *BufferPoolHandle) RequestNonBlock() []byte {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for h.inUseBuffers == h.maxBuffers {
+		return nil
+	}
+
+	buf := h.pool.requestBufferNonBlock()
+	if buf != nil {
+		h.inUseBuffers++
+	}
 	return buf
 }
 
@@ -182,9 +220,15 @@ func (mb MBuf) Init(h *BufferPoolHandle, size uint64) *MBuf {
 	mb.pool = h
 
 	for allocated < size {
-		b := h.Request()
-		allocated += uint64(cap(b))
-		mb.buffers = append(mb.buffers, b)
+		b := h.RequestNonBlock()
+		if b == nil {
+			// we could nto fulfill this request
+			defer mb.Free()
+			return nil
+		} else {
+			allocated += uint64(cap(b))
+			mb.buffers = append(mb.buffers, b)
+		}
 	}
 
 	return &mb
