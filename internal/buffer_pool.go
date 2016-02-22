@@ -98,7 +98,7 @@ func (pool *BufferPool) requestBuffer() (buf []byte) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	maxBuffersGlobal := pool.computedMaxBuffersGlobal
+	maxBuffersGlobal := pool.maxBuffersGlobal
 	if pool.totalBuffers%100 == 0 {
 		pool.computedMaxBuffersGlobal = maxMemToUse()
 	}
@@ -121,7 +121,7 @@ func (pool *BufferPool) requestBufferNonBlock() (buf []byte) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	maxBuffersGlobal := pool.computedMaxBuffersGlobal
+	maxBuffersGlobal := pool.maxBuffersGlobal
 	if pool.totalBuffers%100 == 0 {
 		pool.computedMaxBuffersGlobal = maxMemToUse()
 	}

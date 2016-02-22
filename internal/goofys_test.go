@@ -569,6 +569,11 @@ func (s *GoofysTest) TestWriteLargeFile(t *C) {
 	s.testWriteFile(t, "testLargeFile2", 20*1024*1024, 128*1024)
 }
 
+func (s *GoofysTest) TestReadWriteMinimumMemory(t *C) {
+	s.fs.bufferPool.maxBuffersGlobal = 1
+	s.testWriteFile(t, "testLargeFile", 21*1024*1024, 128*1024)
+}
+
 func (s *GoofysTest) TestWriteManyFilesFile(t *C) {
 	var files sync.WaitGroup
 
