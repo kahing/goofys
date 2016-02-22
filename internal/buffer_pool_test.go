@@ -135,9 +135,9 @@ func (s *BufferTest) TestMBuf(t *C) {
 	t.Assert(mb.rbuf, Equals, 1)
 	t.Assert(mb.rp, Equals, BUF_SIZE)
 
-	t.Assert(h.inUseBuffers, Equals, int64(2))
+	t.Assert(h.inUseBuffers, Equals, uint64(2))
 	mb.Free()
-	t.Assert(h.inUseBuffers, Equals, int64(0))
+	t.Assert(h.inUseBuffers, Equals, uint64(0))
 }
 
 func (s *BufferTest) TestBuffer(t *C) {
@@ -159,5 +159,5 @@ func (s *BufferTest) TestBuffer(t *C) {
 	t.Assert(diff, Equals, -1)
 	t.Assert(b.buf, IsNil)
 	t.Assert(b.reader, NotNil)
-	t.Assert(h.inUseBuffers, Equals, int64(0))
+	t.Assert(h.inUseBuffers, Equals, uint64(0))
 }
