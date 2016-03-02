@@ -361,7 +361,7 @@ func (fh *FileHandle) initMPU(fs *Goofys) {
 		Bucket:       &fs.bucket,
 		Key:          fh.inode.FullName,
 		StorageClass: &fs.flags.StorageClass,
-		ContentType:  fh.getMimeType(),
+		ContentType:  aws.String(fh.getMimeType()),
 	}
 
 	resp, err := fs.s3.CreateMultipartUpload(params)
@@ -836,7 +836,7 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 		Key:          fh.inode.FullName,
 		Body:         bytes.NewReader(buf),
 		StorageClass: &fs.flags.StorageClass,
-		ContentType:  fh.getMimeType(),
+		ContentType:  aws.String(fh.getMimeType()),
 	}
 
 	_, err = fs.s3.PutObject(params)
@@ -1159,12 +1159,13 @@ func (dh *DirHandle) CloseDir() error {
 	return nil
 }
 
-func (fh *FileHandle) getMimeType() *string {
-	dotPosition := strings.LastIndex(fh.inode.FullName, ".")
+func (fh *FileHandle) getMimeType() string {
+	fileName := *fh.inode.FullName
+	dotPosition := strings.LastIndex(fileName, ".")
 	if dotPosition == -1 {
 		return "application/octet-stream"
 	}
-	mimeType := mime.TypeByExtension(fh.inode.FullName[dotPosition:])
+	mimeType := mime.TypeByExtension(fileName[dotPosition:])
 	if mimeType == "" {
 		return "application/octet-stream"
 	}
