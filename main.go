@@ -113,6 +113,7 @@ func mount(
 
 	if flags.DebugFuse {
 		fuseLog.Level = logrus.DebugLevel
+		log.Level = logrus.DebugLevel
 		mountCfg.DebugLogger = GetStdLogger(fuseLog, logrus.DebugLevel)
 	}
 
