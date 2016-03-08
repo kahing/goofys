@@ -1062,11 +1062,6 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 		}
 	}
 
-	if i > 5000 {
-		// XXX prevent infinite loop, raise the limit later
-		panic("too many results")
-	}
-
 	if dh.Entries == nil {
 		prefix := *dh.inode.FullName
 		if len(prefix) != 0 {
