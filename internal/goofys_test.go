@@ -874,3 +874,15 @@ func (s *GoofysTest) TestChmod(t *C) {
 	t.Assert(err, IsNil)
 	t.Assert(setOp.Attributes, NotNil)
 }
+
+func (s *GoofysTest) TestIssue64(t *C) {
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+	log.Level = logrus.DebugLevel
+
+	err := os.MkdirAll(mountPoint, 0700)
+	t.Assert(err, IsNil)
+
+	defer os.Remove(mountPoint)
+
+	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "issue64")
+}

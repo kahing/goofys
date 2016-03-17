@@ -32,6 +32,7 @@ $cmd >& mount.log &
 PID=$!
 
 function cleanup {
+    wait
     popd >/dev/null
     rmdir $prefix >& /dev/null || true # riofs doesn't support rmdir
 
@@ -43,6 +44,7 @@ function cleanup {
 
 function cleanup_err {
     err=$?
+    wait
     popd >&/dev/null || true
     rmdir $prefix >&/dev/null || true
 
@@ -202,4 +204,47 @@ if [ "$t" = "" -o "$t" = "io" ]; then
         run_test read_first_byte
         rm largefile
     done
+fi
+
+# for https://github.com/kahing/goofys/issues/64
+# quote: There are 5 concurrent transfers gong at a time.
+# Data file size is often 100-400MB.
+# Regarding the number of transfers, I think it's about 200 files.
+# We read from the goofys mounted s3 bucket and write to a local spring webapp using curl.
+if [ "$t" = "" -o "$t" = "issue64" ]; then
+    # setup the files
+    (for i in $(seq 1 5); do
+        dd if=/dev/zero of=file$i bs=1MB count=300 oflag=nocache status=none & true
+    done
+    wait)
+    if [ $? != 0 ]; then
+        exit $?
+    fi
+
+    # 200 files and 5 concurrent transfer means 40 times, do 50 times for good measure
+    (for i in $(seq 1 5); do
+        dd if=file$i of=/dev/null bs=1MB iflag=nocache status=none &
+    done
+
+    for i in $(seq 6 300); do
+        # wait for 1 to finish, then invoke more
+        wait -n
+        running=$(pgrep -ax dd | sed 's/.*dd if=file\([0-9]\).*/\1/')
+        for i in $(seq 1 5); do
+            if echo $running | grep -v -q $i; then
+                dd if=file$i of=/dev/null bs=1MB iflag=nocache status=none &
+                break
+            fi
+        done
+    done
+    wait)
+    if [ $? != 0 ]; then
+        exit $?
+    fi
+    
+    # cleanup
+    (for i in $(seq 1 5); do
+        rm -f file$i & true
+    done
+    wait)
 fi
