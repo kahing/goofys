@@ -1090,6 +1090,9 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 			dirName := (*dir.Prefix)[0 : len(*dir.Prefix)-1]
 			// strip previous prefix
 			dirName = dirName[len(*params.Prefix):]
+			if len(dirName) == 0 {
+				continue
+			}
 			dh.Entries = append(dh.Entries, makeDirEntry(dirName, fuseutil.DT_Directory))
 			dh.NameToEntry[dirName] = fs.rootAttrs
 		}
