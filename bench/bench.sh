@@ -213,7 +213,7 @@ fi
 # We read from the goofys mounted s3 bucket and write to a local spring webapp using curl.
 if [ "$t" = "" -o "$t" = "issue64" ]; then
     # setup the files
-    (for i in $(seq 1 5); do
+    (for i in $(seq 0 9); do
         dd if=/dev/zero of=file$i bs=1MB count=300 oflag=nocache status=none & true
     done
     wait)
@@ -222,15 +222,15 @@ if [ "$t" = "" -o "$t" = "issue64" ]; then
     fi
 
     # 200 files and 5 concurrent transfer means 40 times, do 50 times for good measure
-    (for i in $(seq 1 5); do
+    (for i in $(seq 0 9); do
         dd if=file$i of=/dev/null bs=1MB iflag=nocache status=none &
     done
 
-    for i in $(seq 6 300); do
+    for i in $(seq 10 300); do
         # wait for 1 to finish, then invoke more
         wait -n
-        running=$(pgrep -ax dd | sed 's/.*dd if=file\([0-9]\).*/\1/')
-        for i in $(seq 1 5); do
+        running=$(ps -ef | grep ' dd if=' | grep -v grep | sed 's/.*dd if=file\([0-9]\).*/\1/')
+        for i in $(seq 0 9); do
             if echo $running | grep -v -q $i; then
                 dd if=file$i of=/dev/null bs=1MB iflag=nocache status=none &
                 break
