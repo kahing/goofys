@@ -773,6 +773,9 @@ func (fs *Goofys) ReleaseFileHandle(
 	fuseLog.Debugln("ReleaseFileHandle", *fh.inode.FullName)
 
 	delete(fs.fileHandles, op.Handle)
+
+	// try to compact heap
+	//fs.bufferPool.MaybeGC()
 	return
 }
 

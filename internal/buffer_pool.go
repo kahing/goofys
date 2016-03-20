@@ -24,6 +24,7 @@ package internal
 import (
 	"io"
 	"runtime"
+	"runtime/debug"
 	"sync"
 
 	"github.com/shirou/gopsutil/mem"
@@ -138,6 +139,12 @@ func (pool *BufferPool) requestBufferNonBlock() (buf []byte) {
 	pool.totalBuffers++
 	buf = make([]byte, 0, BUF_SIZE)
 	return
+}
+
+func (pool *BufferPool) MaybeGC() {
+	if pool.numBuffers == 0 {
+		debug.FreeOSMemory()
+	}
 }
 
 func (pool *BufferPool) freeBuffer(buf []byte) {
