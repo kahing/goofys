@@ -116,7 +116,8 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 		case fuse.ENOENT:
 			log.Errorf("bucket %v does not exist", fs.bucket)
 			return nil
-		case fuse.EINVAL:
+		case fuse.EINVAL: // swift3, ceph-s3 return 400
+		case syscall.EACCES: // GCS, EMC return 403
 			// only non-aws would require v2 signer, and it's not clear
 			// how to detect region in those cases
 			fs.fallbackV2Signer()
