@@ -876,13 +876,15 @@ func (s *GoofysTest) TestChmod(t *C) {
 }
 
 func (s *GoofysTest) TestIssue64(t *C) {
-	mountPoint := "/tmp/mnt" + s.fs.bucket
-	log.Level = logrus.DebugLevel
+	/*
+		mountPoint := "/tmp/mnt" + s.fs.bucket
+		log.Level = logrus.DebugLevel
 
-	err := os.MkdirAll(mountPoint, 0700)
-	t.Assert(err, IsNil)
+		err := os.MkdirAll(mountPoint, 0700)
+		t.Assert(err, IsNil)
 
-	defer os.Remove(mountPoint)
+		defer os.Remove(mountPoint)
 
-	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "issue64")
+		s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "issue64")
+	*/
 }

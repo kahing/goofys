@@ -112,31 +112,27 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 
 	err := fs.testBucket()
 	if err != nil {
-		switch mapAwsError(err) {
-		case fuse.ENOENT:
+		if mapAwsError(err) == fuse.ENOENT {
 			log.Errorf("bucket %v does not exist", fs.bucket)
 			return nil
-		case fuse.EINVAL: // swift3, ceph-s3 return 400
-		case syscall.EACCES: // GCS, EMC return 403
-			// only non-aws would require v2 signer, and it's not clear
-			// how to detect region in those cases
-			fs.fallbackV2Signer()
-			err = fs.testBucket()
-			if err != nil {
-				log.Errorf("Unable to access '%v': %v", fs.bucket, err)
-				return nil
-			}
-		default:
-			fs.detectBucketLocationByHEAD()
+		}
+
+		err = fs.detectBucketLocationByHEAD()
+		if err == nil {
+			// we detected a region header, this is probably AWS S3
 			fs.sess = session.New(awsConfig)
 			fs.s3 = fs.newS3()
+		} else {
+			// this is NOT AWS, maybe they don't support v4 signing
+			// swift3, ceph-s3 return 400; GCS, EMC return 403
+			fs.fallbackV2Signer()
+		}
 
-			// try again to make sure
-			err = fs.testBucket()
-			if err != nil {
-				log.Errorf("Unable to access '%v': %v", fs.bucket, mapAwsError(err))
-				return nil
-			}
+		// try again to make sure
+		err = fs.testBucket()
+		if err != nil {
+			log.Errorf("Unable to access '%v': %v", fs.bucket, mapAwsError(err))
+			return nil
 		}
 	}
 
@@ -198,7 +194,7 @@ func (fs *Goofys) testBucket() (err error) {
 	return
 }
 
-func (fs *Goofys) detectBucketLocationByHEAD() {
+func (fs *Goofys) detectBucketLocationByHEAD() (err error) {
 	config := &aws.Config{
 		Credentials: credentials.AnonymousCredentials,
 		Endpoint:    fs.awsConfig.Endpoint,
@@ -222,6 +218,7 @@ func (fs *Goofys) detectBucketLocationByHEAD() {
 		}
 	} else {
 		s3Log.Infof("Unable to detect bucket region, staying at '%v'", *fs.awsConfig.Region)
+		err = fuse.EINVAL
 	}
 	return
 }
