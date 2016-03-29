@@ -53,7 +53,7 @@ type BufferPool struct {
 
 const BUF_SIZE = 10 * 1024 * 1024
 
-func maxMemToUse() uint64 {
+func maxMemToUse(buffersNow uint64) uint64 {
 	m, err := mem.VirtualMemory()
 	if err != nil {
 		panic(err)
@@ -64,10 +64,15 @@ func maxMemToUse() uint64 {
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 
-	log.Debugf("amount of allocated memory: %v", ms.Alloc)
+	log.Debugf("amount of allocated memory: %v %v", ms.Sys, ms.Alloc)
+	//log.Debugf("amount of allocated: %v", ms)
 
-	max := uint64(m.Available+ms.Alloc) / 2
-	maxBuffersGlobal := MaxUInt64(max/BUF_SIZE, 1)
+	max := uint64(m.Available+ms.Sys) / 2
+	apparentOverhead := uint64(BUF_SIZE)
+	if buffersNow != 0 {
+		apparentOverhead = ms.Sys / buffersNow
+	}
+	maxBuffersGlobal := MaxUInt64(max/apparentOverhead, 1)
 	log.Debugf("using up to %v %vMB buffers", maxBuffersGlobal, BUF_SIZE/1024/1024)
 	return maxBuffersGlobal
 }
@@ -75,6 +80,7 @@ func maxMemToUse() uint64 {
 func (pool BufferPool) Init() *BufferPool {
 	pool.maxBuffersPerHandle = 200 * 1024 * 1024 / BUF_SIZE
 	pool.cond = sync.NewCond(&pool.mu)
+	pool.maxBuffersGlobal = 8
 
 	return &pool
 }
@@ -99,16 +105,16 @@ func (pool *BufferPool) requestBuffer() (buf []byte) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	maxBuffersGlobal := pool.maxBuffersGlobal
-	if pool.totalBuffers%100 == 0 {
-		pool.computedMaxBuffersGlobal = maxMemToUse()
+	if pool.maxBuffersGlobal == 0 {
+		if pool.totalBuffers%10 == 0 {
+			pool.computedMaxBuffersGlobal = maxMemToUse(pool.numBuffers)
+		}
+	} else {
+		pool.computedMaxBuffersGlobal = pool.maxBuffersGlobal
 	}
 
-	if maxBuffersGlobal == 0 {
-		maxBuffersGlobal = pool.computedMaxBuffersGlobal
-	}
-
-	for pool.numBuffers >= maxBuffersGlobal {
+	for pool.numBuffers >= pool.computedMaxBuffersGlobal {
+		log.Debugf("using now %v", pool.numBuffers)
 		pool.cond.Wait()
 	}
 
@@ -122,17 +128,17 @@ func (pool *BufferPool) requestBufferNonBlock() (buf []byte) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	maxBuffersGlobal := pool.maxBuffersGlobal
-	if pool.totalBuffers%100 == 0 {
-		pool.computedMaxBuffersGlobal = maxMemToUse()
+	if pool.maxBuffersGlobal == 0 {
+		if pool.totalBuffers%10 == 0 {
+			pool.computedMaxBuffersGlobal = maxMemToUse(pool.numBuffers)
+			log.Debugf("using now %v", pool.numBuffers)
+		}
+	} else {
+		pool.computedMaxBuffersGlobal = pool.maxBuffersGlobal
 	}
 
-	if maxBuffersGlobal == 0 {
-		maxBuffersGlobal = pool.computedMaxBuffersGlobal
-	}
-
-	for pool.numBuffers >= maxBuffersGlobal {
-		return nil
+	for pool.numBuffers >= pool.computedMaxBuffersGlobal {
+		return
 	}
 
 	pool.numBuffers++

@@ -17,6 +17,7 @@ package internal
 import (
 	"bytes"
 	"io"
+	"sync"
 	"time"
 
 	. "gopkg.in/check.v1"
@@ -160,4 +161,30 @@ func (s *BufferTest) TestBuffer(t *C) {
 	t.Assert(b.buf, IsNil)
 	t.Assert(b.reader, NotNil)
 	t.Assert(h.inUseBuffers, Equals, uint64(0))
+}
+
+func (s *BufferTest) TestPool(t *C) {
+	const MAX = 8
+	pool := BufferPool{maxBuffersGlobal: MAX}.Init()
+	var wg sync.WaitGroup
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			var inner sync.WaitGroup
+			for j := 0; j < 30; j++ {
+				inner.Add(1)
+				buf := pool.requestBuffer()
+				go func() {
+					time.Sleep(1000 * time.Millisecond)
+					pool.freeBuffer(buf)
+					inner.Done()
+				}()
+				inner.Wait()
+			}
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
 }
