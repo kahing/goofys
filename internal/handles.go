@@ -65,22 +65,6 @@ func NewInode(name *string, fullName *string, flags *FlagStorage) (inode *Inode)
 	return
 }
 
-// LOCKS_REQUIRED(fs.mu)
-// XXX why did I put lock required? This used to return a resurrect bool
-// which no long does anything, need to look into that to see if
-// that was legacy
-func (inode *Inode) Ref() {
-	inode.logFuse("Ref", inode.refcnt)
-
-	if inode.refcnt == 0 {
-		fuseLog.Errorln("Ref", inode.Id, *inode.FullName, "refcnt == 0")
-		panic("refcnt == 0")
-	}
-
-	inode.refcnt++
-	return
-}
-
 type DirHandle struct {
 	inode *Inode
 
@@ -174,6 +158,22 @@ func (parent *Inode) getChildName(name string) string {
 	} else {
 		return fmt.Sprintf("%v/%v", *parent.FullName, name)
 	}
+}
+
+// LOCKS_REQUIRED(fs.mu)
+// XXX why did I put lock required? This used to return a resurrect bool
+// which no long does anything, need to look into that to see if
+// that was legacy
+func (inode *Inode) Ref() {
+	inode.logFuse("Ref", inode.refcnt)
+
+	if inode.refcnt == 0 {
+		fuseLog.Errorln("Ref", inode.Id, *inode.FullName, "refcnt == 0")
+		panic("refcnt == 0")
+	}
+
+	inode.refcnt++
+	return
 }
 
 // LOCKS_REQUIRED(fs.mu)

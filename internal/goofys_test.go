@@ -761,7 +761,7 @@ func isTravis() bool {
 	return false
 }
 
-func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs ...string) {
+func (s *GoofysTest) mount(t *C, mountPoint string) {
 	server := fuseutil.NewFileSystemServer(s.fs)
 
 	// Mount the file system.
@@ -774,6 +774,10 @@ func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs .
 
 	_, err := fuse.Mount(mountPoint, server, mountCfg)
 	t.Assert(err, IsNil)
+}
+
+func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs ...string) {
+	s.mount(t, mountPoint)
 
 	if umount {
 		defer func() {
@@ -797,7 +801,7 @@ func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs .
 		cmd.Stderr = w
 	}
 
-	err = cmd.Run()
+	err := cmd.Run()
 	t.Assert(err, IsNil)
 }
 
@@ -887,4 +891,39 @@ func (s *GoofysTest) TestIssue64(t *C) {
 
 		s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "issue64")
 	*/
+}
+
+func (s *GoofysTest) TestIssue69(t *C) {
+	s.fs.flags.StatCacheTTL = 0
+
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	err := os.MkdirAll(mountPoint, 0700)
+	t.Assert(err, IsNil)
+
+	s.mount(t, mountPoint)
+
+	defer func() {
+		err := os.Chdir("/")
+		t.Assert(err, IsNil)
+
+		err = fuse.Unmount(mountPoint)
+		t.Assert(err, IsNil)
+	}()
+
+	fuseLog.Level = logrus.DebugLevel
+	s3Log.Level = logrus.DebugLevel
+
+	err = os.Chdir(mountPoint)
+	t.Assert(err, IsNil)
+
+	_, err = os.Stat("dir1")
+	t.Assert(err, IsNil)
+
+	err = os.Remove("dir1/file3")
+	t.Assert(err, IsNil)
+
+	// don't really care about error code, but it should be a PathError
+	os.Stat("dir1")
+	os.Stat("dir1")
 }
