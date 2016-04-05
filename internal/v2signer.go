@@ -138,7 +138,6 @@ func (v2 *signer) Sign() error {
 	if path == "" {
 		path = "/"
 	}
-	v2.Request.URL.Opaque = path
 
 	// build URL-encoded query keys and values
 	queryKeysAndValues := []string{}
