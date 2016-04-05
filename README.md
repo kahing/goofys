@@ -59,6 +59,8 @@ Licensed under the Apache License, Version 2.0
 
 # Current Status
 
+goofys has only been tested under Linux.
+
 List of non-POSIX behaviors/limitations:
   * only sequential writes supported
   * does not store file mode/owner/group
