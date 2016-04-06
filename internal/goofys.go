@@ -567,7 +567,14 @@ func (fs *Goofys) LookUpInode(
 		if err != nil {
 			if inode != nil {
 				// just kidding! pretend we didn't up the ref
-				inode.DeRef(1)
+				fs.mu.Lock()
+				defer fs.mu.Unlock()
+
+				stale := inode.DeRef(1)
+				if stale {
+					delete(fs.inodes, inode.Id)
+					delete(fs.inodesCache, *inode.FullName)
+				}
 			}
 			return err
 		}
