@@ -911,9 +911,6 @@ func (s *GoofysTest) TestIssue69(t *C) {
 		t.Assert(err, IsNil)
 	}()
 
-	fuseLog.Level = logrus.DebugLevel
-	s3Log.Level = logrus.DebugLevel
-
 	err = os.Chdir(mountPoint)
 	t.Assert(err, IsNil)
 
