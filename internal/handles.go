@@ -118,6 +118,10 @@ func (inode *Inode) logFuse(op string, args ...interface{}) {
 	fuseLog.Debugln(op, inode.Id, *inode.FullName, args)
 }
 
+func (inode *Inode) errFuse(op string, args ...interface{}) {
+	fuseLog.Errorln(op, inode.Id, *inode.FullName, args)
+}
+
 // LOCKS_REQUIRED(parent.mu)
 func (parent *Inode) lookupFromDirHandles(name string) (inode *Inode) {
 	parent.mu.Lock()
@@ -428,9 +432,6 @@ func (fh *FileHandle) mpuPart(fs *Goofys, buf []byte, part int) {
 
 	err := fh.mpuPartNoSpawn(fs, buf, part)
 	if err != nil {
-		fh.mu.Lock()
-		defer fh.mu.Unlock()
-
 		if fh.lastWriteError == nil {
 			fh.lastWriteError = mapAwsError(err)
 		}
@@ -463,7 +464,7 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 	}
 
 	if offset != fh.nextWriteOffset {
-		fh.inode.logFuse("WriteFile: only sequential writes supported", fh.nextWriteOffset, offset)
+		fh.inode.errFuse("WriteFile: only sequential writes supported", fh.nextWriteOffset, offset)
 		fh.lastWriteError = fuse.EINVAL
 		return fh.lastWriteError
 	}
@@ -846,15 +847,15 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 }
 
 func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
+	fh.mu.Lock()
+	defer fh.mu.Unlock()
+
 	fh.inode.logFuse("FlushFile")
 
-	fh.mu.Lock()
 	if !fh.dirty || fh.lastWriteError != nil {
 		err = fh.lastWriteError
-		fh.mu.Unlock()
 		return
 	}
-	fh.mu.Unlock()
 
 	// abort mpu on error
 	defer func() {
@@ -887,9 +888,6 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 	}
 
 	fh.mpuWG.Wait()
-
-	fh.mu.Lock()
-	defer fh.mu.Unlock()
 
 	if fh.lastWriteError != nil {
 		return fh.lastWriteError
