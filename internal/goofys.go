@@ -208,7 +208,11 @@ func (fs *Goofys) detectBucketLocationByHEAD() (err error) {
 	tmpS3 := s3.New(sess)
 
 	req, _ := tmpS3.HeadBucketRequest(&s3.HeadBucketInput{Bucket: &fs.bucket})
-	req.Send()
+	reqerr := req.Send()
+	if reqerr == nil {
+		fs.awsConfig.Credentials = credentials.AnonymousCredentials
+		s3Log.Infof("anonymous bucket detected")
+	}
 
 	region := req.HTTPResponse.Header["X-Amz-Bucket-Region"]
 	if len(region) != 0 {
