@@ -148,9 +148,7 @@ func massageArg0() {
 
 func main() {
 	app := NewApp()
-	app.Action = func(c *cli.Context) {
-		var err error
-
+	app.Action = func(c *cli.Context) (err error) {
 		// We should get two arguments exactly. Otherwise error out.
 		if len(c.Args()) != 2 {
 			fmt.Fprintf(
@@ -174,7 +172,8 @@ func main() {
 			massageArg0()
 
 			ctx := new(daemon.Context)
-			child, err := ctx.Reborn()
+			var child *os.Process
+			child, err = ctx.Reborn()
 
 			if err != nil {
 				panic(fmt.Sprintf("unable to daemonize: %v", err))
@@ -189,7 +188,8 @@ func main() {
 		}
 
 		// Mount the file system.
-		mfs, err := mount(
+		var mfs *fuse.MountedFileSystem
+		mfs, err = mount(
 			context.Background(),
 			bucketName,
 			mountPoint,
@@ -212,6 +212,7 @@ func main() {
 		}
 
 		log.Println("Successfully exiting.")
+		return
 	}
 
 	err := app.Run(MassageMountFlags(os.Args))
