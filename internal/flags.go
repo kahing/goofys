@@ -122,7 +122,7 @@ func NewApp() (app *cli.App) {
 				Name:  "storage-class",
 				Value: "STANDARD",
 				Usage: "The type of storage to use when writing objects." +
-					" Possible values: REDUCED_REDUNDANCY, STANDARD (default), STANDARD_IA.",
+					" Possible values: REDUCED_REDUNDANCY, STANDARD, STANDARD_IA.",
 			},
 
 			cli.BoolFlag{
@@ -138,7 +138,7 @@ func NewApp() (app *cli.App) {
 
 			cli.BoolFlag{
 				Name:  "use-content-type",
-				Usage: "Set Content-Type according to file extension and /etc/mime.types",
+				Usage: "Set Content-Type according to file extension and /etc/mime.types (default: off)",
 			},
 
 			/////////////////////////
