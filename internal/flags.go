@@ -136,6 +136,11 @@ func NewApp() (app *cli.App) {
 				Usage: "Use a named profile from $HOME/.aws/credentials instead of \"default\"",
 			},
 
+			cli.BoolFlag{
+				Name:  "use-content-type",
+				Usage: "Set Content-Type according to file extension and /etc/mime.types",
+			},
+
 			/////////////////////////
 			// Tuning
 			/////////////////////////
@@ -191,6 +196,7 @@ type FlagStorage struct {
 	StorageClass   string
 	UsePathRequest bool
 	Profile        string
+	UseContentType bool
 
 	// Tuning
 	StatCacheTTL time.Duration
@@ -246,6 +252,7 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		StorageClass:   c.String("storage-class"),
 		UsePathRequest: c.Bool("use-path-request"),
 		Profile:        c.String("profile"),
+		UseContentType: c.Bool("use-content-type"),
 
 		// Debugging,
 		DebugFuse:  c.Bool("debug_fuse"),

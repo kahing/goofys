@@ -924,3 +924,24 @@ func (s *GoofysTest) TestIssue69(t *C) {
 	os.Stat("dir1")
 	os.Stat("dir1")
 }
+
+func (s *GoofysTest) TestMimeType(t *C) {
+	// option to use mime type not turned on
+	mime := s.fs.getMimeType("foo.css")
+	t.Assert(mime, IsNil)
+
+	s.fs.flags.UseContentType = true
+
+	mime = s.fs.getMimeType("foo.css")
+	t.Assert(mime, NotNil)
+	t.Assert(*mime, Equals, "text/css")
+
+	mime = s.fs.getMimeType("foo")
+	t.Assert(mime, IsNil)
+
+	mime = s.fs.getMimeType("foo.")
+	t.Assert(mime, IsNil)
+
+	mime = s.fs.getMimeType("foo.unknownExtension")
+	t.Assert(mime, IsNil)
+}

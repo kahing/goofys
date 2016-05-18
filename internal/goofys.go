@@ -16,7 +16,9 @@ package internal
 
 import (
 	"fmt"
+	"mime"
 	"os"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -406,6 +408,7 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 			Bucket:       &fs.bucket,
 			Key:          &to,
 			StorageClass: &fs.flags.StorageClass,
+			ContentType:  fs.getMimeType(to),
 		}
 
 		resp, err := fs.s3.CreateMultipartUpload(params)
@@ -472,6 +475,7 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 		CopySource:   &from,
 		Key:          &to,
 		StorageClass: &fs.flags.StorageClass,
+		ContentType:  fs.getMimeType(to),
 	}
 
 	_, err = fs.s3.CopyObject(params)
@@ -923,4 +927,24 @@ func (fs *Goofys) Rename(
 	fs.mu.Unlock()
 
 	return parent.Rename(fs, op.OldName, newParent, op.NewName)
+}
+
+func (fs *Goofys) getMimeType(fileName string) (retMime *string) {
+	if fs.flags.UseContentType {
+		dotPosition := strings.LastIndex(fileName, ".")
+		if dotPosition == -1 {
+			return nil
+		}
+		mimeType := mime.TypeByExtension(fileName[dotPosition:])
+		if mimeType == "" {
+			return nil
+		}
+		semicolonPosition := strings.LastIndex(mimeType, ";")
+		if semicolonPosition == -1 {
+			return &mimeType
+		}
+		retMime = aws.String(mimeType[:semicolonPosition])
+	}
+
+	return
 }
