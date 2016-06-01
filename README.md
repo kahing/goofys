@@ -25,6 +25,7 @@ $ cat > ~/.aws/credentials
 aws_access_key_id = AKID1234567890
 aws_secret_access_key = MY-SECRET-KEY
 $ $GOPATH/bin/goofys <bucket> <mountpoint>
+$ $GOPATH/bin/goofys <bucket:prefix> <mountpoint> # if you only want to mount objects under a prefix
 ```
 
 Users can also configure credentials via the
