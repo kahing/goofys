@@ -201,7 +201,7 @@ func (parent *Inode) Unlink(fs *Goofys, name string) (err error) {
 
 	params := &s3.DeleteObjectInput{
 		Bucket: &fs.bucket,
-		Key:    &fullName,
+		Key:    fs.key(fullName),
 	}
 
 	resp, err := fs.s3.DeleteObject(params)
@@ -255,7 +255,7 @@ func (parent *Inode) MkDir(
 
 	params := &s3.PutObjectInput{
 		Bucket: &fs.bucket,
-		Key:    aws.String(fullName + "/"),
+		Key:    fs.key(fullName + "/"),
 		Body:   nil,
 	}
 	_, err = fs.s3.PutObject(params)
@@ -280,7 +280,7 @@ func isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
 		Bucket:    &fs.bucket,
 		Delimiter: aws.String("/"),
 		MaxKeys:   aws.Int64(2),
-		Prefix:    &fullName,
+		Prefix:    fs.key(fullName),
 	}
 
 	resp, err := fs.s3.ListObjects(params)
@@ -297,7 +297,7 @@ func isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
 	if len(resp.Contents) == 1 {
 		isDir = true
 
-		if *resp.Contents[0].Key != fullName {
+		if *resp.Contents[0].Key != *fs.key(fullName) {
 			err = fuse.ENOTEMPTY
 		}
 	}
@@ -325,7 +325,7 @@ func (parent *Inode) RmDir(
 
 	params := &s3.DeleteObjectInput{
 		Bucket: &fs.bucket,
-		Key:    &fullName,
+		Key:    fs.key(fullName),
 	}
 
 	_, err = fs.s3.DeleteObject(params)
@@ -361,7 +361,7 @@ func (fh *FileHandle) initMPU(fs *Goofys) {
 
 	params := &s3.CreateMultipartUploadInput{
 		Bucket:       &fs.bucket,
-		Key:          fh.inode.FullName,
+		Key:          fs.key(*fh.inode.FullName),
 		StorageClass: &fs.flags.StorageClass,
 		ContentType:  fs.getMimeType(*fh.inode.FullName),
 	}
@@ -395,7 +395,7 @@ func (fh *FileHandle) mpuPartNoSpawn(fs *Goofys, buf []byte, part int) (err erro
 
 	params := &s3.UploadPartInput{
 		Bucket:     &fs.bucket,
-		Key:        fh.inode.FullName,
+		Key:        fs.key(*fh.inode.FullName),
 		PartNumber: aws.Int64(int64(part)),
 		UploadId:   fh.mpuId,
 		Body:       bytes.NewReader(buf),
@@ -568,7 +568,7 @@ func (b S3ReadBuffer) Init(fs *Goofys, fh *FileHandle, offset int64, size int) *
 	b.buf = Buffer{}.Init(mbuf, func() (io.ReadCloser, error) {
 		params := &s3.GetObjectInput{
 			Bucket: &fs.bucket,
-			Key:    fh.inode.FullName,
+			Key:    fs.key(*fh.inode.FullName),
 		}
 
 		bytes := fmt.Sprintf("bytes=%v-%v", offset, offset+int64(size)-1)
@@ -796,7 +796,7 @@ func (fh *FileHandle) readFileSerial(fs *Goofys, offset int64, buf []byte) (byte
 
 	params := &s3.GetObjectInput{
 		Bucket: &fs.bucket,
-		Key:    fh.inode.FullName,
+		Key:    fs.key(*fh.inode.FullName),
 	}
 
 	if offset != 0 {
@@ -832,7 +832,7 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 
 	params := &s3.PutObjectInput{
 		Bucket:       &fs.bucket,
-		Key:          fh.inode.FullName,
+		Key:          fs.key(*fh.inode.FullName),
 		Body:         bytes.NewReader(buf),
 		StorageClass: &fs.flags.StorageClass,
 		ContentType:  fs.getMimeType(*fh.inode.FullName),
@@ -867,7 +867,7 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 				go func() {
 					params := &s3.AbortMultipartUploadInput{
 						Bucket:   &fs.bucket,
-						Key:      fh.inode.FullName,
+						Key:      fs.key(*fh.inode.FullName),
 						UploadId: fh.mpuId,
 					}
 
@@ -919,7 +919,7 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 
 	params := &s3.CompleteMultipartUploadInput{
 		Bucket:   &fs.bucket,
-		Key:      fh.inode.FullName,
+		Key:      fs.key(*fh.inode.FullName),
 		UploadId: fh.mpuId,
 		MultipartUpload: &s3.CompletedMultipartUpload{
 			Parts: parts,
@@ -967,7 +967,7 @@ func (parent *Inode) Rename(fs *Goofys, from string, newParent *Inode, to string
 	}
 
 	if fromIsDir && !toIsDir {
-		_, err = fs.s3.HeadObject(&s3.HeadObjectInput{Bucket: &fs.bucket, Key: &toFullName})
+		_, err = fs.s3.HeadObject(&s3.HeadObjectInput{Bucket: &fs.bucket, Key: fs.key(toFullName)})
 		if err == nil {
 			return fuse.ENOTDIR
 		} else {
@@ -994,7 +994,7 @@ func (parent *Inode) Rename(fs *Goofys, from string, newParent *Inode, to string
 
 	delParams := &s3.DeleteObjectInput{
 		Bucket: &fs.bucket,
-		Key:    &fromFullName,
+		Key:    fs.key(fromFullName),
 	}
 
 	_, err = fs.s3.DeleteObject(delParams)
@@ -1063,8 +1063,8 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 	}
 
 	if dh.Entries == nil {
-		prefix := *dh.inode.FullName
-		if len(prefix) != 0 {
+		prefix := *fs.key(*dh.inode.FullName)
+		if len(*dh.inode.FullName) != 0 {
 			prefix += "/"
 		}
 

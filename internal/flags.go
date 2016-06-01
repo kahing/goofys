@@ -29,7 +29,7 @@ func init() {
    {{.Name}} - {{.Usage}}
 
 USAGE:
-   {{.Name}} {{if .Flags}}[global options]{{end}} bucket mountpoint
+   {{.Name}} {{if .Flags}}[global options]{{end}} bucket[:prefix] mountpoint
    {{if .Version}}
 VERSION:
    {{.Version}}

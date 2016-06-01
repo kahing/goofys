@@ -945,3 +945,24 @@ func (s *GoofysTest) TestMimeType(t *C) {
 	mime = s.fs.getMimeType("foo.unknownExtension")
 	t.Assert(mime, IsNil)
 }
+
+func (s *GoofysTest) TestBucketPrefixSlash(t *C) {
+	s.fs = NewGoofys(s.fs.bucket+":dir2", s.awsConfig, s.fs.flags)
+	t.Assert(s.fs.prefix, Equals, "dir2/")
+
+	s.fs = NewGoofys(s.fs.bucket+":dir2///", s.awsConfig, s.fs.flags)
+	t.Assert(s.fs.prefix, Equals, "dir2/")
+}
+
+func (s *GoofysTest) TestFuseWithPrefix(t *C) {
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	s.fs = NewGoofys(s.fs.bucket+":testprefix", s.awsConfig, s.fs.flags)
+
+	err := os.MkdirAll(mountPoint, 0700)
+	t.Assert(err, IsNil)
+
+	defer os.Remove(mountPoint)
+
+	s.runFuseTest(t, mountPoint, true, "../test/fuse-test.sh", mountPoint)
+}

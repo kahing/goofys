@@ -51,6 +51,7 @@ import (
 type Goofys struct {
 	fuseutil.NotImplementedFileSystem
 	bucket string
+	prefix string
 
 	flags *FlagStorage
 
@@ -101,6 +102,18 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 		bucket: bucket,
 		flags:  flags,
 		umask:  0122,
+	}
+
+	colon := strings.Index(bucket, ":")
+	if colon != -1 {
+		fs.prefix = bucket[colon+1:]
+		fs.prefix += "/"
+		for strings.HasSuffix(fs.prefix, "//") {
+			fs.prefix = fs.prefix[0 : len(fs.prefix)-1]
+		}
+
+		fs.bucket = bucket[0:colon]
+		bucket = fs.bucket
 	}
 
 	if flags.DebugS3 {
@@ -307,8 +320,13 @@ func mapAwsError(err error) error {
 	}
 }
 
+func (fs *Goofys) key(name string) *string {
+	name = fs.prefix + name
+	return &name
+}
+
 func (fs *Goofys) LookUpInodeNotDir(name string, c chan s3.HeadObjectOutput, errc chan error) {
-	params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: &name}
+	params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: fs.key(name)}
 	resp, err := fs.s3.HeadObject(params)
 	if err != nil {
 		errc <- mapAwsError(err)
@@ -324,7 +342,7 @@ func (fs *Goofys) LookUpInodeDir(name string, c chan s3.ListObjectsOutput, errc 
 		Bucket:    &fs.bucket,
 		Delimiter: aws.String("/"),
 		MaxKeys:   aws.Int64(1),
-		Prefix:    aws.String(name + "/"),
+		Prefix:    fs.key(name + "/"),
 	}
 
 	resp, err := fs.s3.ListObjects(params)
@@ -348,7 +366,7 @@ func (fs *Goofys) mpuCopyPart(from string, to string, mpuId string, bytes string
 	// we are copying from the same object
 	params := &s3.UploadPartCopyInput{
 		Bucket:          &fs.bucket,
-		Key:             &to,
+		Key:             fs.key(to),
 		CopySource:      &from,
 		UploadId:        &mpuId,
 		CopySourceRange: &bytes,
@@ -406,7 +424,7 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 	if mpuId == "" {
 		params := &s3.CreateMultipartUploadInput{
 			Bucket:       &fs.bucket,
-			Key:          &to,
+			Key:          fs.key(to),
 			StorageClass: &fs.flags.StorageClass,
 			ContentType:  fs.getMimeType(to),
 		}
@@ -435,7 +453,7 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 
 		params := &s3.CompleteMultipartUploadInput{
 			Bucket:   &fs.bucket,
-			Key:      &to,
+			Key:      fs.key(to),
 			UploadId: &mpuId,
 			MultipartUpload: &s3.CompletedMultipartUpload{
 				Parts: parts,
@@ -455,7 +473,7 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 
 func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (err error) {
 	if size == -1 {
-		params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: &from}
+		params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: fs.key(from)}
 		resp, err := fs.s3.HeadObject(params)
 		if err != nil {
 			return mapAwsError(err)
@@ -464,7 +482,7 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 		size = *resp.ContentLength
 	}
 
-	from = fs.bucket + "/" + from
+	from = fs.bucket + "/" + *fs.key(from)
 
 	if size > 5*1024*1024*1024 {
 		return fs.copyObjectMultipart(size, from, to, "")
@@ -473,7 +491,7 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 	params := &s3.CopyObjectInput{
 		Bucket:       &fs.bucket,
 		CopySource:   &from,
-		Key:          &to,
+		Key:          fs.key(to),
 		StorageClass: &fs.flags.StorageClass,
 		ContentType:  fs.getMimeType(to),
 	}
