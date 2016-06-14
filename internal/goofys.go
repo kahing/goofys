@@ -944,7 +944,25 @@ func (fs *Goofys) Rename(
 	newParent := fs.getInodeOrDie(op.NewParent)
 	fs.mu.Unlock()
 
-	return parent.Rename(fs, op.OldName, newParent, op.NewName)
+	err = parent.Rename(fs, op.OldName, newParent, op.NewName)
+	if err == nil {
+		fs.mu.Lock()
+		inode := fs.inodesCache[parent.getChildName(op.OldName)]
+		oldFullName := *inode.FullName
+		newFullName := newParent.getChildName(op.NewName)
+		inode.FullName = &newFullName
+		inode.Name = &op.NewName
+
+		fs.inodesCache[newFullName] = inode
+		delete(fs.inodesCache, oldFullName)
+		fs.mu.Unlock()
+
+		// XXX layering violation
+		inode.mu.Lock()
+		inode.handles = make(map[*DirHandle]bool)
+		inode.mu.Unlock()
+	}
+	return
 }
 
 func (fs *Goofys) getMimeType(fileName string) (retMime *string) {

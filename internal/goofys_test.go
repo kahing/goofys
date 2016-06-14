@@ -966,3 +966,41 @@ func (s *GoofysTest) TestFuseWithPrefix(t *C) {
 
 	s.runFuseTest(t, mountPoint, true, "../test/fuse-test.sh", mountPoint)
 }
+
+func (s *GoofysTest) TestRenameCache(t *C) {
+	root := s.getRoot(t)
+	s.fs.flags.StatCacheTTL = 60 * 1000 * 1000 * 1000
+
+	lookupOp1 := fuseops.LookUpInodeOp{
+		Parent: root.Id,
+		Name:   "file1",
+	}
+
+	lookupOp2 := lookupOp1
+	lookupOp2.Name = "newfile"
+
+	err := s.fs.LookUpInode(nil, &lookupOp1)
+	t.Assert(err, IsNil)
+
+	err = s.fs.LookUpInode(nil, &lookupOp2)
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	renameOp := fuseops.RenameOp{
+		OldParent: root.Id,
+		NewParent: root.Id,
+		OldName:   "file1",
+		NewName:   "newfile",
+	}
+
+	err = s.fs.Rename(nil, &renameOp)
+	t.Assert(err, IsNil)
+
+	lookupOp1.Entry = fuseops.ChildInodeEntry{}
+	lookupOp2.Entry = fuseops.ChildInodeEntry{}
+
+	err = s.fs.LookUpInode(nil, &lookupOp1)
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	err = s.fs.LookUpInode(nil, &lookupOp2)
+	t.Assert(err, IsNil)
+}
