@@ -39,6 +39,8 @@ configured for `root`, and can add this to `/etc/fstab`:
 goofys#bucket   /mnt/mountpoint        fuse     _netdev,allow_other,--file-mode=0666    0       0
 ```
 
+Got more questions? Check out [questions other people asked](https://github.com/kahing/goofys/issues?utf8=%E2%9C%93&q=is%3Aissue%20label%3Aquestion%20)
+
 # Benchmark
 
 Using `--stat-cache-ttl 0 --type-cache-ttl 0` for goofys
