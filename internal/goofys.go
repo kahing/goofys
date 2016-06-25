@@ -932,6 +932,12 @@ func (fs *Goofys) Unlink(
 	fs.mu.Unlock()
 
 	err = parent.Unlink(fs, op.Name)
+	if err == nil {
+		fs.mu.Lock()
+		fullName := parent.getChildName(op.Name)
+		delete(fs.inodesCache, fullName)
+		fs.mu.Unlock()
+	}
 	return
 }
 
