@@ -1004,3 +1004,24 @@ func (s *GoofysTest) TestRenameCache(t *C) {
 	err = s.fs.LookUpInode(nil, &lookupOp2)
 	t.Assert(err, IsNil)
 }
+
+func (s *GoofysTest) TestUnlinkCache(t *C) {
+	root := s.getRoot(t)
+	s.fs.flags.StatCacheTTL = 60 * 1000 * 1000 * 1000
+
+	lookupOp := fuseops.LookUpInodeOp{
+		Parent: root.Id,
+		Name:   "file1",
+	}
+
+	err := s.fs.LookUpInode(nil, &lookupOp)
+	t.Assert(err, IsNil)
+
+	unlinkOp := fuseops.UnlinkOp{Parent: root.Id, Name: "file1"}
+
+	err = s.fs.Unlink(nil, &unlinkOp)
+	t.Assert(err, IsNil)
+
+	err = s.fs.LookUpInode(nil, &lookupOp)
+	t.Assert(err, Equals, fuse.ENOENT)
+}
