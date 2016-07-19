@@ -570,7 +570,7 @@ func (s *GoofysTest) TestWriteLargeFile(t *C) {
 }
 
 func (s *GoofysTest) TestReadWriteMinimumMemory(t *C) {
-	s.fs.bufferPool.maxBuffersGlobal = 1
+	s.fs.bufferPool.maxBuffers = 2
 	s.testWriteFile(t, "testLargeFile", 21*1024*1024, 128*1024)
 }
 

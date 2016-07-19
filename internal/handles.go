@@ -15,7 +15,6 @@
 package internal
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -94,8 +93,9 @@ type FileHandle struct {
 	nextWriteOffset int64
 	lastPartId      int
 
-	poolHandle *BufferPoolHandle
-	buf        []byte
+	poolHandle *BufferPool
+	//buf        []byte
+	buf *MBuf
 
 	lastWriteError error
 
@@ -239,7 +239,8 @@ func (parent *Inode) Create(
 	}
 
 	fh = NewFileHandle(inode)
-	fh.poolHandle = fs.bufferPool.NewPoolHandle()
+	fh.poolHandle = fs.bufferPool
+	fh.buf = MBuf{}.Init(fh.poolHandle, 0, true)
 	fh.dirty = true
 
 	return
@@ -383,11 +384,9 @@ func (fh *FileHandle) initMPU(fs *Goofys) {
 	return
 }
 
-func (fh *FileHandle) mpuPartNoSpawn(fs *Goofys, buf []byte, part int) (err error) {
-	fh.inode.logFuse("mpuPartNoSpawn", cap(buf), part)
-	if cap(buf) != 0 {
-		defer fh.poolHandle.Free(buf)
-	}
+func (fh *FileHandle) mpuPartNoSpawn(fs *Goofys, buf *MBuf, part int) (err error) {
+	//fh.inode.logFuse("mpuPartNoSpawn", cap(buf), part)
+	defer buf.Free()
 
 	if part == 0 || part > 10000 {
 		panic(fmt.Sprintf("invalid part number: %v", part))
@@ -398,7 +397,7 @@ func (fh *FileHandle) mpuPartNoSpawn(fs *Goofys, buf []byte, part int) (err erro
 		Key:        fs.key(*fh.inode.FullName),
 		PartNumber: aws.Int64(int64(part)),
 		UploadId:   fh.mpuId,
-		Body:       bytes.NewReader(buf),
+		Body:       buf,
 	}
 
 	s3Log.Debug(params)
@@ -417,7 +416,7 @@ func (fh *FileHandle) mpuPartNoSpawn(fs *Goofys, buf []byte, part int) (err erro
 	return
 }
 
-func (fh *FileHandle) mpuPart(fs *Goofys, buf []byte, part int) {
+func (fh *FileHandle) mpuPart(fs *Goofys, buf *MBuf, part int) {
 	defer func() {
 		fh.mpuWG.Done()
 	}()
@@ -471,19 +470,22 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 	}
 
 	if offset == 0 {
-		fh.poolHandle = fs.bufferPool.NewPoolHandle()
+		fh.poolHandle = fs.bufferPool
+		fh.buf = MBuf{}.Init(fh.poolHandle, 0, true)
 		fh.dirty = true
 	}
 
+	const BUF_SIZE = 10 * 1024 * 1024
+
 	for {
-		if cap(fh.buf) == 0 {
-			fh.buf = fh.poolHandle.Request()
+		if fh.buf == nil || fh.buf.Full() {
+			fh.buf = MBuf{}.Init(fh.poolHandle, BUF_SIZE, true)
 		}
 
-		nCopied := fh.poolHandle.Copy(&fh.buf, data)
+		nCopied, _ := fh.buf.Write(data)
 		fh.nextWriteOffset += int64(nCopied)
 
-		if len(fh.buf) == cap(fh.buf) {
+		if fh.buf.Full() {
 			// we filled this buffer, upload this part
 			err = fh.waitForCreateMPU(fs)
 			if err != nil {
@@ -560,7 +562,7 @@ func (b S3ReadBuffer) Init(fs *Goofys, fh *FileHandle, offset int64, size int) *
 	b.offset = offset
 	b.size = size
 
-	mbuf := MBuf{}.Init(fh.poolHandle, uint64(size))
+	mbuf := MBuf{}.Init(fh.poolHandle, uint64(size), false)
 	if mbuf == nil {
 		return nil
 	}
@@ -703,7 +705,7 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 	}
 
 	if fh.poolHandle == nil {
-		fh.poolHandle = fs.bufferPool.NewPoolHandle()
+		fh.poolHandle = fs.bufferPool
 	}
 
 	if fh.readBufOffset != offset {
@@ -755,14 +757,12 @@ func (fh *FileHandle) Release() {
 
 	// write buffers
 	if fh.poolHandle != nil {
-		if fh.poolHandle.inUseBuffers != 0 {
+		if fh.buf != nil && fh.buf.buffers != nil {
 			if fh.lastWriteError == nil {
 				panic("buf not freed but error is nil")
 			}
 
-			if fh.buf != nil {
-				fh.poolHandle.Free(fh.buf)
-			}
+			fh.buf.Free()
 			// the other in-flight multipart PUT buffers will be
 			// freed when they finish/error out
 		}
@@ -826,14 +826,16 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 	buf := fh.buf
 	fh.buf = nil
 
-	if cap(buf) != 0 {
-		defer fh.poolHandle.Free(buf)
+	if buf == nil {
+		panic(fmt.Sprintf("%s size is %d", *fh.inode.Name, fh.nextWriteOffset))
 	}
+
+	defer buf.Free()
 
 	params := &s3.PutObjectInput{
 		Bucket:       &fs.bucket,
 		Key:          fs.key(*fh.inode.FullName),
-		Body:         bytes.NewReader(buf),
+		Body:         buf,
 		StorageClass: &fs.flags.StorageClass,
 		ContentType:  fs.getMimeType(*fh.inode.FullName),
 	}

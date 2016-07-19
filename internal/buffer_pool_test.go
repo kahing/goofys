@@ -79,7 +79,7 @@ func CompareReader(r1, r2 io.Reader) (int, error) {
 
 	for {
 		nread, err := r1.Read(buf1[:])
-		if err != nil {
+		if err != nil && err != io.EOF {
 			return -1, err
 		}
 
@@ -110,11 +110,10 @@ func CompareReader(r1, r2 io.Reader) (int, error) {
 }
 
 func (s *BufferTest) TestMBuf(t *C) {
-	pool := NewBufferPool(1000*1024*1024, 200*1024*1024)
-	h := pool.NewPoolHandle()
+	h := NewBufferPool(1000 * 1024 * 1024)
 
 	n := uint64(2 * BUF_SIZE)
-	mb := MBuf{}.Init(h, n)
+	mb := MBuf{}.Init(h, n, false)
 	t.Assert(len(mb.buffers), Equals, 2)
 
 	r := io.LimitReader(&SeqReader{}, int64(n))
@@ -136,17 +135,50 @@ func (s *BufferTest) TestMBuf(t *C) {
 	t.Assert(mb.rbuf, Equals, 1)
 	t.Assert(mb.rp, Equals, BUF_SIZE)
 
-	t.Assert(h.inUseBuffers, Equals, uint64(2))
+	t.Assert(h.numBuffers, Equals, uint64(2))
 	mb.Free()
-	t.Assert(h.inUseBuffers, Equals, uint64(0))
+	t.Assert(h.numBuffers, Equals, uint64(0))
+}
+
+func (s *BufferTest) TestBufferWrite(t *C) {
+	h := NewBufferPool(1000 * 1024 * 1024)
+
+	n := uint64(2 * BUF_SIZE)
+	mb := MBuf{}.Init(h, n, true)
+	t.Assert(len(mb.buffers), Equals, 2)
+
+	nwritten, err := io.Copy(mb, io.LimitReader(&SeqReader{}, int64(n)))
+	t.Assert(nwritten, Equals, int64(n))
+	t.Assert(err, IsNil)
+
+	diff, err := CompareReader(mb, io.LimitReader(&SeqReader{}, int64(n)))
+	t.Assert(err, IsNil)
+	t.Assert(diff, Equals, -1)
+
+	cur, err := mb.Seek(0, 1)
+	t.Assert(err, IsNil)
+	t.Assert(cur, Equals, int64(n))
+
+	cur, err = mb.Seek(0, 2)
+	t.Assert(err, IsNil)
+	t.Assert(cur, Equals, int64(n))
+
+	cur, err = mb.Seek(0, 0)
+	t.Assert(err, IsNil)
+	t.Assert(cur, Equals, int64(0))
+	t.Assert(mb.rbuf, Equals, 0)
+	t.Assert(mb.rp, Equals, 0)
+
+	diff, err = CompareReader(mb, io.LimitReader(&SeqReader{}, int64(n)))
+	t.Assert(err, IsNil)
+	t.Assert(diff, Equals, -1)
 }
 
 func (s *BufferTest) TestBuffer(t *C) {
-	pool := NewBufferPool(1000*1024*1024, 200*1024*1024)
-	h := pool.NewPoolHandle()
+	h := NewBufferPool(1000 * 1024 * 1024)
 
 	n := uint64(2 * BUF_SIZE)
-	mb := MBuf{}.Init(h, n)
+	mb := MBuf{}.Init(h, n, false)
 	t.Assert(len(mb.buffers), Equals, 2)
 
 	r := func() (io.ReadCloser, error) {
@@ -160,12 +192,12 @@ func (s *BufferTest) TestBuffer(t *C) {
 	t.Assert(diff, Equals, -1)
 	t.Assert(b.buf, IsNil)
 	t.Assert(b.reader, NotNil)
-	t.Assert(h.inUseBuffers, Equals, uint64(0))
+	t.Assert(h.numBuffers, Equals, uint64(0))
 }
 
 func (s *BufferTest) TestPool(t *C) {
 	const MAX = 8
-	pool := BufferPool{maxBuffersGlobal: MAX}.Init()
+	pool := BufferPool{maxBuffers: MAX}.Init()
 	var wg sync.WaitGroup
 
 	for i := 0; i < 10; i++ {
@@ -174,10 +206,10 @@ func (s *BufferTest) TestPool(t *C) {
 			var inner sync.WaitGroup
 			for j := 0; j < 30; j++ {
 				inner.Add(1)
-				buf := pool.requestBuffer()
+				buf := pool.RequestBuffer()
 				go func() {
 					time.Sleep(1000 * time.Millisecond)
-					pool.freeBuffer(buf)
+					pool.Free(buf)
 					inner.Done()
 				}()
 				inner.Wait()

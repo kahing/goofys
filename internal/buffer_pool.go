@@ -14,11 +14,6 @@
 
 package internal
 
-// the goal is to allow each file handle to request a limited number
-// of buffers, while recycling them across many file handles
-
-// we should support a global limit as well as a per-handle limit
-
 // XXX investigate using sync.Pool
 
 import (
@@ -27,31 +22,22 @@ import (
 	"runtime/debug"
 	"sync"
 
+	"github.com/jacobsa/fuse"
 	"github.com/shirou/gopsutil/mem"
 )
-
-type BufferPoolHandle struct {
-	mu   sync.Mutex
-	cond *sync.Cond
-
-	inUseBuffers uint64
-	maxBuffers   uint64 // maximum number of buffers for this handle
-	pool         *BufferPool
-}
 
 type BufferPool struct {
 	mu   sync.Mutex
 	cond *sync.Cond
 
-	numBuffers          uint64
-	maxBuffersGlobal    uint64
-	maxBuffersPerHandle uint64
+	numBuffers uint64
+	maxBuffers uint64
 
-	totalBuffers             uint64
-	computedMaxBuffersGlobal uint64
+	totalBuffers       uint64
+	computedMaxbuffers uint64
 }
 
-const BUF_SIZE = 10 * 1024 * 1024
+const BUF_SIZE = 5 * 1024 * 1024
 
 func maxMemToUse(buffersNow uint64) uint64 {
 	m, err := mem.VirtualMemory()
@@ -72,49 +58,48 @@ func maxMemToUse(buffersNow uint64) uint64 {
 	if buffersNow != 0 {
 		apparentOverhead = ms.Sys / buffersNow
 	}
-	maxBuffersGlobal := MaxUInt64(max/apparentOverhead, 1)
-	log.Debugf("using up to %v %vMB buffers", maxBuffersGlobal, BUF_SIZE/1024/1024)
-	return maxBuffersGlobal
+	maxbuffers := MaxUInt64(max/apparentOverhead, 1)
+	log.Debugf("using up to %v %vMB buffers", maxbuffers, BUF_SIZE/1024/1024)
+	return maxbuffers
+}
+
+func rounduUp(size uint64, pageSize int) int {
+	return pages(size, pageSize) * pageSize
+}
+
+func pages(size uint64, pageSize int) int {
+	return int((size + uint64(pageSize) - 1) / uint64(pageSize))
 }
 
 func (pool BufferPool) Init() *BufferPool {
-	pool.maxBuffersPerHandle = 200 * 1024 * 1024 / BUF_SIZE
 	pool.cond = sync.NewCond(&pool.mu)
-	pool.maxBuffersGlobal = 8
+	pool.maxBuffers = 8
 
 	return &pool
 }
 
 // for testing
-func NewBufferPool(maxSizeGlobal uint64, maxSizePerHandle uint64) *BufferPool {
+func NewBufferPool(maxSizeGlobal uint64) *BufferPool {
 	pool := &BufferPool{
-		maxBuffersGlobal:    maxSizeGlobal / BUF_SIZE,
-		maxBuffersPerHandle: maxSizePerHandle / BUF_SIZE,
+		maxBuffers: maxSizeGlobal / BUF_SIZE,
 	}
 	pool.cond = sync.NewCond(&pool.mu)
 	return pool
 }
 
-func (pool *BufferPool) NewPoolHandle() *BufferPoolHandle {
-	handle := &BufferPoolHandle{maxBuffers: pool.maxBuffersPerHandle, pool: pool}
-	handle.cond = sync.NewCond(&handle.mu)
-	return handle
-}
-
-func (pool *BufferPool) requestBuffer() (buf []byte) {
+func (pool *BufferPool) RequestBuffer() (buf []byte) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	if pool.maxBuffersGlobal == 0 {
+	if pool.maxBuffers == 0 {
 		if pool.totalBuffers%10 == 0 {
-			pool.computedMaxBuffersGlobal = maxMemToUse(pool.numBuffers)
+			pool.computedMaxbuffers = maxMemToUse(pool.numBuffers)
 		}
 	} else {
-		pool.computedMaxBuffersGlobal = pool.maxBuffersGlobal
+		pool.computedMaxbuffers = pool.maxBuffers
 	}
 
-	for pool.numBuffers >= pool.computedMaxBuffersGlobal {
-		log.Debugf("using now %v", pool.numBuffers)
+	for pool.numBuffers >= pool.computedMaxbuffers {
 		pool.cond.Wait()
 	}
 
@@ -124,20 +109,19 @@ func (pool *BufferPool) requestBuffer() (buf []byte) {
 	return
 }
 
-func (pool *BufferPool) requestBufferNonBlock() (buf []byte) {
+func (pool *BufferPool) RequestBufferNonBlock() (buf []byte) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	if pool.maxBuffersGlobal == 0 {
+	if pool.maxBuffers == 0 {
 		if pool.totalBuffers%10 == 0 {
-			pool.computedMaxBuffersGlobal = maxMemToUse(pool.numBuffers)
-			log.Debugf("using now %v", pool.numBuffers)
+			pool.computedMaxbuffers = maxMemToUse(pool.numBuffers)
 		}
 	} else {
-		pool.computedMaxBuffersGlobal = pool.maxBuffersGlobal
+		pool.computedMaxbuffers = pool.maxBuffers
 	}
 
-	for pool.numBuffers >= pool.computedMaxBuffersGlobal {
+	for pool.numBuffers >= pool.computedMaxbuffers {
 		return
 	}
 
@@ -147,13 +131,44 @@ func (pool *BufferPool) requestBufferNonBlock() (buf []byte) {
 	return
 }
 
+func (pool *BufferPool) RequestMultiple(size uint64, block bool) (buffers [][]byte) {
+	nPages := pages(size, BUF_SIZE)
+
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	if pool.maxBuffers == 0 {
+		if pool.totalBuffers%10 == 0 {
+			pool.computedMaxbuffers = maxMemToUse(pool.numBuffers)
+		}
+	} else {
+		pool.computedMaxbuffers = pool.maxBuffers
+	}
+
+	for pool.numBuffers+uint64(nPages) > pool.computedMaxbuffers {
+		if block {
+			pool.cond.Wait()
+		} else {
+			return
+		}
+	}
+
+	for i := 0; i < nPages; i++ {
+		pool.numBuffers++
+		pool.totalBuffers++
+		buf := make([]byte, 0, BUF_SIZE)
+		buffers = append(buffers, buf)
+	}
+	return
+}
+
 func (pool *BufferPool) MaybeGC() {
 	if pool.numBuffers == 0 {
 		debug.FreeOSMemory()
 	}
 }
 
-func (pool *BufferPool) freeBuffer(buf []byte) {
+func (pool *BufferPool) Free(buf []byte) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
@@ -161,66 +176,10 @@ func (pool *BufferPool) freeBuffer(buf []byte) {
 	pool.cond.Signal()
 }
 
-func (h *BufferPoolHandle) Request() []byte {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	for h.inUseBuffers == h.maxBuffers {
-		h.cond.Wait()
-	}
-
-	buf := h.pool.requestBuffer()
-	h.inUseBuffers++
-	return buf
-}
-
-func (h *BufferPoolHandle) RequestNonBlock() []byte {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	for h.inUseBuffers == h.maxBuffers {
-		return nil
-	}
-
-	buf := h.pool.requestBufferNonBlock()
-	if buf != nil {
-		h.inUseBuffers++
-	}
-	return buf
-}
-
-func (h *BufferPoolHandle) Free(buf []byte) {
-	buf = buf[:0]
-	h.pool.freeBuffer(buf)
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	h.inUseBuffers--
-	h.cond.Signal()
-}
-
-// copy from -> to, reslicing to if necessary
-func (h *BufferPoolHandle) Copy(to *[]byte, from []byte) (nCopied int) {
-	toLen := len(*to)
-	avail := cap(*to) - toLen
-	if avail < len(from) {
-		nCopied = avail
-	} else {
-		nCopied = len(from)
-	}
-
-	if nCopied != 0 {
-		*to = (*to)[0 : toLen+nCopied]
-		copy((*to)[toLen:], from)
-	}
-	return
-}
-
 var mbufLog = GetLogger("mbuf")
 
 type MBuf struct {
-	pool    *BufferPoolHandle
+	pool    *BufferPool
 	buffers [][]byte
 	rbuf    int
 	wbuf    int
@@ -228,27 +187,57 @@ type MBuf struct {
 	wp      int
 }
 
-func (mb MBuf) Init(h *BufferPoolHandle, size uint64) *MBuf {
-	allocated := uint64(0)
+func (mb MBuf) Init(h *BufferPool, size uint64, block bool) *MBuf {
 	mb.pool = h
 
-	for allocated < size {
-		b := h.RequestNonBlock()
-		if b == nil {
-			// we could nto fulfill this request
-			defer mb.Free()
+	if size != 0 {
+		mb.buffers = h.RequestMultiple(size, block)
+		if mb.buffers == nil {
 			return nil
-		} else {
-			allocated += uint64(cap(b))
-			mb.buffers = append(mb.buffers, b)
 		}
 	}
 
 	return &mb
 }
 
+// seek only seeks the reader
+func (mb *MBuf) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case 0: // relative to beginning
+		if offset == 0 {
+			mb.rbuf = 0
+			mb.rp = 0
+			return 0, nil
+		}
+	case 1: // relative to current position
+		if offset == 0 {
+			for i := 0; i < mb.rbuf; i++ {
+				offset += int64(len(mb.buffers[i]))
+			}
+			offset += int64(mb.rp)
+			return offset, nil
+		}
+
+	case 2: // relative to the end
+		if offset == 0 {
+			for i := 0; i < len(mb.buffers); i++ {
+				offset += int64(len(mb.buffers[i]))
+			}
+			mb.rbuf = len(mb.buffers)
+			mb.rp = 0
+			return offset, nil
+		}
+	}
+
+	log.Errorf("Seek %d %d", offset, whence)
+	panic(fuse.EINVAL)
+
+	return 0, fuse.EINVAL
+}
+
 func (mb *MBuf) Read(p []byte) (n int, err error) {
 	if mb.rbuf == mb.wbuf && mb.rp == mb.wp {
+		err = io.EOF
 		return
 	}
 
@@ -266,6 +255,32 @@ func (mb *MBuf) Read(p []byte) (n int, err error) {
 
 	n = copy(p, mb.buffers[mb.rbuf][mb.rp:])
 	mb.rp += n
+
+	return
+}
+
+func (mb *MBuf) Full() bool {
+	return mb.buffers == nil || (mb.wp == cap(mb.buffers[mb.wbuf]) && mb.wbuf+1 == len(mb.buffers))
+}
+
+func (mb *MBuf) Write(p []byte) (n int, err error) {
+	b := mb.buffers[mb.wbuf]
+
+	if mb.wp == cap(b) {
+		if mb.wbuf+1 == len(mb.buffers) {
+			return
+		}
+		mb.wbuf++
+		b = mb.buffers[mb.wbuf]
+		mb.wp = 0
+	} else if mb.wp > cap(b) {
+		panic("mb.wp > cap(b)")
+	}
+
+	n = copy(b[mb.wp:cap(b)], p)
+	mb.wp += n
+	// resize the buffer to account for what we just read
+	mb.buffers[mb.wbuf] = mb.buffers[mb.wbuf][:mb.wp]
 
 	return
 }
@@ -296,6 +311,8 @@ func (mb *MBuf) Free() {
 	for _, b := range mb.buffers {
 		mb.pool.Free(b)
 	}
+
+	mb.buffers = nil
 }
 
 var bufferLog = GetLogger("buffer")
