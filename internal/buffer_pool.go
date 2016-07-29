@@ -83,52 +83,19 @@ func NewBufferPool(maxSizeGlobal uint64) *BufferPool {
 	pool := &BufferPool{
 		maxBuffers: maxSizeGlobal / BUF_SIZE,
 	}
+	pool.computedMaxbuffers = pool.maxBuffers
 	pool.cond = sync.NewCond(&pool.mu)
 	return pool
 }
 
 func (pool *BufferPool) RequestBuffer() (buf []byte) {
-	pool.mu.Lock()
-	defer pool.mu.Unlock()
-
-	if pool.maxBuffers == 0 {
-		if pool.totalBuffers%10 == 0 {
-			pool.computedMaxbuffers = maxMemToUse(pool.numBuffers)
-		}
-	} else {
-		pool.computedMaxbuffers = pool.maxBuffers
-	}
-
-	for pool.numBuffers >= pool.computedMaxbuffers {
-		pool.cond.Wait()
-	}
-
-	pool.numBuffers++
-	pool.totalBuffers++
-	buf = make([]byte, 0, BUF_SIZE)
-	return
+	return pool.RequestMultiple(BUF_SIZE, true)[0]
 }
 
-func (pool *BufferPool) RequestBufferNonBlock() (buf []byte) {
-	pool.mu.Lock()
-	defer pool.mu.Unlock()
-
-	if pool.maxBuffers == 0 {
-		if pool.totalBuffers%10 == 0 {
-			pool.computedMaxbuffers = maxMemToUse(pool.numBuffers)
-		}
-	} else {
-		pool.computedMaxbuffers = pool.maxBuffers
+func (pool *BufferPool) recomputeBufferLimit() {
+	if pool.maxBuffers != 0 {
+		pool.computedMaxbuffers = maxMemToUse(pool.numBuffers)
 	}
-
-	for pool.numBuffers >= pool.computedMaxbuffers {
-		return
-	}
-
-	pool.numBuffers++
-	pool.totalBuffers++
-	buf = make([]byte, 0, BUF_SIZE)
-	return
 }
 
 func (pool *BufferPool) RequestMultiple(size uint64, block bool) (buffers [][]byte) {
@@ -137,16 +104,24 @@ func (pool *BufferPool) RequestMultiple(size uint64, block bool) (buffers [][]by
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
-	if pool.maxBuffers == 0 {
-		if pool.totalBuffers%10 == 0 {
-			pool.computedMaxbuffers = maxMemToUse(pool.numBuffers)
-		}
-	} else {
-		pool.computedMaxbuffers = pool.maxBuffers
+	if pool.totalBuffers%10 == 0 {
+		pool.recomputeBufferLimit()
 	}
 
 	for pool.numBuffers+uint64(nPages) > pool.computedMaxbuffers {
 		if block {
+			if pool.numBuffers == 0 {
+				pool.MaybeGC()
+				pool.recomputeBufferLimit()
+				if pool.numBuffers+uint64(nPages) > pool.computedMaxbuffers {
+					// we don't have any in use buffers, and we've made attempts to
+					// free memory AND correct our limits, yet we still can't allocate.
+					// it's likely that we are simply asking for too much
+					log.Errorf("Unable to allocate %d bytes, limit is %d bytes",
+						nPages*BUF_SIZE, pool.computedMaxbuffers*BUF_SIZE)
+					panic("OOM")
+				}
+			}
 			pool.cond.Wait()
 		} else {
 			return

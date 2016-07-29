@@ -453,6 +453,16 @@ func (fh *FileHandle) waitForCreateMPU(fs *Goofys) (err error) {
 	return
 }
 
+func (fh *FileHandle) partSize() uint64 {
+	if fh.lastPartId < 1000 {
+		return 5 * 1024 * 1024
+	} else if fh.lastPartId < 2000 {
+		return 25 * 1024 * 1024
+	} else {
+		return 125 * 1024 * 1024
+	}
+}
+
 func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err error) {
 	fh.inode.logFuse("WriteFile", offset, len(data))
 
@@ -475,11 +485,9 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 		fh.dirty = true
 	}
 
-	const BUF_SIZE = 10 * 1024 * 1024
-
 	for {
 		if fh.buf == nil || fh.buf.Full() {
-			fh.buf = MBuf{}.Init(fh.poolHandle, BUF_SIZE, true)
+			fh.buf = MBuf{}.Init(fh.poolHandle, fh.partSize(), true)
 		}
 
 		nCopied, _ := fh.buf.Write(data)
