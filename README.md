@@ -18,6 +18,7 @@ consistency model is close-to-open.
 Pre-built binaries are available [here](https://github.com/kahing/goofys/releases/). You may also need to install fuse-utils first.
 
 ```ShellSession
+$ export GOPATH=$HOME/work
 $ go get github.com/kahing/goofys
 $ go install github.com/kahing/goofys
 $ cat > ~/.aws/credentials
