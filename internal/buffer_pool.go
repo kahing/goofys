@@ -35,6 +35,8 @@ type BufferPool struct {
 
 	totalBuffers       uint64
 	computedMaxbuffers uint64
+
+	pool *sync.Pool
 }
 
 const BUF_SIZE = 5 * 1024 * 1024
@@ -59,7 +61,10 @@ func maxMemToUse(buffersNow uint64) uint64 {
 		apparentOverhead = ms.Sys / buffersNow
 	}
 	maxbuffers := MaxUInt64(max/apparentOverhead, 1)
-	log.Debugf("using up to %v %vMB buffers", maxbuffers, BUF_SIZE/1024/1024)
+	if apparentOverhead > BUF_SIZE*10 {
+		debug.FreeOSMemory()
+	}
+	log.Debugf("using up to %v %vMB buffers, now is %v", maxbuffers, BUF_SIZE/1024/1024, buffersNow)
 	return maxbuffers
 }
 
@@ -73,18 +78,18 @@ func pages(size uint64, pageSize int) int {
 
 func (pool BufferPool) Init() *BufferPool {
 	pool.cond = sync.NewCond(&pool.mu)
-	pool.maxBuffers = 8
+
+	pool.computedMaxbuffers = pool.maxBuffers
+	pool.pool = &sync.Pool{New: func() interface{} {
+		return make([]byte, 0, BUF_SIZE)
+	}}
 
 	return &pool
 }
 
 // for testing
 func NewBufferPool(maxSizeGlobal uint64) *BufferPool {
-	pool := &BufferPool{
-		maxBuffers: maxSizeGlobal / BUF_SIZE,
-	}
-	pool.computedMaxbuffers = pool.maxBuffers
-	pool.cond = sync.NewCond(&pool.mu)
+	pool := BufferPool{maxBuffers: maxSizeGlobal / BUF_SIZE}.Init()
 	return pool
 }
 
@@ -93,8 +98,11 @@ func (pool *BufferPool) RequestBuffer() (buf []byte) {
 }
 
 func (pool *BufferPool) recomputeBufferLimit() {
-	if pool.maxBuffers != 0 {
+	if pool.maxBuffers == 0 {
 		pool.computedMaxbuffers = maxMemToUse(pool.numBuffers)
+		if pool.computedMaxbuffers == 0 {
+			panic("OOM")
+		}
 	}
 }
 
@@ -131,8 +139,8 @@ func (pool *BufferPool) RequestMultiple(size uint64, block bool) (buffers [][]by
 	for i := 0; i < nPages; i++ {
 		pool.numBuffers++
 		pool.totalBuffers++
-		buf := make([]byte, 0, BUF_SIZE)
-		buffers = append(buffers, buf)
+		buf := pool.pool.Get()
+		buffers = append(buffers, buf.([]byte))
 	}
 	return
 }
@@ -147,6 +155,7 @@ func (pool *BufferPool) Free(buf []byte) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
+	pool.pool.Put(buf)
 	pool.numBuffers--
 	pool.cond.Signal()
 }
