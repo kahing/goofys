@@ -47,23 +47,15 @@ func maxMemToUse(buffersNow uint64) uint64 {
 		panic(err)
 	}
 
-	log.Debugf("amount of available memory: %v", m.Available)
+	log.Debugf("amount of available memory: %v", m.Available/1024/1024)
 
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 
-	log.Debugf("amount of allocated memory: %v %v", ms.Sys, ms.Alloc)
-	//log.Debugf("amount of allocated: %v", ms)
+	log.Debugf("amount of allocated memory: %v %v", ms.Sys/1024/1024, ms.Alloc/1024/1024)
 
 	max := uint64(m.Available+ms.Sys) / 2
-	apparentOverhead := uint64(BUF_SIZE)
-	if buffersNow != 0 {
-		apparentOverhead = ms.Sys / buffersNow
-	}
-	maxbuffers := MaxUInt64(max/apparentOverhead, 1)
-	if apparentOverhead > BUF_SIZE*10 {
-		debug.FreeOSMemory()
-	}
+	maxbuffers := MaxUInt64(max/BUF_SIZE, 1)
 	log.Debugf("using up to %v %vMB buffers, now is %v", maxbuffers, BUF_SIZE/1024/1024, buffersNow)
 	return maxbuffers
 }
