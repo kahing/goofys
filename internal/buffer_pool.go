@@ -14,8 +14,6 @@
 
 package internal
 
-// XXX investigate using sync.Pool
-
 import (
 	"io"
 	"runtime"

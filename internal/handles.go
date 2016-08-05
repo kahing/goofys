@@ -386,6 +386,9 @@ func (fh *FileHandle) initMPU(fs *Goofys) {
 
 func (fh *FileHandle) mpuPartNoSpawn(fs *Goofys, buf *MBuf, part int) (err error) {
 	//fh.inode.logFuse("mpuPartNoSpawn", cap(buf), part)
+	fs.replicators.Take(1, true)
+	defer fs.replicators.Return(1)
+
 	defer buf.Free()
 
 	if part == 0 || part > 10000 {
@@ -847,6 +850,9 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 		StorageClass: &fs.flags.StorageClass,
 		ContentType:  fs.getMimeType(*fh.inode.FullName),
 	}
+
+	fs.replicators.Take(1, true)
+	defer fs.replicators.Return(1)
 
 	_, err = fs.s3.PutObject(params)
 	if err != nil {

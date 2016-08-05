@@ -92,6 +92,9 @@ type Goofys struct {
 	dirHandles   map[fuseops.HandleID]*DirHandle
 
 	fileHandles map[fuseops.HandleID]*FileHandle
+
+	replicators *Ticket
+	restorers   *Ticket
 }
 
 var s3Log = GetLogger("s3")
@@ -179,6 +182,9 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 	fs.dirHandles = make(map[fuseops.HandleID]*DirHandle)
 
 	fs.fileHandles = make(map[fuseops.HandleID]*FileHandle)
+
+	fs.replicators = Ticket{Total: 8}.Init()
+	fs.restorers = Ticket{Total: 8}.Init()
 
 	return fs
 }
