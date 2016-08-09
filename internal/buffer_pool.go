@@ -69,9 +69,6 @@ func pages(size uint64, pageSize int) int {
 func (pool BufferPool) Init() *BufferPool {
 	pool.cond = sync.NewCond(&pool.mu)
 
-	if pool.maxBuffers == 0 {
-		pool.maxBuffers = 8
-	}
 	pool.computedMaxbuffers = pool.maxBuffers
 	pool.pool = &sync.Pool{New: func() interface{} {
 		return make([]byte, 0, BUF_SIZE)
