@@ -751,6 +751,10 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 			// fall back to read serially
 			fh.inode.logFuse("not enough memory, fallback to serial read")
 			fh.seqReadAmount = 0
+			for _, b := range fh.buffers {
+				b.buf.Close()
+			}
+			fh.buffers = nil
 		}
 	}
 
