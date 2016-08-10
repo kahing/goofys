@@ -73,14 +73,16 @@ func mount(
 	mountPoint string,
 	flags *FlagStorage) (mfs *fuse.MountedFileSystem, err error) {
 
+	credentialProvider := credentials.SharedCredentialsProvider{
+		Filename: flags.CredentialsPath,
+		Profile:  flags.Profile,
+	}
+
 	awsConfig := &aws.Config{
 		Region:      &flags.Region,
 		Logger:      GetLogger("s3"),
+		Credentials: credentials.NewCredentials(&credentialProvider),
 		//LogLevel: aws.LogLevel(aws.LogDebug),
-	}
-
-	if len(flags.Profile) > 0 {
-		awsConfig.Credentials = credentials.NewSharedCredentials(os.Getenv("HOME")+"/.aws/credentials", flags.Profile)
 	}
 
 	if len(flags.Endpoint) > 0 {

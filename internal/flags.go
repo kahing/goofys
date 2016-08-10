@@ -132,8 +132,13 @@ func NewApp() (app *cli.App) {
 			},
 
 			cli.StringFlag{
+				Name:  "credentials",
+				Usage: "Use a custom credentials file instead of \"$HOME/.aws/credentials\"",
+			},
+
+			cli.StringFlag{
 				Name:  "profile",
-				Usage: "Use a named profile from $HOME/.aws/credentials instead of \"default\"",
+				Usage: "Use a named profile from the credentials file instead of \"default\"",
 			},
 
 			cli.BoolFlag{
@@ -191,12 +196,13 @@ type FlagStorage struct {
 	Gid          uint32
 
 	// S3
-	Endpoint       string
-	Region         string
-	StorageClass   string
-	UsePathRequest bool
-	Profile        string
-	UseContentType bool
+	Endpoint        string
+	Region          string
+	StorageClass    string
+	UsePathRequest  bool
+	CredentialsPath string
+	Profile         string
+	UseContentType  bool
 
 	// Tuning
 	StatCacheTTL time.Duration
@@ -247,12 +253,13 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		TypeCacheTTL: c.Duration("type-cache-ttl"),
 
 		// S3
-		Endpoint:       c.String("endpoint"),
-		Region:         c.String("region"),
-		StorageClass:   c.String("storage-class"),
-		UsePathRequest: c.Bool("use-path-request"),
-		Profile:        c.String("profile"),
-		UseContentType: c.Bool("use-content-type"),
+		Endpoint:        c.String("endpoint"),
+		Region:          c.String("region"),
+		StorageClass:    c.String("storage-class"),
+		UsePathRequest:  c.Bool("use-path-request"),
+		CredentialsPath: c.String("credentials"),
+		Profile:         c.String("profile"),
+		UseContentType:  c.Bool("use-content-type"),
 
 		// Debugging,
 		DebugFuse:  c.Bool("debug_fuse"),
