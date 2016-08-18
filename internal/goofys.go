@@ -128,30 +128,25 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 	fs.sess = session.New(awsConfig)
 	fs.s3 = fs.newS3()
 
-	err := fs.testBucket()
+	err := fs.detectBucketLocationByHEAD()
+	if err == nil {
+		// we detected a region header, this is probably AWS S3
+		fs.sess = session.New(awsConfig)
+		fs.s3 = fs.newS3()
+	} else if err == fuse.ENOENT {
+		log.Errorf("bucket %v does not exist", fs.bucket)
+		return nil
+	} else {
+		// this is NOT AWS, maybe they don't support v4 signing
+		// swift3, ceph-s3 return 400; GCS, EMC return 403
+		fs.fallbackV2Signer()
+	}
+
+	// try again to make sure
+	err = fs.testBucket()
 	if err != nil {
-		if mapAwsError(err) == fuse.ENOENT {
-			log.Errorf("bucket %v does not exist", fs.bucket)
-			return nil
-		}
-
-		err = fs.detectBucketLocationByHEAD()
-		if err == nil {
-			// we detected a region header, this is probably AWS S3
-			fs.sess = session.New(awsConfig)
-			fs.s3 = fs.newS3()
-		} else {
-			// this is NOT AWS, maybe they don't support v4 signing
-			// swift3, ceph-s3 return 400; GCS, EMC return 403
-			fs.fallbackV2Signer()
-		}
-
-		// try again to make sure
-		err = fs.testBucket()
-		if err != nil {
-			log.Errorf("Unable to access '%v': %v", fs.bucket, mapAwsError(err))
-			return nil
-		}
+		log.Errorf("Unable to access '%v': %v", fs.bucket, mapAwsError(err))
+		return nil
 	}
 
 	now := time.Now()
@@ -231,8 +226,14 @@ func (fs *Goofys) detectBucketLocationByHEAD() (err error) {
 	req, _ := tmpS3.HeadBucketRequest(&s3.HeadBucketInput{Bucket: &fs.bucket})
 	reqerr := req.Send()
 	if reqerr == nil {
-		fs.awsConfig.Credentials = credentials.AnonymousCredentials
-		s3Log.Infof("anonymous bucket detected")
+		if len(fs.flags.Profile) == 0 {
+			fs.awsConfig.Credentials = credentials.AnonymousCredentials
+			s3Log.Infof("anonymous bucket detected")
+		}
+	} else {
+		if req.HTTPResponse.StatusCode == 404 {
+			return fuse.ENOENT
+		}
 	}
 
 	region := req.HTTPResponse.Header["X-Amz-Bucket-Region"]
