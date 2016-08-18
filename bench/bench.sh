@@ -243,7 +243,7 @@ if [ "$t" = "" -o "$t" = "issue64" ]; then
     fi
     
     # cleanup
-    (for i in $(seq 1 5); do
+    (for i in $(seq 0 9); do
         rm -f file$i & true
     done
     wait)
