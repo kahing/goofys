@@ -32,7 +32,6 @@ $cmd >& mount.log &
 PID=$!
 
 function cleanup {
-    wait
     popd >/dev/null
     rmdir $prefix >& /dev/null || true # riofs doesn't support rmdir
 
@@ -44,7 +43,6 @@ function cleanup {
 
 function cleanup_err {
     err=$?
-    wait
     popd >&/dev/null || true
     rmdir $prefix >&/dev/null || true
 
@@ -211,7 +209,7 @@ fi
 # Data file size is often 100-400MB.
 # Regarding the number of transfers, I think it's about 200 files.
 # We read from the goofys mounted s3 bucket and write to a local spring webapp using curl.
-if [ "$t" = "" -o "$t" = "issue64" ]; then
+if [ "$t" = "disable" -o "$t" = "issue64" ]; then
     # setup the files
     (for i in $(seq 0 9); do
         dd if=/dev/zero of=file$i bs=1MB count=300 oflag=nocache status=none & true
