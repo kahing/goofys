@@ -145,6 +145,7 @@ func (pool *BufferPool) Free(buf []byte) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
+	buf = buf[:0]
 	pool.pool.Put(buf)
 	pool.numBuffers--
 	pool.cond.Signal()
