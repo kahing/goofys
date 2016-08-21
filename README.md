@@ -76,7 +76,7 @@ List of non-POSIX behaviors/limitations:
 
 In addition to the items above, the following supportable but not yet implemented:
   * appending to a file
-  * creating files larger than 50GB
+  * creating files larger than 1TB
 
 # References
 
