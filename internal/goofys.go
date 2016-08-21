@@ -180,7 +180,7 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 
 	fs.fileHandles = make(map[fuseops.HandleID]*FileHandle)
 
-	fs.replicators = Ticket{Total: 8}.Init()
+	fs.replicators = Ticket{Total: 16}.Init()
 	fs.restorers = Ticket{Total: 8}.Init()
 
 	return fs
