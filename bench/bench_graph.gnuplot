@@ -3,7 +3,7 @@
 reset
 #fontsize = 12
 set terminal pngcairo crop size 1000,640
-set output "bench.png"
+set output "bench/bench.png"
 
 #set key at graph 0.24, 0.8 horizontal samplen 0.1
 
@@ -52,7 +52,7 @@ set lmargin
 
 set origin 0.45,0.1
 set size 0.3,0.8
-set xrange [4.5:7.8]
+set xrange [4.5:6.8]
 
 plot 'bench/bench.data' using 2:3:4 title " ", \
      '' using 5:6:7 title " ", \
@@ -61,7 +61,7 @@ plot 'bench/bench.data' using 2:3:4 title " ", \
 
 set origin 0.7,0.1
 set size 0.2,0.8
-set xrange [7.7:8.5]
+set xrange [6.5:7.7]
 set yrange [0:1.1]
 
 plot 'bench/bench.data' using 2:3:4 title " ", \

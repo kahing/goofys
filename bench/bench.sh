@@ -60,7 +60,7 @@ trap cleanup_err ERR
 if [ "$TRAVIS" == "false" ]; then
     sleep 5
 fi
-mkdir "$prefix"
+mkdir -p "$prefix"
 pushd "$prefix" >/dev/null
 
 function drop_cache {
@@ -167,14 +167,6 @@ if [ "$t" = "" -o "$t" = "create_parallel" ]; then
     done
 fi
 
-if [ "$t" = "" -o "$t" = "ls" ]; then
-    create_files_parallel 1000
-    for i in $(seq 1 $iter); do
-        run_test ls_files
-    done
-    rm_files 1000
-fi
-
 function write_md5 {
     seed=$(dd if=/dev/urandom bs=128 count=1 status=none | base64 -w 0)
     random_cmd="openssl enc -aes-256-ctr -pass pass:$seed -nosalt"
@@ -202,6 +194,27 @@ if [ "$t" = "" -o "$t" = "io" ]; then
         run_test read_first_byte
         rm largefile
     done
+fi
+
+if [ "$t" = "" -o "$t" = "ls" ]; then
+    create_files_parallel 1000
+    for i in $(seq 1 $iter); do
+        run_test ls_files
+    done
+    rm_files 1000
+fi
+
+if [ "$t" = "ls_create" ]; then
+    create_files_parallel 1000
+    sleep 10
+fi
+
+if [ "$t" = "ls_ls" ]; then
+    run_test ls_files
+fi
+
+if [ "$t" = "ls_rm" ]; then
+    rm_files 1000
 fi
 
 # for https://github.com/kahing/goofys/issues/64

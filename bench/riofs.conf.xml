@@ -27,7 +27,7 @@
 <s3>
     <!-- S3 endpoint, can be set to bucket's region to avoid initial redirect
          See http://docs.aws.amazon.com/general/latest/gr/rande.html#s3_region for options. -->
-    <endpoint type="string">https://s3.amazonaws.com</endpoint>
+    <endpoint type="string">http://s3.amazonaws.com</endpoint>
 
     <!-- The maximum number of keys returned in the response body. -->
     <keys_per_request type="uint">1000</keys_per_request>
@@ -75,10 +75,10 @@
     <file_mode type="int">-1</file_mode>
 
     <!-- time to keep directory cache (seconds) -->
-    <dir_cache_max_time type="uint">0</dir_cache_max_time>
+    <dir_cache_max_time type="uint">300</dir_cache_max_time>
 
     <!-- time to keep file attributes cache (seconds) -->
-    <file_cache_max_time type="uint">0</file_cache_max_time>
+    <file_cache_max_time type="uint">10</file_cache_max_time>
 
     <!-- set True to enable calculating MD5 sum of file content, increases CPU load -->
     <md5_enabled type="boolean">False</md5_enabled>
@@ -87,7 +87,7 @@
     <cache_enabled type="boolean">False</cache_enabled>
 
     <!-- directory for storing cache objects -->
-    <cache_dir type="string">/tmp/riofs</cache_dir>
+    <cache_dir type="string">/dev/null</cache_dir>
 
     <!-- maximum size of cache directory (1Gb) -->
     <cache_dir_max_size type="uint">1</cache_dir_max_size>

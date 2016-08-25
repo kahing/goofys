@@ -11,16 +11,51 @@ else
 fi
 
 dir=$(dirname $0)
-
-mkdir bench-mnt
-$dir/bench.sh cat bench-mnt $t |& tee bench.local
-$dir/bench.sh "goofys -f --stat-cache-ttl 0 --type-cache-ttl 0 goofys bench-mnt" bench-mnt $t |& tee bench.goofys
-$dir/bench.sh "s3fs -ostat_cache_expire=1 -ourl=https://s3.amazonaws.com -f goofys bench-mnt" bench-mnt $t |& tee bench.s3fs
 source ~/.passwd-riofs
-$dir/bench.sh "riofs -f -c riofs.conf.xml goofys bench-mnt" bench-mnt $t |& tee bench.riofs
+mkdir bench-mnt
+
+S3FS="s3fs -f goofys bench-mnt"
+RIOFS="riofs -f -c $dir/riofs.conf.xml goofys bench-mnt"
+GOOFYS="goofys -f --endpoint http://s3-us-west-2.amazonaws.com/ goofys bench-mnt"
+
+for fs in s3fs riofs goofys; do
+    case $fs in
+        s3fs)
+            FS=$S3FS
+            ;;
+        riofs)
+            FS=$RIOFS
+            ;;
+        goofys)
+            FS=$GOOFYS
+            ;;
+    esac
+
+    if [ "$t" = "" ]; then
+        rm bench.$fs
+
+        for tt in create create_parallel io; do
+            $dir/bench.sh "$FS" bench-mnt $tt |& tee -a bench.$fs
+        done
+
+        $dir/bench.sh "$FS"  bench-mnt ls_create
+
+        for i in $(seq 1 10); do
+            rm -Rf /tmp/riofs
+            $dir/bench.sh "$FS" bench-mnt ls_ls |& tee -a bench.$fs
+        done
+
+        $dir/bench.sh "$FS" bench-mnt ls_rm
+
+    else
+        $dir/bench.sh "$FS" bench-mnt $t |& tee bench.$fs
+    fi
+done
+
+$dir/bench.sh cat bench-mnt $t |& tee bench.local
 
 rmdir bench-mnt
 
-$dir/bench_format.py <(paste bench.goofys bench.s3fs bench.riofs) > $dir/bench.data
+$dir/bench_format.py <(paste $dir/bench.goofys $dir/bench.s3fs $dir/bench.riofs) > $dir/bench.data
 
 gnuplot $dir/bench_graph.gnuplot && convert -rotate 90 $dir/bench.png $dir/bench.png

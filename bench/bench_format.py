@@ -13,10 +13,9 @@ op_str = {
     'create_files_parallel' : 'Create 100 files (parallel)',
     'rm_files_parallel' : 'Unlink 100 files (parallel)',
     'ls_files' : 'ls with 1000 files',
-    'write_large_file' : 'Write 1GB',
-    'read_large_file' : 'Read 1GB',
+    'write_md5' : 'Write 1GB',
     'read_first_byte' : 'Time to 1st byte',
-    'read_md5' : 'md5sum over 1GB',
+    'read_md5' : 'Read 1GB',
 }
 
 outputOrder = [
@@ -25,8 +24,7 @@ outputOrder = [
     'create_files_parallel',
     'rm_files_parallel',
     'ls_files',
-    'write_large_file',
-    'read_large_file',
+    'write_md5',
     'read_md5',
     'read_first_byte',
 ]
