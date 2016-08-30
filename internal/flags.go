@@ -62,7 +62,7 @@ func NewApp() (app *cli.App) {
 
 			cli.BoolFlag{
 				Name:  "help, h",
-				Usage: "Print this help text and exit successfuly.",
+				Usage: "Print this help text and exit successfully.",
 			},
 
 			/////////////////////////
@@ -77,13 +77,13 @@ func NewApp() (app *cli.App) {
 			cli.IntFlag{
 				Name:  "dir-mode",
 				Value: 0755,
-				Usage: "Permissions bits for directories. (default: 0755)",
+				Usage: "Permission bits for directories. (default: 0755)",
 			},
 
 			cli.IntFlag{
 				Name:  "file-mode",
 				Value: 0644,
-				Usage: "Permission bits for files (default: 0644)",
+				Usage: "Permission bits for files. (default: 0644)",
 			},
 
 			cli.IntFlag{
@@ -112,7 +112,7 @@ func NewApp() (app *cli.App) {
 			cli.StringFlag{
 				Name:  "region",
 				Value: "us-west-2",
-				Usage: "The non-AWS endpoint to connect to." +
+				Usage: "The region to connect to." +
 					" Possible values: us-east-1, us-west-1, us-west-2, eu-west-1, " +
 					"eu-central-1, ap-southeast-1, ap-southeast-2, ap-northeast-1, " +
 					"sa-east-1, cn-north-1",
