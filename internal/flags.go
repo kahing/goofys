@@ -141,6 +141,13 @@ func NewApp() (app *cli.App) {
 				Usage: "Set Content-Type according to file extension and /etc/mime.types (default: off)",
 			},
 
+			/// http://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectPUT.html
+			/// See http://docs.aws.amazon.com/AmazonS3/latest/dev/UsingServerSideEncryption.html
+			cli.BoolFlag{
+				Name:  "use-sse",
+				Usage: "Enable encryption at rest in S3 for all writes; without other flags, it will use AWS managed keys (SSE-S3) (default: off)",
+			},
+
 			/////////////////////////
 			// Tuning
 			/////////////////////////
@@ -197,6 +204,8 @@ type FlagStorage struct {
 	UsePathRequest bool
 	Profile        string
 	UseContentType bool
+	UseSSE         bool
+	SSEType        string
 
 	// Tuning
 	StatCacheTTL time.Duration
@@ -253,11 +262,17 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		UsePathRequest: c.Bool("use-path-request"),
 		Profile:        c.String("profile"),
 		UseContentType: c.Bool("use-content-type"),
+		UseSSE:         c.Bool("use-sse"),		
 
 		// Debugging,
 		DebugFuse:  c.Bool("debug_fuse"),
 		DebugS3:    c.Bool("debug_s3"),
 		Foreground: c.Bool("f"),
+	}
+
+	// Set appropriate SSE type based on boolean flags
+	if flags.UseSSE {
+		flags.SSEType = "AES256"
 	}
 
 	// Handle the repeated "-o" flag.
