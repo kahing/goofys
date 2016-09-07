@@ -272,7 +272,7 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 
 	// Set appropriate SSE type based on boolean flags
 	if flags.UseSSE {
-		flags.SSEType = "AES256"
+		flags.SSEType = "AES256" //SSE header string for non-KMS server-side encryption (SSE-S3)
 	}
 
 	// Handle the repeated "-o" flag.
