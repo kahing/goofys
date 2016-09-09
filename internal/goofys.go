@@ -462,7 +462,6 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 			Key:          fs.key(to),
 			StorageClass: &fs.flags.StorageClass,
 			ContentType:  fs.getMimeType(to),
-			ServerSideEncryption:  &fs.flags.SSEType,
 		}
 
 		if  fs.flags.UseSSE  {
