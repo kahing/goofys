@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/codegangsta/cli"
+
+	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 // Set up custom help text for goofys; in particular the usage section.
@@ -272,7 +274,7 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 
 	// Set appropriate SSE type based on boolean flags
 	if flags.UseSSE {
-		flags.SSEType = ServerSideEncryptionAes256 //SSE header string for non-KMS server-side encryption (SSE-S3)
+		flags.SSEType = s3.ServerSideEncryptionAes256 //SSE header string for non-KMS server-side encryption (SSE-S3)
 	}
 
 	// Handle the repeated "-o" flag.
