@@ -150,6 +150,18 @@ func NewApp() (app *cli.App) {
 				Usage: "Enable encryption at rest in S3 for all writes; without other flags, it will use AWS managed keys (SSE-S3) (default: off)",
 			},
 
+			cli.BoolFlag{
+				Name:  "use-kms",
+				Usage: "Enable KMS encryption at rest in S3 for all writes; without other flags, it will use AWS managed keys (SSE-KMS) (default: off)",
+			},
+
+			cli.StringFlag{
+				Name:  "kms-key-id",
+				Value: "",
+				Usage: "If use-kms if set, use this particular KMS to encrypt (SSE-KMS) (default: empty)",
+			},
+
+
 			/////////////////////////
 			// Tuning
 			/////////////////////////
@@ -208,6 +220,8 @@ type FlagStorage struct {
 	UseContentType bool
 	UseSSE         bool
 	SSEType        string
+	UseKMS         bool
+	KMSKeyID       string
 
 	// Tuning
 	StatCacheTTL time.Duration
@@ -265,6 +279,8 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		Profile:        c.String("profile"),
 		UseContentType: c.Bool("use-content-type"),
 		UseSSE:         c.Bool("use-sse"),
+		UseKMS:         c.Bool("use-kms"),
+		KMSKeyID:       c.String("kms-key-id"),
 
 		// Debugging,
 		DebugFuse:  c.Bool("debug_fuse"),
@@ -275,6 +291,9 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 	// Set appropriate SSE type based on boolean flags
 	if flags.UseSSE {
 		flags.SSEType = s3.ServerSideEncryptionAes256 //SSE header string for non-KMS server-side encryption (SSE-S3)
+	}
+	if flags.UseSSE && flags.UseKMS {
+		flags.SSEType = s3.ServerSideEncryptionAwsKms //SSE header string for KMS server-side encryption (SSE-KMS)
 	}
 
 	// Handle the repeated "-o" flag.
