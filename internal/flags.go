@@ -262,7 +262,8 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		UsePathRequest: c.Bool("use-path-request"),
 		Profile:        c.String("profile"),
 		UseContentType: c.Bool("use-content-type"),
-		UseSSE:         c.Bool("use-sse"),		
+		UseSSE:         c.Bool("use-sse"),
+		SSEType:        "AES256",
 
 		// Debugging,
 		DebugFuse:  c.Bool("debug_fuse"),

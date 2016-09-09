@@ -462,7 +462,7 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 			Key:          fs.key(to),
 			StorageClass: &fs.flags.StorageClass,
 			ContentType:  fs.getMimeType(to),
-			ServerSideEncryption: &fs.flags.SSEType,   
+			ServerSideEncryption:  aws.String("AES256"), //&fs.flags.SSEType,   
 		}
 
 		resp, err := fs.s3.CreateMultipartUpload(params)
@@ -530,7 +530,7 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 		Key:          fs.key(to),
 		StorageClass: &fs.flags.StorageClass,
 		ContentType:  fs.getMimeType(to),
-		ServerSideEncryption: &fs.flags.SSEType, 
+		ServerSideEncryption:  aws.String("AES256"),  //&fs.flags.SSEType, 
 	}
 
 	_, err = fs.s3.CopyObject(params)
