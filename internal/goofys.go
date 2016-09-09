@@ -464,6 +464,10 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 			ContentType:  fs.getMimeType(to),
 		}
 
+		if  fs.flags.UseSSE  {
+			params.ServerSideEncryption = &fs.flags.SSEType
+		}
+
 		resp, err := fs.s3.CreateMultipartUpload(params)
 		if err != nil {
 			return mapAwsError(err)
@@ -529,6 +533,10 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 		Key:          fs.key(to),
 		StorageClass: &fs.flags.StorageClass,
 		ContentType:  fs.getMimeType(to),
+	}
+
+	if  fs.flags.UseSSE  {
+		params.ServerSideEncryption = &fs.flags.SSEType
 	}
 
 	_, err = fs.s3.CopyObject(params)
