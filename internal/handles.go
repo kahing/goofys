@@ -365,7 +365,10 @@ func (fh *FileHandle) initMPU(fs *Goofys) {
 		Key:          fs.key(*fh.inode.FullName),
 		StorageClass: &fs.flags.StorageClass,
 		ContentType:  fs.getMimeType(*fh.inode.FullName),
-		ServerSideEncryption:  &fs.flags.SSEType,
+	}
+
+	if  fs.flags.UseSSE  {
+		params.ServerSideEncryption = &fs.flags.SSEType
 	}
 
 	resp, err := fs.s3.CreateMultipartUpload(params)
@@ -854,7 +857,10 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 		Body:         buf,
 		StorageClass: &fs.flags.StorageClass,
 		ContentType:  fs.getMimeType(*fh.inode.FullName),
-		ServerSideEncryption:  &fs.flags.SSEType,
+	}
+
+	if  fs.flags.UseSSE  {
+		params.ServerSideEncryption = &fs.flags.SSEType
 	}
 
 	fs.replicators.Take(1, true)
