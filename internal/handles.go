@@ -369,7 +369,7 @@ func (fh *FileHandle) initMPU(fs *Goofys) {
 
 	if  fs.flags.UseSSE  {
 		params.ServerSideEncryption = &fs.flags.SSEType
-		if fs.flags.UseKMS &&  fs.flags.KMSKeyID != "" {
+		if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
 			params.SSEKMSKeyId = &fs.flags.KMSKeyID
 		}
 	}
@@ -864,7 +864,7 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 
 	if  fs.flags.UseSSE  {
 		params.ServerSideEncryption = &fs.flags.SSEType
-		if fs.flags.UseKMS &&  fs.flags.KMSKeyID != "" {
+		if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
 			params.SSEKMSKeyId = &fs.flags.KMSKeyID
 		}
 	}

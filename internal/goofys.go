@@ -466,7 +466,7 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 
 		if  fs.flags.UseSSE  {
 			params.ServerSideEncryption = &fs.flags.SSEType
-			if fs.flags.UseKMS &&  fs.flags.KMSKeyID != "" {
+			if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
 				params.SSEKMSKeyId = &fs.flags.KMSKeyID
 			}
 		}
@@ -541,7 +541,7 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 
 	if  fs.flags.UseSSE  {
 		params.ServerSideEncryption = &fs.flags.SSEType
-		if fs.flags.UseKMS &&  fs.flags.KMSKeyID != "" {
+		if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
 			params.SSEKMSKeyId = &fs.flags.KMSKeyID
 		}
 	}
