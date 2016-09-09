@@ -279,7 +279,6 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		Profile:        c.String("profile"),
 		UseContentType: c.Bool("use-content-type"),
 		UseSSE:         c.Bool("use-sse"),
-		UseKMS:         c.Bool("use-kms"),
 		KMSKeyID:       c.String("kms-key-id"),
 
 		// Debugging,
@@ -289,11 +288,15 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 	}
 
 	// Set appropriate SSE type based on boolean flags
+	//
 	if flags.UseSSE {
 		flags.SSEType = s3.ServerSideEncryptionAes256 //SSE header string for non-KMS server-side encryption (SSE-S3)
-	}
-	if flags.UseSSE && flags.UseKMS {
-		flags.SSEType = s3.ServerSideEncryptionAwsKms //SSE header string for KMS server-side encryption (SSE-KMS)
+
+		// Only enable KMS is SSE is true
+		flags.UseKMS = c.Bool("use-kms")
+		if flags.UseKMS {
+			flags.SSEType = s3.ServerSideEncryptionAwsKms //SSE header string for KMS server-side encryption (SSE-KMS)
+		}
 	}
 
 	// Handle the repeated "-o" flag.

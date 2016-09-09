@@ -369,6 +369,9 @@ func (fh *FileHandle) initMPU(fs *Goofys) {
 
 	if  fs.flags.UseSSE  {
 		params.ServerSideEncryption = &fs.flags.SSEType
+		if fs.flags.UseKMS {
+			params.SSEKMSKeyId = &fs.flags.KMSKeyID
+		}
 	}
 
 	resp, err := fs.s3.CreateMultipartUpload(params)
@@ -861,6 +864,9 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 
 	if  fs.flags.UseSSE  {
 		params.ServerSideEncryption = &fs.flags.SSEType
+		if fs.flags.UseKMS {
+			params.SSEKMSKeyId = &fs.flags.KMSKeyID
+		}
 	}
 
 	fs.replicators.Take(1, true)

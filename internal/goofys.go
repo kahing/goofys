@@ -462,12 +462,15 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 			Key:          fs.key(to),
 			StorageClass: &fs.flags.StorageClass,
 			ContentType:  fs.getMimeType(to),
-			ServerSideEncryption:  &fs.flags.SSEType,
 		}
 
 		if  fs.flags.UseSSE  {
 			params.ServerSideEncryption = &fs.flags.SSEType
+			if fs.flags.UseKMS {
+				params.SSEKMSKeyId = &fs.flags.KMSKeyID
+			}
 		}
+
 
 		resp, err := fs.s3.CreateMultipartUpload(params)
 		if err != nil {
@@ -538,6 +541,9 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 
 	if  fs.flags.UseSSE  {
 		params.ServerSideEncryption = &fs.flags.SSEType
+		if fs.flags.UseKMS {
+			params.SSEKMSKeyId = &fs.flags.KMSKeyID
+		}
 	}
 
 	_, err = fs.s3.CopyObject(params)
