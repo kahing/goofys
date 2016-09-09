@@ -147,18 +147,18 @@ func NewApp() (app *cli.App) {
 			/// See http://docs.aws.amazon.com/AmazonS3/latest/dev/UsingServerSideEncryption.html
 			cli.BoolFlag{
 				Name:  "use-sse",
-				Usage: "Enable encryption at rest in S3 for all writes; without other flags, it will use AWS managed keys (SSE-S3) (default: off)",
+				Usage: "Enable basic server-side encryption at rest (SSE-S3)in S3 for all writes (default: off)",
 			},
 
 			cli.BoolFlag{
 				Name:  "use-kms",
-				Usage: "Enable KMS encryption at rest in S3 for all writes; without other flags, it will use AWS managed keys (SSE-KMS) (default: off)",
+				Usage: "If use-sse is set, then enable KMS encryption (SSE-KMS) for all writes (default: off)",
 			},
 
 			cli.StringFlag{
 				Name:  "kms-key-id",
 				Value: "",
-				Usage: "If use-kms if set, use this particular KMS to encrypt (SSE-KMS) (default: empty)",
+				Usage: "If use-kms if set, use this particular KMS key to encrypt (SSE-KMS). If not set, use the account's CMK - customer master key (default: empty)",
 			},
 
 
