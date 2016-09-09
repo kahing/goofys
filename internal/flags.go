@@ -263,7 +263,6 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		Profile:        c.String("profile"),
 		UseContentType: c.Bool("use-content-type"),
 		UseSSE:         c.Bool("use-sse"),
-		SSEType:        "AES256",
 
 		// Debugging,
 		DebugFuse:  c.Bool("debug_fuse"),
@@ -273,7 +272,7 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 
 	// Set appropriate SSE type based on boolean flags
 	if flags.UseSSE {
-		flags.SSEType = "AES256" //SSE header string for non-KMS server-side encryption (SSE-S3)
+		flags.SSEType = ServerSideEncryptionAes256 //SSE header string for non-KMS server-side encryption (SSE-S3)
 	}
 
 	// Handle the repeated "-o" flag.
