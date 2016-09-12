@@ -21,8 +21,6 @@ import (
 	"time"
 
 	"github.com/codegangsta/cli"
-
-	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 // Set up custom help text for goofys; in particular the usage section.
@@ -146,21 +144,15 @@ func NewApp() (app *cli.App) {
 			/// http://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectPUT.html
 			/// See http://docs.aws.amazon.com/AmazonS3/latest/dev/UsingServerSideEncryption.html
 			cli.BoolFlag{
-				Name:  "use-sse",
+				Name:  "sse",
 				Usage: "Enable basic server-side encryption at rest (SSE-S3)in S3 for all writes (default: off)",
 			},
 
-			cli.BoolFlag{
-				Name:  "use-kms",
-				Usage: "If use-sse is set, then enable KMS encryption (SSE-KMS) for all writes (default: off)",
-			},
-
 			cli.StringFlag{
-				Name:  "kms-key-id",
+				Name:  "sse-kms",
+				Usage: "Enable KMS encryption (SSE-KMS) for all writes using this particular KMS `key-id`. Leave blank to Use the account's CMK - customer master key (default: off)",
 				Value: "",
-				Usage: "If use-kms if set, use this particular KMS key to encrypt (SSE-KMS). If not set, use the account's CMK - customer master key (default: empty)",
 			},
-
 
 			/////////////////////////
 			// Tuning
@@ -219,7 +211,6 @@ type FlagStorage struct {
 	Profile        string
 	UseContentType bool
 	UseSSE         bool
-	SSEType        string
 	UseKMS         bool
 	KMSKeyID       string
 
@@ -278,8 +269,9 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		UsePathRequest: c.Bool("use-path-request"),
 		Profile:        c.String("profile"),
 		UseContentType: c.Bool("use-content-type"),
-		UseSSE:         c.Bool("use-sse"),
-		KMSKeyID:       c.String("kms-key-id"),
+		UseSSE:         c.Bool("sse"),
+		UseKMS:         c.IsSet("sse-kms"),
+		KMSKeyID:       c.String("sse-kms"),
 
 		// Debugging,
 		DebugFuse:  c.Bool("debug_fuse"),
@@ -287,16 +279,9 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		Foreground: c.Bool("f"),
 	}
 
-	// Set appropriate SSE type based on boolean flags
-	//
-	if flags.UseSSE {
-		flags.SSEType = s3.ServerSideEncryptionAes256 //SSE header string for non-KMS server-side encryption (SSE-S3)
-
-		// Only enable KMS is SSE is true
-		flags.UseKMS = c.Bool("use-kms")
-		if flags.UseKMS {
-			flags.SSEType = s3.ServerSideEncryptionAwsKms //SSE header string for KMS server-side encryption (SSE-KMS)
-		}
+	// KMS implies SSE
+	if flags.UseKMS {
+		flags.UseSSE = true
 	}
 
 	// Handle the repeated "-o" flag.

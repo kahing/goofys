@@ -61,6 +61,7 @@ type Goofys struct {
 	sess      *session.Session
 	s3        *s3.S3
 	v2Signer  bool
+	sseType   string
 	rootAttrs fuseops.InodeAttributes
 
 	bufferPool *BufferPool
@@ -150,6 +151,14 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 	}
 
 	go fs.cleanUpOldMPU()
+
+	if flags.UseKMS {
+		//SSE header string for KMS server-side encryption (SSE-KMS)
+		fs.sseType = s3.ServerSideEncryptionAwsKms
+	} else if flags.UseSSE {
+		//SSE header string for non-KMS server-side encryption (SSE-S3)
+		fs.sseType = s3.ServerSideEncryptionAes256
+	}
 
 	now := time.Now()
 	fs.rootAttrs = fuseops.InodeAttributes{
@@ -464,13 +473,12 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 			ContentType:  fs.getMimeType(to),
 		}
 
-		if  fs.flags.UseSSE  {
-			params.ServerSideEncryption = &fs.flags.SSEType
+		if fs.flags.UseSSE {
+			params.ServerSideEncryption = &fs.sseType
 			if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
 				params.SSEKMSKeyId = &fs.flags.KMSKeyID
 			}
 		}
-
 
 		resp, err := fs.s3.CreateMultipartUpload(params)
 		if err != nil {
@@ -539,8 +547,8 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 		ContentType:  fs.getMimeType(to),
 	}
 
-	if  fs.flags.UseSSE  {
-		params.ServerSideEncryption = &fs.flags.SSEType
+	if fs.flags.UseSSE {
+		params.ServerSideEncryption = &fs.sseType
 		if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
 			params.SSEKMSKeyId = &fs.flags.KMSKeyID
 		}
