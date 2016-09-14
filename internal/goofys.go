@@ -16,6 +16,7 @@ package internal
 
 import (
 	"fmt"
+	"math/rand"
 	"mime"
 	"os"
 	"strings"
@@ -216,8 +217,45 @@ func (fs *Goofys) newS3() *s3.S3 {
 	return svc
 }
 
+// from https://stackoverflow.com/questions/22892120/how-to-generate-a-random-string-of-a-fixed-length-in-golang
+func RandStringBytesMaskImprSrc(n int) string {
+	const letterBytes = "abcdefghijklmnopqrstuvwxyz0123456789"
+	const (
+		letterIdxBits = 6                    // 6 bits to represent a letter index
+		letterIdxMask = 1<<letterIdxBits - 1 // All 1-bits, as many as letterIdxBits
+		letterIdxMax  = 63 / letterIdxBits   // # of letter indices fitting in 63 bits
+	)
+	src := rand.NewSource(time.Now().UnixNano())
+	b := make([]byte, n)
+	// A src.Int63() generates 63 random bits, enough for letterIdxMax characters!
+	for i, cache, remain := n-1, src.Int63(), letterIdxMax; i >= 0; {
+		if remain == 0 {
+			cache, remain = src.Int63(), letterIdxMax
+		}
+		if idx := int(cache & letterIdxMask); idx < len(letterBytes) {
+			b[i] = letterBytes[idx]
+			i--
+		}
+		cache >>= letterIdxBits
+		remain--
+	}
+
+	return string(b)
+}
+
 func (fs *Goofys) testBucket() (err error) {
-	_, err = fs.s3.HeadBucket(&s3.HeadBucketInput{Bucket: &fs.bucket})
+	randomObjectName := fs.key(RandStringBytesMaskImprSrc(32))
+
+	var resp *s3.GetObjectOutput
+	resp, err = fs.s3.GetObject(&s3.GetObjectInput{Bucket: &fs.bucket, Key: randomObjectName})
+	if err != nil {
+		err = mapAwsError(err)
+		if err == fuse.ENOENT {
+			err = nil
+		}
+	} else {
+		resp.Body.Close()
+	}
 	return
 }
 
