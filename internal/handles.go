@@ -777,6 +777,10 @@ func (fh *FileHandle) Release() {
 	}
 	fh.buffers = nil
 
+	if fh.reader != nil {
+		fh.reader.Close()
+	}
+
 	// write buffers
 	if fh.poolHandle != nil {
 		if fh.buf != nil && fh.buf.buffers != nil {
