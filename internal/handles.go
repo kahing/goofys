@@ -879,9 +879,7 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 	_, err = fs.s3.PutObject(params)
 	if err != nil {
 		err = mapAwsError(err)
-		fh.mu.Lock()
 		fh.lastWriteError = err
-		fh.mu.Unlock()
 	}
 	return
 }
