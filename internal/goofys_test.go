@@ -103,7 +103,7 @@ func logOutput(t *C, tag string, r io.ReadCloser) {
 	}
 }
 
-func (s *GoofysTest) waitFor(t *C, addr string) (err error) {
+func waitFor(t *C, addr string) (err error) {
 	// wait for it to listen on port
 	for i := 0; i < 10; i++ {
 		var conn net.Conn
@@ -121,17 +121,31 @@ func (s *GoofysTest) waitFor(t *C, addr string) (err error) {
 	return
 }
 
-func (s *GoofysTest) SetUpSuite(t *C) {
-	//addr := "play.minio.io:9000"
-	const LOCAL_TEST = true
-
-	if LOCAL_TEST {
+func selectTestConfig(t *C) *aws.Config {
+	const testAws = false
+	if testAws {
+		return &aws.Config{
+			Region:     aws.String("us-west-2"),
+			DisableSSL: aws.Bool(true),
+			//LogLevel:         aws.LogLevel(aws.LogDebug | aws.LogDebugWithSigning),
+			S3ForcePathStyle: aws.Bool(true),
+		}
+	} else if hasEnv("MINIO") {
+		return &aws.Config{
+			Credentials: credentials.NewStaticCredentials("Q3AM3UQ867SPQQA43P2F",
+				"zuf+tfteSlswRu7BJ86wekitnifILbZam1KYY3TG", ""),
+			Region: aws.String("us-east-1"),
+			//LogLevel:         aws.LogLevel(aws.LogDebug | aws.LogDebugWithSigning),
+			S3ForcePathStyle: aws.Bool(true),
+			Endpoint:         aws.String("play.minio.io:9000"),
+		}
+	} else {
 		addr := "127.0.0.1:8080"
 
-		err := s.waitFor(t, addr)
+		err := waitFor(t, addr)
 		t.Assert(err, IsNil)
 
-		s.awsConfig = &aws.Config{
+		return &aws.Config{
 			//Credentials: credentials.AnonymousCredentials,
 			Credentials:      credentials.NewStaticCredentials("foo", "bar", ""),
 			Region:           aws.String("us-west-2"),
@@ -143,19 +157,19 @@ func (s *GoofysTest) SetUpSuite(t *C) {
 			//LogLevel: aws.LogLevel(aws.LogDebug),
 			//LogLevel: aws.LogLevel(aws.LogDebug | aws.LogDebugWithHTTPBody),
 		}
-	} else {
-		s.awsConfig = &aws.Config{
-			Region:     aws.String("us-west-2"),
-			DisableSSL: aws.Bool(true),
-			//LogLevel:         aws.LogLevel(aws.LogDebug | aws.LogDebugWithSigning),
-			S3ForcePathStyle: aws.Bool(true),
-		}
 	}
+}
+
+func (s *GoofysTest) SetUpSuite(t *C) {
+	s.awsConfig = selectTestConfig(t)
+
 	s.sess = session.New(s.awsConfig)
 	s.s3 = s3.New(s.sess)
-	s.s3.Handlers.Sign.Clear()
-	s.s3.Handlers.Sign.PushBack(SignV2)
-	s.s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
+	if !hasEnv("MINIO") {
+		s.s3.Handlers.Sign.Clear()
+		s.s3.Handlers.Sign.PushBack(SignV2)
+		s.s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
+	}
 	_, err := s.s3.ListBuckets(nil)
 	t.Assert(err, IsNil)
 }
@@ -283,6 +297,9 @@ func (s *GoofysTest) TestLookUpInode(t *C) {
 	t.Assert(err, Equals, fuse.ENOENT)
 
 	_, err = s.LookUpInode(t, "dir1/file3")
+	t.Assert(err, IsNil)
+
+	_, err = s.LookUpInode(t, "dir2/dir3")
 	t.Assert(err, IsNil)
 
 	_, err = s.LookUpInode(t, "dir2/dir3/file4")
@@ -731,14 +748,19 @@ func (s *GoofysTest) TestConcurrentRefDeref(t *C) {
 	}
 }
 
-func isTravis() bool {
+func hasEnv(env string) bool {
+	prefix := env + "="
 	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "TRAVIS=") {
+		if strings.HasPrefix(e, prefix) {
 			return true
 		}
 	}
 
 	return false
+}
+
+func isTravis() bool {
+	return hasEnv("TRAVIS")
 }
 
 func (s *GoofysTest) mount(t *C, mountPoint string) {

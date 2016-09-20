@@ -139,16 +139,36 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 		log.Errorf("bucket %v does not exist", fs.bucket)
 		return nil
 	} else {
-		// this is NOT AWS, maybe they don't support v4 signing
-		// swift3, ceph-s3 return 400; GCS, EMC return 403
-		fs.fallbackV2Signer()
+		// minio requires the region to be us-east-1
+		if *fs.awsConfig.Region != "us-east-1" {
+			fs.awsConfig.Region = aws.String("us-east-1")
+			fs.sess = session.New(awsConfig)
+			fs.s3 = fs.newS3()
+			s3Log.Infof("Unable to detect bucket region, using '%v'", *fs.awsConfig.Region)
+		}
+		// this is NOT AWS, we expect the request to fail with 403 if this is not
+		// an anonymous bucket, or if the provider doesn't support v4 signing, or both
+		// swift3 and ceph-s3 return 400 so we know we can fallback to v2 signing
+		// EMC returns 403 because it doesn't support v4 signing
+		// minio returns 403 because we are using anonymous credential
+		if err != syscall.EACCES {
+			fs.fallbackV2Signer()
+		}
 	}
 
-	// try again to make sure
-	err = fs.testBucket()
+	// try again with the credential to make sure
+	err = mapAwsError(fs.testBucket())
 	if err != nil {
-		log.Errorf("Unable to access '%v': %v", fs.bucket, mapAwsError(err))
-		return nil
+		if err == syscall.EACCES {
+			// if we still get EACCES, this could be EMC and we should try again
+			fs.fallbackV2Signer()
+			err = mapAwsError(fs.testBucket())
+		}
+
+		if err != nil {
+			log.Errorf("Unable to access '%v': %v", fs.bucket, err)
+			return nil
+		}
 	}
 
 	go fs.cleanUpOldMPU()
@@ -260,16 +280,16 @@ func (fs *Goofys) testBucket() (err error) {
 }
 
 func (fs *Goofys) detectBucketLocationByHEAD() (err error) {
-	config := &aws.Config{
-		Credentials: credentials.AnonymousCredentials,
-		Endpoint:    fs.awsConfig.Endpoint,
-		// always probe with us-east-1 region, otherwise the behavior of other endpoints
-		// maybe different
-		Region:   aws.String("us-east-1"),
-		Logger:   GetLogger("s3"),
-		LogLevel: aws.LogLevel(aws.LogDebug | aws.LogDebugWithRequestErrors),
-	}
-	sess := session.New(config)
+	config := *fs.awsConfig
+	config.Credentials = credentials.AnonymousCredentials
+	config.LogLevel = aws.LogLevel(aws.LogDebug | aws.LogDebugWithRequestErrors)
+	// always probe with us-east-1 region, otherwise the behavior of other endpoints
+	// maybe different
+	config.Region = aws.String("us-east-1")
+	// logger might not have been defined if we ran this in test
+	config.Logger = GetLogger("s3")
+
+	sess := session.New(&config)
 	tmpS3 := s3.New(sess)
 
 	req, _ := tmpS3.HeadBucketRequest(&s3.HeadBucketInput{Bucket: &fs.bucket})
@@ -292,8 +312,7 @@ func (fs *Goofys) detectBucketLocationByHEAD() (err error) {
 			fs.awsConfig.Region = &region[0]
 		}
 	} else {
-		s3Log.Infof("Unable to detect bucket region, staying at '%v'", *fs.awsConfig.Region)
-		err = fuse.EINVAL
+		err = mapAwsError(reqerr)
 	}
 	return
 }
@@ -370,6 +389,10 @@ func (fs *Goofys) GetInodeAttributes(
 }
 
 func mapAwsError(err error) error {
+	if err == nil {
+		return nil
+	}
+
 	if awsErr, ok := err.(awserr.Error); ok {
 		if reqErr, ok := err.(awserr.RequestFailure); ok {
 			// A service error occurred
@@ -883,6 +906,10 @@ func (fs *Goofys) FlushFile(
 		fs.mu.Lock()
 		fs.inodesCache[*fh.inode.FullName] = fh.inode
 		fs.mu.Unlock()
+	} else {
+		// if we returned success from creat() earlier
+		// linux may think this file exists even when it doesn't
+		// TODO: figure out a way to make the kernel forget this inode
 	}
 
 	return
