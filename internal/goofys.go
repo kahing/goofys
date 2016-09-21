@@ -283,6 +283,7 @@ func (fs *Goofys) detectBucketLocationByHEAD() (err error) {
 	config := *fs.awsConfig
 	config.Credentials = credentials.AnonymousCredentials
 	config.LogLevel = aws.LogLevel(aws.LogDebug | aws.LogDebugWithRequestErrors)
+	config.S3ForcePathStyle = aws.Bool(false)
 	// always probe with us-east-1 region, otherwise the behavior of other endpoints
 	// maybe different
 	config.Region = aws.String("us-east-1")
