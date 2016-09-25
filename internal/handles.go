@@ -107,7 +107,11 @@ type FileHandle struct {
 	buffers           []*S3ReadBuffer
 	existingReadahead int
 	seqReadAmount     uint64
+	numOOORead        uint64 // number of out of order read
 }
+
+const MAX_READAHEAD = 100 * 1024 * 1024
+const READAHEAD_CHUNK = 20 * 1024 * 1024
 
 func NewFileHandle(in *Inode) *FileHandle {
 	fh := &FileHandle{inode: in}
@@ -654,9 +658,6 @@ func (fh *FileHandle) readFromReadAhead(fs *Goofys, offset int64, buf []byte) (b
 }
 
 func (fh *FileHandle) readAhead(fs *Goofys, offset int64, needAtLeast int) (err error) {
-	const MAX_READAHEAD = 100 * 1024 * 1024
-	const READAHEAD_CHUNK = 20 * 1024 * 1024
-
 	existingReadahead := 0
 	for _, b := range fh.buffers {
 		existingReadahead += int(b.size)
@@ -737,13 +738,18 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 			fh.reader = nil
 		}
 
+		if fh.buffers != nil {
+			// we misdetected
+			fh.numOOORead++
+		}
+
 		for _, b := range fh.buffers {
 			b.buf.Close()
 		}
 		fh.buffers = nil
 	}
 
-	if fh.seqReadAmount >= BUF_SIZE {
+	if fh.seqReadAmount >= READAHEAD_CHUNK && fh.numOOORead < 3 {
 		if fh.reader != nil {
 			fh.inode.logFuse("cutover to the parallel algorithm")
 			fh.reader.Close()
