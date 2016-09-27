@@ -360,8 +360,12 @@ func (fs *Goofys) cleanUpOldMPU() {
 				Key:      upload.Key,
 				UploadId: upload.UploadId,
 			}
-			resp, _ := fs.s3.AbortMultipartUpload(params)
+			resp, err := fs.s3.AbortMultipartUpload(params)
 			s3Log.Debug(resp)
+
+			if mapAwsError(err) == syscall.EACCES {
+				break
+			}
 		} else {
 			s3Log.Debugf("Keeping MPU Key=%v Id=%v", *upload.Key, *upload.UploadId)
 		}
