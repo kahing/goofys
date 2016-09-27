@@ -111,7 +111,7 @@ func NewApp() (app *cli.App) {
 
 			cli.StringFlag{
 				Name:  "region",
-				Value: "us-west-2",
+				Value: "us-east-1",
 				Usage: "The region to connect to." +
 					" Possible values: us-east-1, us-west-1, us-west-2, eu-west-1, " +
 					"eu-central-1, ap-southeast-1, ap-southeast-2, ap-northeast-1, " +
@@ -206,6 +206,7 @@ type FlagStorage struct {
 	// S3
 	Endpoint       string
 	Region         string
+	RegionSet      bool
 	StorageClass   string
 	UsePathRequest bool
 	Profile        string
@@ -265,6 +266,7 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		// S3
 		Endpoint:       c.String("endpoint"),
 		Region:         c.String("region"),
+		RegionSet:      c.IsSet("region"),
 		StorageClass:   c.String("storage-class"),
 		UsePathRequest: c.Bool("use-path-request"),
 		Profile:        c.String("profile"),

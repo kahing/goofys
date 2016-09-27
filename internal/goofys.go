@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"math/rand"
 	"mime"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -130,34 +132,30 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 	fs.sess = session.New(awsConfig)
 	fs.s3 = fs.newS3()
 
-	err := fs.detectBucketLocationByHEAD()
-	if err == nil {
-		// we detected a region header, this is probably AWS S3
-		fs.sess = session.New(awsConfig)
-		fs.s3 = fs.newS3()
-	} else if err == fuse.ENOENT {
-		log.Errorf("bucket %v does not exist", fs.bucket)
-		return nil
-	} else {
-		// minio requires the region to be us-east-1
-		if *fs.awsConfig.Region != "us-east-1" {
-			fs.awsConfig.Region = aws.String("us-east-1")
+	if !fs.flags.RegionSet {
+		err := fs.detectBucketLocationByHEAD()
+		if err == nil {
+			// we detected a region header, this is probably AWS S3,
+			// or we can use anonymous access, or both
 			fs.sess = session.New(awsConfig)
 			fs.s3 = fs.newS3()
-			s3Log.Infof("Unable to detect bucket region, using '%v'", *fs.awsConfig.Region)
-		}
-		// this is NOT AWS, we expect the request to fail with 403 if this is not
-		// an anonymous bucket, or if the provider doesn't support v4 signing, or both
-		// swift3 and ceph-s3 return 400 so we know we can fallback to v2 signing
-		// EMC returns 403 because it doesn't support v4 signing
-		// minio returns 403 because we are using anonymous credential
-		if err != syscall.EACCES {
-			fs.fallbackV2Signer()
+		} else if err == fuse.ENOENT {
+			log.Errorf("bucket %v does not exist", fs.bucket)
+			return nil
+		} else {
+			// this is NOT AWS, we expect the request to fail with 403 if this is not
+			// an anonymous bucket, or if the provider doesn't support v4 signing, or both
+			// swift3 and ceph-s3 return 400 so we know we can fallback to v2 signing
+			// EMC returns 403 because it doesn't support v4 signing
+			// minio returns 403 because we are using anonymous credential
+			if err == fuse.EINVAL {
+				fs.fallbackV2Signer()
+			}
 		}
 	}
 
 	// try again with the credential to make sure
-	err = mapAwsError(fs.testBucket())
+	err := mapAwsError(fs.testBucket())
 	if err != nil {
 		if err == syscall.EACCES {
 			// if we still get EACCES, this could be EMC and we should try again
@@ -280,41 +278,67 @@ func (fs *Goofys) testBucket() (err error) {
 }
 
 func (fs *Goofys) detectBucketLocationByHEAD() (err error) {
-	config := *fs.awsConfig
-	config.Credentials = credentials.AnonymousCredentials
-	config.LogLevel = aws.LogLevel(aws.LogDebug | aws.LogDebugWithRequestErrors)
-	config.S3ForcePathStyle = aws.Bool(false)
-	// always probe with us-east-1 region, otherwise the behavior of other endpoints
-	// maybe different
-	config.Region = aws.String("us-east-1")
-	// logger might not have been defined if we ran this in test
-	config.Logger = GetLogger("s3")
-
-	sess := session.New(&config)
-	tmpS3 := s3.New(sess)
-
-	req, _ := tmpS3.HeadBucketRequest(&s3.HeadBucketInput{Bucket: &fs.bucket})
-	reqerr := req.Send()
-	if reqerr == nil {
-		if len(fs.flags.Profile) == 0 {
-			fs.awsConfig.Credentials = credentials.AnonymousCredentials
-			s3Log.Infof("anonymous bucket detected")
-		}
-	} else {
-		if req.HTTPResponse.StatusCode == 404 {
-			return fuse.ENOENT
-		}
+	u := url.URL{
+		Scheme: "https",
+		Host:   "s3.amazonaws.com",
+		Path:   fs.bucket,
 	}
 
-	region := req.HTTPResponse.Header["X-Amz-Bucket-Region"]
+	if fs.awsConfig.Endpoint != nil {
+		endpoint, err := url.Parse(*fs.awsConfig.Endpoint)
+		if err != nil {
+			return err
+		}
+
+		u.Scheme = endpoint.Scheme
+		u.Host = endpoint.Host
+	}
+
+	var req *http.Request
+	var resp *http.Response
+
+	req, err = http.NewRequest("HEAD", u.String(), nil)
+	if err != nil {
+		return
+	}
+
+	resp, err = http.DefaultTransport.RoundTrip(req)
+	if err != nil {
+		return err
+	}
+
+	region := resp.Header["X-Amz-Bucket-Region"]
+
+	s3Log.Debugf("HEAD %v = %v %v", u.String(), resp.StatusCode, region)
+
+	switch resp.StatusCode {
+	case 200:
+		// note that this only happen if the bucket is in us-east-1
+		fs.awsConfig.Credentials = credentials.AnonymousCredentials
+		s3Log.Infof("anonymous bucket detected")
+	case 400:
+		err = fuse.EINVAL
+	case 403:
+		err = syscall.EACCES
+	case 404:
+		err = fuse.ENOENT
+	case 405:
+		err = syscall.ENOTSUP
+	default:
+		err = syscall.EAGAIN
+	}
+
 	if len(region) != 0 {
 		if region[0] != *fs.awsConfig.Region {
-			s3Log.Infof("Switching from region '%v' to '%v'", *fs.awsConfig.Region, region[0])
+			s3Log.Infof("Switching from region '%v' to '%v'",
+				*fs.awsConfig.Region, region[0])
 			fs.awsConfig.Region = &region[0]
 		}
-	} else {
-		err = mapAwsError(reqerr)
+
+		// we detected a region, this is aws, the error is irrelevant
+		err = nil
 	}
+
 	return
 }
 

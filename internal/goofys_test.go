@@ -137,7 +137,7 @@ func selectTestConfig(t *C) *aws.Config {
 			Region: aws.String("us-east-1"),
 			//LogLevel:         aws.LogLevel(aws.LogDebug | aws.LogDebugWithSigning),
 			S3ForcePathStyle: aws.Bool(true),
-			Endpoint:         aws.String("play.minio.io:9000"),
+			Endpoint:         aws.String("http://play.minio.io:9000"),
 		}
 	} else {
 		addr := "127.0.0.1:8080"
@@ -149,7 +149,7 @@ func selectTestConfig(t *C) *aws.Config {
 			//Credentials: credentials.AnonymousCredentials,
 			Credentials:      credentials.NewStaticCredentials("foo", "bar", ""),
 			Region:           aws.String("us-west-2"),
-			Endpoint:         aws.String(addr),
+			Endpoint:         aws.String("http://" + addr),
 			DisableSSL:       aws.Bool(true),
 			S3ForcePathStyle: aws.Bool(true),
 			MaxRetries:       aws.Int(0),
