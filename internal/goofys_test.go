@@ -137,7 +137,7 @@ func selectTestConfig(t *C) *aws.Config {
 			Region: aws.String("us-east-1"),
 			//LogLevel:         aws.LogLevel(aws.LogDebug | aws.LogDebugWithSigning),
 			S3ForcePathStyle: aws.Bool(true),
-			Endpoint:         aws.String("http://play.minio.io:9000"),
+			Endpoint:         aws.String("https://play.minio.io:9000"),
 		}
 	} else {
 		addr := "127.0.0.1:8080"
