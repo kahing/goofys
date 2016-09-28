@@ -423,6 +423,7 @@ func mapAwsError(err error) error {
 	}
 
 	if awsErr, ok := err.(awserr.Error); ok {
+		s3Log.Errorf("code=%v msg=%v, err=%v\n", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
 		if reqErr, ok := err.(awserr.RequestFailure); ok {
 			// A service error occurred
 			switch reqErr.StatusCode() {
@@ -613,6 +614,8 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 }
 
 func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (err error) {
+	var metadata map[string]*string
+
 	if size == -1 {
 		params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: fs.key(from)}
 		resp, err := fs.s3.HeadObject(params)
@@ -621,6 +624,7 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 		}
 
 		size = *resp.ContentLength
+		metadata = resp.Metadata
 	}
 
 	from = fs.bucket + "/" + *fs.key(from)
@@ -630,11 +634,13 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 	}
 
 	params := &s3.CopyObjectInput{
-		Bucket:       &fs.bucket,
-		CopySource:   &from,
-		Key:          fs.key(to),
-		StorageClass: &fs.flags.StorageClass,
-		ContentType:  fs.getMimeType(to),
+		Bucket:            &fs.bucket,
+		CopySource:        &from,
+		Key:               fs.key(to),
+		StorageClass:      &fs.flags.StorageClass,
+		ContentType:       fs.getMimeType(to),
+		Metadata:          metadata,
+		MetadataDirective: aws.String(s3.MetadataDirectiveReplace),
 	}
 
 	if fs.flags.UseSSE {

@@ -41,6 +41,8 @@ type Inode struct {
 	Attributes *fuseops.InodeAttributes
 	AttrTime   time.Time
 
+	Metadata map[string]*string
+
 	log *logHandle
 
 	mu      sync.Mutex          // everything below is protected by mu

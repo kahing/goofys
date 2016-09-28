@@ -122,8 +122,7 @@ func waitFor(t *C, addr string) (err error) {
 }
 
 func selectTestConfig(t *C) *aws.Config {
-	const testAws = false
-	if testAws {
+	if hasEnv("AWS") {
 		return &aws.Config{
 			Region:     aws.String("us-west-2"),
 			DisableSSL: aws.Bool(true),
@@ -649,6 +648,32 @@ func (s *GoofysTest) TestRmDir(t *C) {
 	err = root.RmDir(s.fs, "empty_dir")
 	t.Assert(err, IsNil)
 
+}
+
+func (s *GoofysTest) TestRenamePreserveMetadata(t *C) {
+	root := s.getRoot(t)
+
+	from, to := "file1", "new_file"
+
+	metadata := make(map[string]*string)
+	metadata["foo"] = aws.String("bar")
+
+	_, err := s.s3.CopyObject(&s3.CopyObjectInput{
+		Bucket:            &s.fs.bucket,
+		CopySource:        aws.String(s.fs.bucket + "/" + from),
+		Key:               &from,
+		Metadata:          metadata,
+		MetadataDirective: aws.String(s3.MetadataDirectiveReplace),
+	})
+	t.Assert(err, IsNil)
+
+	err = root.Rename(s.fs, from, root, to)
+	t.Assert(err, IsNil)
+
+	resp, err := s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &to})
+	t.Assert(err, IsNil)
+	t.Assert(resp.Metadata["Foo"], NotNil)
+	t.Assert(*resp.Metadata["Foo"], Equals, "bar")
 }
 
 func (s *GoofysTest) TestRename(t *C) {
