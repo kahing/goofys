@@ -423,7 +423,6 @@ func mapAwsError(err error) error {
 	}
 
 	if awsErr, ok := err.(awserr.Error); ok {
-		s3Log.Errorf("code=%v msg=%v, err=%v\n", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
 		if reqErr, ok := err.(awserr.RequestFailure); ok {
 			// A service error occurred
 			switch reqErr.StatusCode() {
@@ -490,8 +489,8 @@ func (fs *Goofys) LookUpInodeDir(name string, c chan s3.ListObjectsOutput, errc 
 	c <- *resp
 }
 
-func (fs *Goofys) mpuCopyPart(from string, to string, mpuId string, bytes string, part int64, wg *sync.WaitGroup,
-	etag **string, errout *error) {
+func (fs *Goofys) mpuCopyPart(from string, to string, mpuId string, bytes string, part int64,
+	wg *sync.WaitGroup, srcEtag *string, etag **string, errout *error) {
 
 	defer func() {
 		wg.Done()
@@ -500,12 +499,13 @@ func (fs *Goofys) mpuCopyPart(from string, to string, mpuId string, bytes string
 	// XXX use CopySourceIfUnmodifiedSince to ensure that
 	// we are copying from the same object
 	params := &s3.UploadPartCopyInput{
-		Bucket:          &fs.bucket,
-		Key:             fs.key(to),
-		CopySource:      &from,
-		UploadId:        &mpuId,
-		CopySourceRange: &bytes,
-		PartNumber:      &part,
+		Bucket:            &fs.bucket,
+		Key:               fs.key(to),
+		CopySource:        &from,
+		UploadId:          &mpuId,
+		CopySourceRange:   &bytes,
+		CopySourceIfMatch: srcEtag,
+		PartNumber:        &part,
 	}
 
 	s3Log.Debug(params)
@@ -531,7 +531,7 @@ func sizeToParts(size int64) int {
 }
 
 func (fs *Goofys) mpuCopyParts(size int64, from string, to string, mpuId string,
-	wg *sync.WaitGroup, etags []*string, err *error) {
+	wg *sync.WaitGroup, srcEtag *string, etags []*string, err *error) {
 
 	const PART_SIZE = 5 * 1024 * 1024 * 1024
 
@@ -547,11 +547,12 @@ func (fs *Goofys) mpuCopyParts(size int64, from string, to string, mpuId string,
 		bytes := fmt.Sprintf("bytes=%v-%v", rangeFrom, rangeTo-1)
 
 		wg.Add(1)
-		go fs.mpuCopyPart(from, to, mpuId, bytes, i, wg, &etags[i-1], err)
+		go fs.mpuCopyPart(from, to, mpuId, bytes, i, wg, srcEtag, &etags[i-1], err)
 	}
 }
 
-func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId string) (err error) {
+func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId string,
+	srcEtag *string) (err error) {
 	var wg sync.WaitGroup
 	nParts := sizeToParts(size)
 	etags := make([]*string, nParts)
@@ -579,7 +580,7 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 		mpuId = *resp.UploadId
 	}
 
-	fs.mpuCopyParts(size, from, to, mpuId, &wg, etags, &err)
+	fs.mpuCopyParts(size, from, to, mpuId, &wg, srcEtag, etags, &err)
 	wg.Wait()
 
 	if err != nil {
@@ -615,6 +616,7 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 
 func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (err error) {
 	var metadata map[string]*string
+	var srcEtag *string
 
 	if size == -1 {
 		params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: fs.key(from)}
@@ -625,12 +627,13 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 
 		size = *resp.ContentLength
 		metadata = resp.Metadata
+		srcEtag = resp.ETag
 	}
 
 	from = fs.bucket + "/" + *fs.key(from)
 
 	if size > 5*1024*1024*1024 {
-		return fs.copyObjectMultipart(size, from, to, "")
+		return fs.copyObjectMultipart(size, from, to, "", srcEtag)
 	}
 
 	params := &s3.CopyObjectInput{

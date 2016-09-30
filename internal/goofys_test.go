@@ -676,6 +676,16 @@ func (s *GoofysTest) TestRenamePreserveMetadata(t *C) {
 	t.Assert(*resp.Metadata["Foo"], Equals, "bar")
 }
 
+func (s *GoofysTest) TestRenameLarge(t *C) {
+	s.testWriteFile(t, "large_file", 21*1024*1024, 128*1024)
+
+	root := s.getRoot(t)
+
+	from, to := "large_file", "large_file2"
+	err := root.Rename(s.fs, from, root, to)
+	t.Assert(err, IsNil)
+}
+
 func (s *GoofysTest) TestRename(t *C) {
 	root := s.getRoot(t)
 
@@ -733,7 +743,7 @@ func (s *GoofysTest) TestRename(t *C) {
 
 	// not really rename but can be used by rename
 	from, to = s.fs.bucket+"/file2", "new_file"
-	err = s.fs.copyObjectMultipart(int64(len(from)), from, to, "")
+	err = s.fs.copyObjectMultipart(int64(len(from)), from, to, "", nil)
 	t.Assert(err, IsNil)
 }
 
