@@ -391,6 +391,10 @@ func (fh *FileHandle) initMPU(fs *Goofys) {
 		}
 	}
 
+	if fs.flags.ACL != "" {
+		params.ACL = &fs.flags.ACL
+	}
+
 	resp, err := fs.s3.CreateMultipartUpload(params)
 
 	fh.mu.Lock()
@@ -890,6 +894,10 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 		if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
 			params.SSEKMSKeyId = &fs.flags.KMSKeyID
 		}
+	}
+
+	if fs.flags.ACL != "" {
+		params.ACL = &fs.flags.ACL
 	}
 
 	fs.replicators.Take(1, true)

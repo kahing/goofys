@@ -172,6 +172,13 @@ func NewApp() (app *cli.App) {
 				Value: "",
 			},
 
+			/// http://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html#canned-acl
+			cli.StringFlag{
+				Name:  "acl",
+				Usage: "The canned ACL to apply to the object. Possible values: private, public-read, public-read-write, authenticated-read, aws-exec-read, bucket-owner-read, bucket-owner-full-control (default: off)",
+				Value: "",
+			},
+
 			/////////////////////////
 			// Tuning
 			/////////////////////////
@@ -215,7 +222,7 @@ func NewApp() (app *cli.App) {
 		"join":    strings.Join,
 	}
 
-	awsFlags = map[string]bool{"region": true, "sse": true, "sse-kms": true, "storage-class": true}
+	awsFlags = map[string]bool{"region": true, "sse": true, "sse-kms": true, "storage-class": true, "acl": true}
 
 	cli.HelpPrinter = func(w io.Writer, templ string, data interface{}) {
 		w = tabwriter.NewWriter(w, 1, 8, 2, ' ', 0)
@@ -245,6 +252,7 @@ type FlagStorage struct {
 	UseSSE         bool
 	UseKMS         bool
 	KMSKeyID       string
+	ACL            string
 
 	// Tuning
 	StatCacheTTL time.Duration
@@ -305,6 +313,7 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		UseSSE:         c.Bool("sse"),
 		UseKMS:         c.IsSet("sse-kms"),
 		KMSKeyID:       c.String("sse-kms"),
+		ACL:            c.String("acl"),
 
 		// Debugging,
 		DebugFuse:  c.Bool("debug_fuse"),
