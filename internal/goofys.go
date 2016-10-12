@@ -572,6 +572,10 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 			}
 		}
 
+		if fs.flags.ACL != "" {
+			params.ACL = &fs.flags.ACL
+		}
+
 		resp, err := fs.s3.CreateMultipartUpload(params)
 		if err != nil {
 			return mapAwsError(err)
@@ -651,6 +655,10 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 		if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
 			params.SSEKMSKeyId = &fs.flags.KMSKeyID
 		}
+	}
+
+	if fs.flags.ACL != "" {
+		params.ACL = &fs.flags.ACL
 	}
 
 	_, err = fs.s3.CopyObject(params)
