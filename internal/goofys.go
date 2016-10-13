@@ -844,6 +844,9 @@ func (fs *Goofys) ReadDir(
 
 	dh.inode.logFuse("ReadDir", op.Offset)
 
+	dh.mu.Lock()
+	defer dh.mu.Unlock()
+
 	for i := op.Offset; ; i++ {
 		e, err := dh.ReadDir(fs, i)
 		if err != nil {

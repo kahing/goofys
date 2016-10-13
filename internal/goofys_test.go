@@ -318,6 +318,9 @@ func (s *GoofysTest) TestGetInodeAttributes(t *C) {
 }
 
 func (s *GoofysTest) readDirFully(t *C, dh *DirHandle) (entries []fuseutil.Dirent) {
+	dh.mu.Lock()
+	defer dh.mu.Unlock()
+
 	en, err := dh.ReadDir(s.fs, fuseops.DirOffset(0))
 	t.Assert(err, IsNil)
 	t.Assert(en.Name, Equals, ".")
@@ -380,6 +383,9 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 	dh := parent.OpenDir()
 	defer dh.CloseDir()
 
+	var entries []*fuseutil.Dirent
+
+	dh.mu.Lock()
 	for i := fuseops.DirOffset(0); ; i++ {
 		en, err := dh.ReadDir(s.fs, i)
 		t.Assert(err, IsNil)
@@ -388,6 +394,11 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 			break
 		}
 
+		entries = append(entries, en)
+	}
+	dh.mu.Unlock()
+
+	for _, en := range entries {
 		if en.Type == fuseutil.DT_File {
 			in, err := parent.LookUp(s.fs, en.Name)
 			t.Assert(err, IsNil)

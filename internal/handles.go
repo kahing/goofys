@@ -134,6 +134,9 @@ func (parent *Inode) lookupFromDirHandles(name string) (inode *Inode) {
 	defer parent.mu.Unlock()
 
 	for dh := range parent.handles {
+		dh.mu.Lock()
+		defer dh.mu.Unlock()
+
 		attr, ok := dh.NameToEntry[name]
 		if ok {
 			fullName := parent.getChildName(name)
@@ -1073,6 +1076,7 @@ func makeDirEntry(name string, t fuseutil.DirentType) fuseutil.Dirent {
 	return fuseutil.Dirent{Name: name, Type: t, Inode: fuseops.RootInodeID + 1}
 }
 
+// LOCKS_REQUIRED(dh.mu)
 func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Dirent, error) {
 	// If the request is for offset zero, we assume that either this is the first
 	// call or rewinddir has been called. Reset state.
@@ -1120,12 +1124,17 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 			//MaxKeys:      aws.Int64(3),
 		}
 
+		// try not to hold the lock when we make the request
+		dh.mu.Unlock()
+
 		resp, err := fs.s3.ListObjects(params)
 		if err != nil {
+			dh.mu.Lock()
 			return nil, mapAwsError(err)
 		}
 
 		s3Log.Debug(resp)
+		dh.mu.Lock()
 
 		dh.Entries = make([]fuseutil.Dirent, 0, len(resp.CommonPrefixes)+len(resp.Contents))
 
