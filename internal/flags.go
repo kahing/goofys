@@ -16,14 +16,28 @@
 package internal
 
 import (
+	"io"
 	"os"
 	"strings"
+	"text/tabwriter"
+	"text/template"
 	"time"
 
 	"github.com/codegangsta/cli"
 )
 
+var awsFlags map[string]bool
+
 // Set up custom help text for goofys; in particular the usage section.
+func onlyAws(flags []cli.Flag, aws bool) (ret []cli.Flag) {
+	for _, f := range flags {
+		if awsFlags[f.GetName()] == aws {
+			ret = append(ret, f)
+		}
+	}
+	return
+}
+
 func init() {
 	cli.AppHelpTemplate = `NAME:
    {{.Name}} - {{.Usage}}
@@ -41,7 +55,10 @@ COMMANDS:
    {{range .Commands}}{{join .Names ", "}}{{ "\t" }}{{.Usage}}
    {{end}}{{end}}{{if .Flags}}
 GLOBAL OPTIONS:
-   {{range .Flags}}{{.}}
+   {{range onlyAws .Flags false}}{{.}}
+   {{end}}
+AWS S3 OPTIONS:
+   {{range onlyAws .Flags true}}{{.}}
    {{end}}{{end}}{{if .Copyright }}
 COPYRIGHT:
    {{.Copyright}}
@@ -112,7 +129,7 @@ func NewApp() (app *cli.App) {
 			cli.StringFlag{
 				Name:  "region",
 				Value: "us-east-1",
-				Usage: "The region to connect to." +
+				Usage: "The region to connect to. Usually this is auto-detected." +
 					" Possible values: us-east-1, us-west-1, us-west-2, eu-west-1, " +
 					"eu-central-1, ap-southeast-1, ap-southeast-2, ap-northeast-1, " +
 					"sa-east-1, cn-north-1",
@@ -129,6 +146,7 @@ func NewApp() (app *cli.App) {
 				Name: "use-path-request",
 				Usage: "Use a path-style request instead of virtual host-style." +
 					" (deprecated, always on)",
+				Hidden: true,
 			},
 
 			cli.StringFlag{
@@ -190,6 +208,19 @@ func NewApp() (app *cli.App) {
 				Usage: "Run goofys in foreground.",
 			},
 		},
+	}
+
+	var funcMap = template.FuncMap{
+		"onlyAws": onlyAws,
+		"join":    strings.Join,
+	}
+
+	awsFlags = map[string]bool{"region": true, "sse": true, "sse-kms": true, "storage-class": true}
+
+	cli.HelpPrinter = func(w io.Writer, templ string, data interface{}) {
+		w = tabwriter.NewWriter(w, 1, 8, 2, ' ', 0)
+		var tmplGet = template.Must(template.New("help").Funcs(funcMap).Parse(templ))
+		tmplGet.Execute(w, app)
 	}
 
 	return
