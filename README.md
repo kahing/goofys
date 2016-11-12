@@ -1,4 +1,4 @@
-Goofys is a Filey-System interface to [Amazon S3](https://aws.amazon.com/s3/)
+Goofys is a high-performance, POSIX-ish [Amazon S3](https://aws.amazon.com/s3/) file system written in Go
 
 [![Build Status](https://travis-ci.org/kahing/goofys.svg?branch=master)](https://travis-ci.org/kahing/goofys)
 
