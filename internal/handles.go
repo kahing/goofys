@@ -420,7 +420,7 @@ func (fh *FileHandle) mpuPartNoSpawn(fs *Goofys, buf *MBuf, part int) (err error
 	defer buf.Free()
 
 	if part == 0 || part > 10000 {
-		panic(fmt.Sprintf("invalid part number: %v", part))
+		return errors.New(fmt.Sprintf("invalid part number: %v", part))
 	}
 
 	params := &s3.UploadPartInput{
