@@ -66,6 +66,7 @@ type Goofys struct {
 	v2Signer  bool
 	sseType   string
 	rootAttrs fuseops.InodeAttributes
+	dirAttrs fuseops.InodeAttributes
 
 	bufferPool *BufferPool
 
@@ -181,6 +182,18 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 
 	now := time.Now()
 	fs.rootAttrs = fuseops.InodeAttributes{
+		Size:   4096,
+		Nlink:  2,
+		Mode:   flags.MntMode | os.ModeDir,
+		Atime:  now,
+		Mtime:  now,
+		Ctime:  now,
+		Crtime: now,
+		Uid:    fs.flags.Uid,
+		Gid:    fs.flags.Gid,
+	}
+
+	fs.dirAttrs = fuseops.InodeAttributes{
 		Size:   4096,
 		Nlink:  2,
 		Mode:   flags.DirMode | os.ModeDir,
@@ -718,7 +731,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 		case resp := <-dirChan:
 			if len(resp.CommonPrefixes) != 0 || len(resp.Contents) != 0 {
 				inode = NewInode(&name, &fullName, fs.flags)
-				inode.Attributes = &fs.rootAttrs
+				inode.Attributes = &fs.dirAttrs
 				return
 			} else {
 				// 404

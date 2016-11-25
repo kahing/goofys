@@ -92,6 +92,12 @@ func NewApp() (app *cli.App) {
 			},
 
 			cli.IntFlag{
+				Name:  "mnt-mode",
+				Value: 0755,
+				Usage: "Permission bits for the mount point. (default: 0755)",
+			},
+			
+			cli.IntFlag{
 				Name:  "dir-mode",
 				Value: 0755,
 				Usage: "Permission bits for directories. (default: 0755)",
@@ -236,6 +242,7 @@ func NewApp() (app *cli.App) {
 type FlagStorage struct {
 	// File system
 	MountOptions map[string]string
+	MntMode      os.FileMode
 	DirMode      os.FileMode
 	FileMode     os.FileMode
 	Uid          uint32
@@ -293,6 +300,7 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 	flags = &FlagStorage{
 		// File system
 		MountOptions: make(map[string]string),
+		MntMode:      os.FileMode(c.Int("mnt-mode")),
 		DirMode:      os.FileMode(c.Int("dir-mode")),
 		FileMode:     os.FileMode(c.Int("file-mode")),
 		Uid:          uint32(c.Int("uid")),
