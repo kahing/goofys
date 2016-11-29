@@ -33,7 +33,7 @@ $ $GOPATH/bin/goofys <bucket:prefix> <mountpoint> # if you only want to mount ob
 
 Users can also configure credentials via the
 [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html)
-or the `AWS_ACCESS_KEY` and `AWS_SECRET_KEY` environment variables.
+or the `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` environment variables.
 
 To mount an S3 bucket on startup, make sure the credential is
 configured for `root`, and can add this to `/etc/fstab`:
