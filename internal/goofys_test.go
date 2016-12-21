@@ -973,7 +973,7 @@ func (s *GoofysTest) TestIssue69(t *C) {
 	os.Stat("dir1")
 }
 
-func (s *GoofysTest) TestMimeType(t *C) {
+func (s *GoofysTest) TestGetMimeType(t *C) {
 	// option to use mime type not turned on
 	mime := s.fs.getMimeType("foo.css")
 	t.Assert(mime, IsNil)
@@ -992,6 +992,40 @@ func (s *GoofysTest) TestMimeType(t *C) {
 
 	mime = s.fs.getMimeType("foo.unknownExtension")
 	t.Assert(mime, IsNil)
+}
+
+func (s *GoofysTest) TestPutMimeType(t *C) {
+	s.fs.flags.UseContentType = true
+
+	root := s.getRoot(t)
+	jpg := "test.jpg"
+	jpg2 := "test2.jpg"
+	file := "test"
+
+	s.testWriteFile(t, jpg, 0, 0)
+
+	resp, err := s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &jpg})
+	t.Assert(err, IsNil)
+	t.Assert(*resp.ContentType, Equals, "image/jpeg")
+
+	err = root.Rename(s.fs, jpg, root, file)
+	t.Assert(err, IsNil)
+
+	resp, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &file})
+	t.Assert(err, IsNil)
+	if hasEnv("AWS") {
+		t.Assert(*resp.ContentType, Equals, "binary/octet-stream")
+	} else {
+		// workaround s3proxy https://github.com/andrewgaul/s3proxy/issues/179
+		t.Assert(*resp.ContentType, Equals, "application/unknown")
+	}
+
+	err = root.Rename(s.fs, file, root, jpg2)
+	t.Assert(err, IsNil)
+
+	resp, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &jpg2})
+	t.Assert(err, IsNil)
+	t.Assert(*resp.ContentType, Equals, "image/jpeg")
 }
 
 func (s *GoofysTest) TestBucketPrefixSlash(t *C) {
