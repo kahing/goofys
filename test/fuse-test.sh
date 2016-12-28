@@ -98,6 +98,24 @@ function test_truncate_file {
     rm_test_file
 }
 
+function test_truncate_empty_file {
+    echo "Testing truncate empty file ..."
+    # Write an empty test file
+    touch ${TEST_TEXT_FILE}
+
+    # Truncate the file to 1024 length
+    t_size=1024
+    truncate ${TEST_TEXT_FILE} -s $t_size
+
+    # Verify file is zero length
+    size=$(stat -c %s ${TEST_TEXT_FILE})
+    if [ $t_size -ne $size ]
+    then
+        echo "error: expected ${TEST_TEXT_FILE} to be $t_size length, got $size"
+        exit 1
+    fi
+    rm_test_file
+}
 
 function test_mv_file {
     echo "Testing mv file function ..."
@@ -168,7 +186,7 @@ function test_redirects {
 
     CONTENT=`cat $TEST_TEXT_FILE`
 
-    if [ ${CONTENT} != "ABCDEF" ]; then
+    if [ "${CONTENT}" != "ABCDEF" ]; then
        echo "CONTENT read is unexpected, got ${CONTENT}, expected ABCDEF"
        exit 1
     fi
@@ -378,9 +396,63 @@ function test_extended_attributes {
     getfattr -n key2 --only-values $TEST_TEXT_FILE | grep -q '^value2$'
 }
 
+function test_mtime_file {
+    echo "Testing mtime preservation function ..."
+
+    # if the rename file exists, delete it
+    if [ -e $ALT_TEST_TEXT_FILE -o -L $ALT_TEST_TEXT_FILE ]
+    then
+       rm $ALT_TEST_TEXT_FILE
+    fi
+
+    if [ -e $ALT_TEST_TEXT_FILE ]
+    then
+       echo "Could not delete file ${ALT_TEST_TEXT_FILE}, it still exists"
+       exit 1
+    fi
+
+    # create the test file again
+    mk_test_file
+    sleep 2 # allow for some time to pass to compare the timestamps between test & alt
+
+    #copy the test file with preserve mode
+    cp -p $TEST_TEXT_FILE $ALT_TEST_TEXT_FILE
+    testmtime=`stat -c %Y $TEST_TEXT_FILE`
+    altmtime=`stat -c %Y $ALT_TEST_TEXT_FILE`
+    if [ "$testmtime" -ne "$altmtime" ]
+    then
+       echo "File times do not match:  $testmtime != $altmtime"
+       exit 1
+    fi
+}
+
+function test_rm_rf_dir {
+   echo "Test that rm -rf will remove directory with contents"
+   # Create a dir with some files and directories
+   mkdir dir1
+   mkdir dir1/dir2
+   touch dir1/file1
+   touch dir1/dir2/file2
+
+   # Remove the dir with recursive rm
+   rm -rf dir1
+
+   if [ -e dir1 ]; then
+       echo "rm -rf did not remove $PWD/dir1"
+       exit 1
+   fi
+}
+
+function test_write_after_seek_ahead {
+   echo "Test writes succeed after a seek ahead"
+   dd if=/dev/zero of=testfile seek=1 count=1 bs=1024
+   rm testfile
+}
+
 function run_all_tests {
     test_append_file
     #test_truncate_file
+    #test_truncate_empty_file
     test_mv_file
     test_mv_directory
     #test_redirects
@@ -392,11 +464,13 @@ function run_all_tests {
     # TODO: broken: https://github.com/s3fs-fuse/s3fs-fuse/issues/145
     #test_rename_before_close
     test_multipart_upload
-    # TODO: test disabled until S3Proxy 1.5.0 is released
     test_multipart_copy
     test_special_characters
     #test_symlink
     #test_extended_attributes
+    #test_mtime_file
+    test_rm_rf_dir
+    #test_write_after_seek_ahead
 }
 
 # Mount the bucket
