@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"math/rand"
 	"net"
 	"os"
@@ -240,6 +241,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		FileMode:     0700,
 		Uid:          uint32(uid),
 		Gid:          uint32(gid),
+		StatCacheTTL: 1 * time.Minute,
 	}
 	s.fs = NewGoofys(bucket, s.awsConfig, flags)
 	t.Assert(s.fs, NotNil)
@@ -1106,4 +1108,86 @@ func (s *GoofysTest) TestUnlinkCache(t *C) {
 
 	err = s.fs.LookUpInode(nil, &lookupOp)
 	t.Assert(err, Equals, fuse.ENOENT)
+}
+
+func (s *GoofysTest) anonymous(t *C) {
+	_, err := s.fs.s3.PutBucketAcl(&s3.PutBucketAclInput{
+		ACL:    aws.String("public-read"),
+		Bucket: &s.fs.bucket,
+	})
+	t.Assert(err, IsNil)
+
+	s.fs.awsConfig = selectTestConfig(t)
+	s.fs.awsConfig.Credentials = credentials.AnonymousCredentials
+	s.fs.sess = session.New(s.fs.awsConfig)
+	s.fs.s3 = s.fs.newS3()
+
+	// wait for bucket acl to take effect
+	for {
+		time.Sleep(1 * time.Second)
+		params := &s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: aws.String("file1")}
+		_, err := s.s3.HeadObject(params)
+
+		if err == nil {
+			break
+		}
+	}
+}
+
+func (s *GoofysTest) TestWriteAnonymous(t *C) {
+	if hasEnv("AWS") {
+		s.anonymous(t)
+
+		fileName := "test"
+		createOp := fuseops.CreateFileOp{
+			Parent: s.getRoot(t).Id,
+			Name:   fileName,
+		}
+
+		err := s.fs.CreateFile(s.ctx, &createOp)
+		t.Assert(err, IsNil)
+
+		err = s.fs.FlushFile(s.ctx, &fuseops.FlushFileOp{Handle: createOp.Handle})
+		t.Assert(err, Equals, syscall.EACCES)
+
+		err = s.fs.ReleaseFileHandle(s.ctx, &fuseops.ReleaseFileHandleOp{Handle: createOp.Handle})
+		t.Assert(err, IsNil)
+
+		err = s.fs.LookUpInode(s.ctx, &fuseops.LookUpInodeOp{
+			Parent: s.getRoot(t).Id,
+			Name:   fileName,
+		})
+		t.Assert(err, Equals, fuse.ENOENT)
+	}
+}
+
+func (s *GoofysTest) TestFuseWriteAnonymous(t *C) {
+	if hasEnv("AWS") {
+		s.anonymous(t)
+
+		mountPoint := "/tmp/mnt" + s.fs.bucket
+
+		err := os.MkdirAll(mountPoint, 0700)
+		t.Assert(err, IsNil)
+
+		defer os.Remove(mountPoint)
+
+		s.mount(t, mountPoint)
+		defer func() {
+			err := fuse.Unmount(mountPoint)
+			t.Assert(err, IsNil)
+		}()
+
+		err = ioutil.WriteFile(mountPoint+"/test", []byte(""), 0600)
+		t.Assert(err, NotNil)
+		pathErr, ok := err.(*os.PathError)
+		t.Assert(ok, Equals, true)
+		t.Assert(pathErr.Err, Equals, syscall.EACCES)
+
+		_, err = os.Stat(mountPoint + "/test")
+		t.Assert(err, NotNil)
+		pathErr, ok = err.(*os.PathError)
+		t.Assert(ok, Equals, true)
+		t.Assert(pathErr.Err, Equals, fuse.ENOENT)
+	}
 }
