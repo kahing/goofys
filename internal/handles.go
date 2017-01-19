@@ -286,7 +286,7 @@ func (parent *Inode) MkDir(
 	defer parent.mu.Unlock()
 
 	inode = NewInode(&name, &fullName, parent.flags)
-	inode.Attributes = &fs.rootAttrs
+	inode.Attributes = &fs.dirAttrs
 
 	return
 }
@@ -1103,12 +1103,12 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 	if offset == 0 {
 		e := makeDirEntry(".", fuseutil.DT_Directory)
 		e.Offset = 1
-		dh.NameToEntry["."] = fs.rootAttrs
+		dh.NameToEntry["."] = fs.dirAttrs
 		return &e, nil
 	} else if offset == 1 {
 		e := makeDirEntry("..", fuseutil.DT_Directory)
 		e.Offset = 2
-		dh.NameToEntry[".."] = fs.rootAttrs
+		dh.NameToEntry[".."] = fs.dirAttrs
 		return &e, nil
 	}
 
@@ -1163,7 +1163,7 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 				continue
 			}
 			dh.Entries = append(dh.Entries, makeDirEntry(dirName, fuseutil.DT_Directory))
-			dh.NameToEntry[dirName] = fs.rootAttrs
+			dh.NameToEntry[dirName] = fs.dirAttrs
 		}
 
 		for _, obj := range resp.Contents {

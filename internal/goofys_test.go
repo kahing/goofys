@@ -237,6 +237,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 	uid, gid := MyUserAndGroup()
 	flags := &FlagStorage{
 		StorageClass: "STANDARD",
+		MntMode:      0700,
 		DirMode:      0700,
 		FileMode:     0700,
 		Uid:          uint32(uid),
