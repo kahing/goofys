@@ -957,7 +957,8 @@ func (fs *Goofys) FlushFile(
 		fs.mu.Unlock()
 	} else {
 		// if we returned success from creat() earlier
-		// linux may think this file exists even when it doesn't
+		// linux may think this file exists even when it doesn't,
+		// until TypeCacheTTL is over
 		// TODO: figure out a way to make the kernel forget this inode
 	}
 
