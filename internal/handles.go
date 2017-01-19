@@ -39,6 +39,8 @@ type Inode struct {
 	FullName   *string
 	flags      *FlagStorage
 	Attributes *fuseops.InodeAttributes
+	KnownSize  *uint64
+	Invalid    bool
 	AttrTime   time.Time
 
 	Metadata map[string]*string
@@ -142,6 +144,8 @@ func (parent *Inode) lookupFromDirHandles(name string) (inode *Inode) {
 			fullName := parent.getChildName(name)
 			inode = NewInode(&name, &fullName, parent.flags)
 			inode.Attributes = &attr
+			size := inode.Attributes.Size
+			inode.KnownSize = &size
 			return
 		}
 	}
@@ -287,6 +291,7 @@ func (parent *Inode) MkDir(
 
 	inode = NewInode(&name, &fullName, parent.flags)
 	inode.Attributes = &fs.rootAttrs
+	inode.KnownSize = &inode.Attributes.Size
 
 	return
 }
@@ -357,6 +362,9 @@ func (parent *Inode) RmDir(
 func (inode *Inode) GetAttributes(fs *Goofys) (*fuseops.InodeAttributes, error) {
 	// XXX refresh attributes
 	inode.logFuse("GetAttributes")
+	if inode.Invalid {
+		return nil, fuse.ENOENT
+	}
 	return inode.Attributes, nil
 }
 
@@ -547,7 +555,7 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 		data = data[nCopied:]
 	}
 
-	fh.inode.Attributes.Size = uint64(offset + int64(len(data)))
+	fh.inode.Attributes.Size = uint64(fh.nextWriteOffset)
 
 	return
 }
@@ -728,15 +736,22 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 		fh.readBufOffset += int64(bytesRead)
 		fh.seqReadAmount += uint64(bytesRead)
 
-		if bytesRead != 0 && err != nil {
-			err = nil
+		if err != nil {
+			if bytesRead > 0 {
+				err = nil
+			} else if bytesRead == 0 {
+				bytesRead = -1
+			}
 		}
 
-		fh.inode.logFuse("< ReadFile", bytesRead)
+		fh.inode.logFuse("< ReadFile", bytesRead, err)
 	}()
 
 	if uint64(offset) >= fh.inode.Attributes.Size {
 		// nothing to read
+		if fh.inode.KnownSize == nil || fh.inode.Invalid {
+			err = fuse.ENOENT
+		}
 		return
 	}
 
@@ -820,8 +835,12 @@ func (fh *FileHandle) Release() {
 
 func (fh *FileHandle) readFileSerial(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
 	defer func() {
-		if bytesRead != 0 && err != nil {
-			err = nil
+		if err != nil {
+			if bytesRead > 0 {
+				err = nil
+			} else if bytesRead == 0 {
+				bytesRead = -1
+			}
 		}
 	}()
 
@@ -911,6 +930,15 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 	return
 }
 
+func (fh *FileHandle) resetToKnownSize() {
+	if fh.inode.KnownSize != nil {
+		fh.inode.Attributes.Size = *fh.inode.KnownSize
+	} else {
+		fh.inode.Attributes.Size = 0
+		fh.inode.Invalid = true
+	}
+}
+
 func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 	fh.mu.Lock()
 	defer fh.mu.Unlock()
@@ -918,14 +946,16 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 	fh.inode.logFuse("FlushFile")
 
 	if !fh.dirty || fh.lastWriteError != nil {
-		err = fh.lastWriteError
+		if fh.lastWriteError != nil {
+			err = fh.lastWriteError
+			fh.resetToKnownSize()
+		}
 		return
 	}
 
 	// abort mpu on error
 	defer func() {
 		if err != nil {
-			fh.inode.logFuse("<-- FlushFile", err)
 			if fh.mpuId != nil {
 				go func() {
 					params := &s3.AbortMultipartUploadInput{
@@ -939,7 +969,15 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 					s3Log.Debug(resp)
 				}()
 			}
+
+			fh.resetToKnownSize()
 		} else {
+			if fh.dirty {
+				// don't unset this if we never actually flushed
+				size := fh.inode.Attributes.Size
+				fh.inode.KnownSize = &size
+				fh.inode.Invalid = false
+			}
 			fh.dirty = false
 		}
 

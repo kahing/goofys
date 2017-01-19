@@ -1160,7 +1160,7 @@ func (s *GoofysTest) TestWriteAnonymous(t *C) {
 	t.Assert(err, Equals, fuse.ENOENT)
 }
 
-func (s *GoofysTest) TestFuseWriteAnonymous(t *C) {
+func (s *GoofysTest) TestWriteAnonymousFuse(t *C) {
 	s.anonymous(t)
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
@@ -1191,4 +1191,17 @@ func (s *GoofysTest) TestFuseWriteAnonymous(t *C) {
 	// pathErr, ok = err.(*os.PathError)
 	// t.Assert(ok, Equals, true)
 	// t.Assert(pathErr.Err, Equals, fuse.ENOENT)
+
+	_, err = ioutil.ReadFile(mountPoint + "/test")
+	t.Assert(err, NotNil)
+	pathErr, ok = err.(*os.PathError)
+	t.Assert(ok, Equals, true)
+	t.Assert(pathErr.Err, Equals, fuse.ENOENT)
+
+	// reading the file and getting ENOENT causes the kernel to invalidate the entry
+	_, err = os.Stat(mountPoint + "/test")
+	t.Assert(err, NotNil)
+	pathErr, ok = err.(*os.PathError)
+	t.Assert(ok, Equals, true)
+	t.Assert(pathErr.Err, Equals, fuse.ENOENT)
 }

@@ -199,6 +199,7 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 	root := NewInode(aws.String(""), aws.String(""), flags)
 	root.Id = fuseops.RootInodeID
 	root.Attributes = &fs.rootAttrs
+	root.KnownSize = &fs.rootAttrs.Size
 
 	fs.inodes[fuseops.RootInodeID] = root
 	fs.inodesCache = make(map[string]*Inode)
@@ -411,8 +412,10 @@ func (fs *Goofys) GetInodeAttributes(
 	fs.mu.Unlock()
 
 	attr, err := inode.GetAttributes(fs)
-	op.Attributes = *attr
-	op.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
+	if err == nil {
+		op.Attributes = *attr
+		op.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
+	}
 
 	return
 }
@@ -703,6 +706,11 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 				Uid:    fs.flags.Uid,
 				Gid:    fs.flags.Gid,
 			}
+
+			// don't want to point to the attribute because that
+			// can get updated
+			size := inode.Attributes.Size
+			inode.KnownSize = &size
 			return
 		case err = <-errObjectChan:
 			if err == fuse.ENOENT {
@@ -719,6 +727,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 			if len(resp.CommonPrefixes) != 0 || len(resp.Contents) != 0 {
 				inode = NewInode(&name, &fullName, fs.flags)
 				inode.Attributes = &fs.rootAttrs
+				inode.KnownSize = &inode.Attributes.Size
 				return
 			} else {
 				// 404
@@ -960,7 +969,9 @@ func (fs *Goofys) FlushFile(
 		// linux may think this file exists even when it doesn't,
 		// until TypeCacheTTL is over
 		// TODO: figure out a way to make the kernel forget this inode
+		// see TestWriteAnonymousFuse
 	}
+	fh.inode.logFuse("<-- FlushFile", err)
 
 	return
 }
@@ -1062,6 +1073,7 @@ func (fs *Goofys) RmDir(
 	fs.mu.Unlock()
 
 	err = parent.RmDir(fs, op.Name)
+	parent.logFuse("<-- RmDir", op.Name, err)
 	return
 }
 
@@ -1074,8 +1086,10 @@ func (fs *Goofys) SetInodeAttributes(
 	fs.mu.Unlock()
 
 	attr, err := inode.GetAttributes(fs)
-	op.Attributes = *attr
-	op.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
+	if err == nil {
+		op.Attributes = *attr
+		op.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
+	}
 	return
 }
 
