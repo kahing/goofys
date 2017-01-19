@@ -1135,59 +1135,55 @@ func (s *GoofysTest) anonymous(t *C) {
 }
 
 func (s *GoofysTest) TestWriteAnonymous(t *C) {
-	if hasEnv("AWS") {
-		s.anonymous(t)
+	s.anonymous(t)
 
-		fileName := "test"
-		createOp := fuseops.CreateFileOp{
-			Parent: s.getRoot(t).Id,
-			Name:   fileName,
-		}
-
-		err := s.fs.CreateFile(s.ctx, &createOp)
-		t.Assert(err, IsNil)
-
-		err = s.fs.FlushFile(s.ctx, &fuseops.FlushFileOp{Handle: createOp.Handle})
-		t.Assert(err, Equals, syscall.EACCES)
-
-		err = s.fs.ReleaseFileHandle(s.ctx, &fuseops.ReleaseFileHandleOp{Handle: createOp.Handle})
-		t.Assert(err, IsNil)
-
-		err = s.fs.LookUpInode(s.ctx, &fuseops.LookUpInodeOp{
-			Parent: s.getRoot(t).Id,
-			Name:   fileName,
-		})
-		t.Assert(err, Equals, fuse.ENOENT)
+	fileName := "test"
+	createOp := fuseops.CreateFileOp{
+		Parent: s.getRoot(t).Id,
+		Name:   fileName,
 	}
+
+	err := s.fs.CreateFile(s.ctx, &createOp)
+	t.Assert(err, IsNil)
+
+	err = s.fs.FlushFile(s.ctx, &fuseops.FlushFileOp{Handle: createOp.Handle})
+	t.Assert(err, Equals, syscall.EACCES)
+
+	err = s.fs.ReleaseFileHandle(s.ctx, &fuseops.ReleaseFileHandleOp{Handle: createOp.Handle})
+	t.Assert(err, IsNil)
+
+	err = s.fs.LookUpInode(s.ctx, &fuseops.LookUpInodeOp{
+		Parent: s.getRoot(t).Id,
+		Name:   fileName,
+	})
+	t.Assert(err, Equals, fuse.ENOENT)
 }
 
 func (s *GoofysTest) TestFuseWriteAnonymous(t *C) {
-	if hasEnv("AWS") {
-		s.anonymous(t)
+	s.anonymous(t)
 
-		mountPoint := "/tmp/mnt" + s.fs.bucket
+	mountPoint := "/tmp/mnt" + s.fs.bucket
 
-		err := os.MkdirAll(mountPoint, 0700)
+	err := os.MkdirAll(mountPoint, 0700)
+	t.Assert(err, IsNil)
+
+	defer os.Remove(mountPoint)
+
+	s.mount(t, mountPoint)
+	defer func() {
+		err := fuse.Unmount(mountPoint)
 		t.Assert(err, IsNil)
+	}()
 
-		defer os.Remove(mountPoint)
+	err = ioutil.WriteFile(mountPoint+"/test", []byte(""), 0600)
+	t.Assert(err, NotNil)
+	pathErr, ok := err.(*os.PathError)
+	t.Assert(ok, Equals, true)
+	t.Assert(pathErr.Err, Equals, syscall.EACCES)
 
-		s.mount(t, mountPoint)
-		defer func() {
-			err := fuse.Unmount(mountPoint)
-			t.Assert(err, IsNil)
-		}()
-
-		err = ioutil.WriteFile(mountPoint+"/test", []byte(""), 0600)
-		t.Assert(err, NotNil)
-		pathErr, ok := err.(*os.PathError)
-		t.Assert(ok, Equals, true)
-		t.Assert(pathErr.Err, Equals, syscall.EACCES)
-
-		_, err = os.Stat(mountPoint + "/test")
-		t.Assert(err, NotNil)
-		pathErr, ok = err.(*os.PathError)
-		t.Assert(ok, Equals, true)
-		t.Assert(pathErr.Err, Equals, fuse.ENOENT)
-	}
+	_, err = os.Stat(mountPoint + "/test")
+	t.Assert(err, NotNil)
+	pathErr, ok = err.(*os.PathError)
+	t.Assert(ok, Equals, true)
+	t.Assert(pathErr.Err, Equals, fuse.ENOENT)
 }
