@@ -163,7 +163,7 @@ func NewApp() (app *cli.App) {
 			/// See http://docs.aws.amazon.com/AmazonS3/latest/dev/UsingServerSideEncryption.html
 			cli.BoolFlag{
 				Name:  "sse",
-				Usage: "Enable basic server-side encryption at rest (SSE-S3)in S3 for all writes (default: off)",
+				Usage: "Enable basic server-side encryption at rest (SSE-S3) in S3 for all writes (default: off)",
 			},
 
 			cli.StringFlag{
