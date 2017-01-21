@@ -26,12 +26,12 @@ import (
 	"github.com/codegangsta/cli"
 )
 
-var awsFlags map[string]bool
+var flagCategories map[string]string
 
 // Set up custom help text for goofys; in particular the usage section.
-func onlyAws(flags []cli.Flag, aws bool) (ret []cli.Flag) {
+func filterCategory(flags []cli.Flag, category string) (ret []cli.Flag) {
 	for _, f := range flags {
-		if awsFlags[f.GetName()] == aws {
+		if flagCategories[f.GetName()] == category {
 			ret = append(ret, f)
 		}
 	}
@@ -55,10 +55,13 @@ COMMANDS:
    {{range .Commands}}{{join .Names ", "}}{{ "\t" }}{{.Usage}}
    {{end}}{{end}}{{if .Flags}}
 GLOBAL OPTIONS:
-   {{range onlyAws .Flags false}}{{.}}
+   {{range category .Flags ""}}{{.}}
+   {{end}}
+TUNING OPTIONS:
+   {{range category .Flags "tuning"}}{{.}}
    {{end}}
 AWS S3 OPTIONS:
-   {{range onlyAws .Flags true}}{{.}}
+   {{range category .Flags "aws"}}{{.}}
    {{end}}{{end}}{{if .Copyright }}
 COPYRIGHT:
    {{.Copyright}}
@@ -218,11 +221,19 @@ func NewApp() (app *cli.App) {
 	}
 
 	var funcMap = template.FuncMap{
-		"onlyAws": onlyAws,
-		"join":    strings.Join,
+		"category": filterCategory,
+		"join":     strings.Join,
 	}
 
-	awsFlags = map[string]bool{"region": true, "sse": true, "sse-kms": true, "storage-class": true, "acl": true}
+	flagCategories = map[string]string{}
+
+	for _, f := range []string{"region", "sse", "sse-kms", "storage-class", "acl"} {
+		flagCategories[f] = "aws"
+	}
+
+	for _, f := range []string{"type-cache-ttl", "stat-cache-ttl"} {
+		flagCategories[f] = "tuning"
+	}
 
 	cli.HelpPrinter = func(w io.Writer, templ string, data interface{}) {
 		w = tabwriter.NewWriter(w, 1, 8, 2, ' ', 0)
