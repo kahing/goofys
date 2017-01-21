@@ -781,7 +781,7 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 		fh.buffers = nil
 	}
 
-	if fh.seqReadAmount >= READAHEAD_CHUNK && fh.numOOORead < 3 {
+	if !fs.flags.Cheap && fh.seqReadAmount >= READAHEAD_CHUNK && fh.numOOORead < 3 {
 		if fh.reader != nil {
 			fh.inode.logFuse("cutover to the parallel algorithm")
 			fh.reader.Close()
