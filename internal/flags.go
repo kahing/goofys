@@ -145,13 +145,6 @@ func NewApp() (app *cli.App) {
 					" Possible values: REDUCED_REDUNDANCY, STANDARD, STANDARD_IA.",
 			},
 
-			cli.BoolFlag{
-				Name: "use-path-request",
-				Usage: "Use a path-style request instead of virtual host-style." +
-					" (deprecated, always on)",
-				Hidden: true,
-			},
-
 			cli.StringFlag{
 				Name:  "profile",
 				Usage: "Use a named profile from $HOME/.aws/credentials instead of \"default\"",
@@ -257,7 +250,6 @@ type FlagStorage struct {
 	Region         string
 	RegionSet      bool
 	StorageClass   string
-	UsePathRequest bool
 	Profile        string
 	UseContentType bool
 	UseSSE         bool
@@ -318,7 +310,6 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		Region:         c.String("region"),
 		RegionSet:      c.IsSet("region"),
 		StorageClass:   c.String("storage-class"),
-		UsePathRequest: c.Bool("use-path-request"),
 		Profile:        c.String("profile"),
 		UseContentType: c.Bool("use-content-type"),
 		UseSSE:         c.Bool("sse"),
