@@ -865,6 +865,18 @@ func (s *GoofysTest) TestFuse(t *C) {
 	s.runFuseTest(t, mountPoint, true, "../test/fuse-test.sh", mountPoint)
 }
 
+func (s *GoofysTest) TestFuseCheap(t *C) {
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+	s.fs.flags.Cheap = true
+
+	err := os.MkdirAll(mountPoint, 0700)
+	t.Assert(err, IsNil)
+
+	defer os.Remove(mountPoint)
+
+	s.runFuseTest(t, mountPoint, true, "../test/fuse-test.sh", mountPoint)
+}
+
 func (s *GoofysTest) TestBenchLs(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 

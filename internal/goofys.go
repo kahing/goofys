@@ -686,13 +686,16 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 	dirChan := make(chan s3.ListObjectsOutput, 1)
 
 	go fs.LookUpInodeNotDir(fullName, objectChan, errObjectChan)
-	go fs.LookUpInodeDir(fullName, dirChan, errDirChan)
+	if !fs.flags.Cheap {
+		go fs.LookUpInodeDir(fullName, dirChan, errDirChan)
+	}
 
 	notFound := false
 
 	for {
 		select {
 		case resp := <-objectChan:
+			err = nil
 			// XXX/TODO if both object and object/ exists, return dir
 			inode = NewInode(&name, &fullName, fs.flags)
 			inode.Attributes = &fuseops.InodeAttributes{
@@ -714,16 +717,22 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 			return
 		case err = <-errObjectChan:
 			if err == fuse.ENOENT {
-				if notFound {
-					return nil, err
-				} else {
+				if fs.flags.Cheap {
 					notFound = true
-					err = nil
+					go fs.LookUpInodeDir(fullName, dirChan, errDirChan)
+				} else {
+					if notFound {
+						return nil, err
+					} else {
+						notFound = true
+						err = nil
+					}
 				}
 			} else {
 				return
 			}
 		case resp := <-dirChan:
+			err = nil
 			if len(resp.CommonPrefixes) != 0 || len(resp.Contents) != 0 {
 				inode = NewInode(&name, &fullName, fs.flags)
 				inode.Attributes = &fs.rootAttrs
