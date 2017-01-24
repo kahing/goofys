@@ -682,15 +682,18 @@ func (fs *Goofys) allocateInodeId() (id fuseops.InodeID) {
 func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inode, err error) {
 	errObjectChan := make(chan error, 1)
 	objectChan := make(chan s3.HeadObjectOutput, 1)
+	errDirBlobChan := make(chan error, 1)
+	dirBlobChan := make(chan s3.HeadObjectOutput, 1)
 	errDirChan := make(chan error, 1)
 	dirChan := make(chan s3.ListObjectsOutput, 1)
 
 	go fs.LookUpInodeNotDir(fullName, objectChan, errObjectChan)
 	if !fs.flags.Cheap {
+		go fs.LookUpInodeNotDir(fullName+"/", dirBlobChan, errDirBlobChan)
 		go fs.LookUpInodeDir(fullName, dirChan, errDirChan)
 	}
 
-	notFound := false
+	notFound := 3
 
 	for {
 		select {
@@ -717,19 +720,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 			return
 		case err = <-errObjectChan:
 			if err == fuse.ENOENT {
-				if fs.flags.Cheap {
-					notFound = true
-					go fs.LookUpInodeDir(fullName, dirChan, errDirChan)
-				} else {
-					if notFound {
-						return nil, err
-					} else {
-						notFound = true
-						err = nil
-					}
-				}
-			} else {
-				return
+				notFound--
 			}
 		case resp := <-dirChan:
 			err = nil
@@ -739,14 +730,33 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 				inode.KnownSize = &inode.Attributes.Size
 				return
 			} else {
-				// 404
-				if notFound {
-					return nil, fuse.ENOENT
-				} else {
-					notFound = true
-				}
+				err = fuse.ENOENT
+				notFound--
 			}
 		case err = <-errDirChan:
+			// do nothing
+		case _ = <-dirBlobChan:
+			err = nil
+			inode = NewInode(&name, &fullName, fs.flags)
+			inode.Attributes = &fs.rootAttrs
+			inode.KnownSize = &inode.Attributes.Size
+			return
+		case err = <-errDirBlobChan:
+			if err == fuse.ENOENT {
+				notFound--
+			}
+		}
+
+		switch notFound {
+		case 2:
+			if fs.flags.Cheap {
+				go fs.LookUpInodeNotDir(fullName+"/", dirBlobChan, errDirBlobChan)
+			}
+		case 1:
+			if fs.flags.Cheap {
+				go fs.LookUpInodeDir(fullName, dirChan, errDirChan)
+			}
+		case 0:
 			return
 		}
 	}
