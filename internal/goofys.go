@@ -132,8 +132,10 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 	fs.sess = session.New(awsConfig)
 	fs.s3 = fs.newS3()
 
+	var isAws bool
+	var err error
 	if !fs.flags.RegionSet {
-		err := fs.detectBucketLocationByHEAD()
+		err, isAws = fs.detectBucketLocationByHEAD()
 		if err == nil {
 			// we detected a region header, this is probably AWS S3,
 			// or we can use anonymous access, or both
@@ -146,21 +148,25 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 			// this is NOT AWS, we expect the request to fail with 403 if this is not
 			// an anonymous bucket, or if the provider doesn't support v4 signing, or both
 			// swift3 and ceph-s3 return 400 so we know we can fallback to v2 signing
-			// EMC returns 403 because it doesn't support v4 signing
 			// minio returns 403 because we are using anonymous credential
 			if err == fuse.EINVAL {
 				fs.fallbackV2Signer()
+			} else if err != syscall.EACCES {
+				log.Errorf("Unable to access '%v': %v", fs.bucket, err)
 			}
 		}
 	}
 
 	// try again with the credential to make sure
-	err := mapAwsError(fs.testBucket())
+	err = mapAwsError(fs.testBucket())
 	if err != nil {
-		if err == syscall.EACCES {
-			// if we still get EACCES, this could be EMC and we should try again
-			fs.fallbackV2Signer()
-			err = mapAwsError(fs.testBucket())
+		if !isAws {
+			// EMC returns 403 because it doesn't support v4 signing
+			// Amplidata just gives up and return 500
+			if err == syscall.EACCES || err == syscall.EAGAIN {
+				fs.fallbackV2Signer()
+				err = mapAwsError(fs.testBucket())
+			}
 		}
 
 		if err != nil {
@@ -265,20 +271,18 @@ func RandStringBytesMaskImprSrc(n int) string {
 func (fs *Goofys) testBucket() (err error) {
 	randomObjectName := fs.key(RandStringBytesMaskImprSrc(32))
 
-	var resp *s3.GetObjectOutput
-	resp, err = fs.s3.GetObject(&s3.GetObjectInput{Bucket: &fs.bucket, Key: randomObjectName})
+	_, err = fs.s3.HeadObject(&s3.HeadObjectInput{Bucket: &fs.bucket, Key: randomObjectName})
 	if err != nil {
 		err = mapAwsError(err)
 		if err == fuse.ENOENT {
 			err = nil
 		}
-	} else {
-		resp.Body.Close()
 	}
+
 	return
 }
 
-func (fs *Goofys) detectBucketLocationByHEAD() (err error) {
+func (fs *Goofys) detectBucketLocationByHEAD() (err error, isAws bool) {
 	u := url.URL{
 		Scheme: "https",
 		Host:   "s3.amazonaws.com",
@@ -288,7 +292,7 @@ func (fs *Goofys) detectBucketLocationByHEAD() (err error) {
 	if fs.awsConfig.Endpoint != nil {
 		endpoint, err := url.Parse(*fs.awsConfig.Endpoint)
 		if err != nil {
-			return err
+			return err, false
 		}
 
 		u.Scheme = endpoint.Scheme
@@ -305,12 +309,21 @@ func (fs *Goofys) detectBucketLocationByHEAD() (err error) {
 
 	resp, err = http.DefaultTransport.RoundTrip(req)
 	if err != nil {
-		return err
+		return
 	}
 
 	region := resp.Header["X-Amz-Bucket-Region"]
+	server := resp.Header["Server"]
 
 	s3Log.Debugf("HEAD %v = %v %v", u.String(), resp.StatusCode, region)
+	if region == nil {
+		for k, v := range resp.Header {
+			s3Log.Debugf("%v = %v", k, v)
+		}
+	}
+	if server != nil && server[0] == "AmazonS3" {
+		isAws = true
+	}
 
 	switch resp.StatusCode {
 	case 200:
@@ -325,8 +338,10 @@ func (fs *Goofys) detectBucketLocationByHEAD() (err error) {
 		err = fuse.ENOENT
 	case 405:
 		err = syscall.ENOTSUP
-	default:
+	case 500:
 		err = syscall.EAGAIN
+	default:
+		err = awserr.NewRequestFailure(nil, resp.StatusCode, "")
 	}
 
 	if len(region) != 0 {
@@ -437,6 +452,8 @@ func mapAwsError(err error) error {
 				return fuse.ENOENT
 			case 405:
 				return syscall.ENOTSUP
+			case 500:
+				return syscall.EAGAIN
 			default:
 				s3Log.Errorf("code=%v msg=%v request=%v\n", reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
 				return reqErr

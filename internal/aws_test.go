@@ -46,14 +46,16 @@ func (s *AwsTest) SetUpSuite(t *C) {
 func (s *AwsTest) TestRegionDetection(t *C) {
 	s.fs.bucket = "goofys-eu-west-1.kahing.xyz"
 
-	err := s.fs.detectBucketLocationByHEAD()
+	err, isAws := s.fs.detectBucketLocationByHEAD()
 	t.Assert(err, IsNil)
 	t.Assert(*s.fs.awsConfig.Region, Equals, "eu-west-1")
+	t.Assert(isAws, Equals, true)
 }
 
 func (s *AwsTest) TestBucket404(t *C) {
 	s.fs.bucket = RandStringBytesMaskImprSrc(64)
 
-	err := s.fs.detectBucketLocationByHEAD()
+	err, isAws := s.fs.detectBucketLocationByHEAD()
 	t.Assert(err, Equals, fuse.ENOENT)
+	t.Assert(isAws, Equals, true)
 }
