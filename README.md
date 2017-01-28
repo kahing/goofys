@@ -80,6 +80,17 @@ In addition to the items above, the following supportable but not yet implemente
   * appending to a file
   * creating files larger than 1TB
 
+## Compatibility with non-AWS S3
+
+goofys has been tested with the following non-AWS providers:
+
+* Amplidata
+* EMC Atmos
+* Google Cloud Storage
+* Openstack Swift
+* S3Proxy
+* Minio (limited)
+
 # References
 
   * Data is stored on [Amazon S3](https://aws.amazon.com/s3/)
