@@ -623,7 +623,10 @@ func (b S3ReadBuffer) Init(fs *Goofys, fh *FileHandle, offset int64, size int) *
 		bytes := fmt.Sprintf("bytes=%v-%v", offset, offset+int64(size)-1)
 		params.Range = &bytes
 
-		resp, err := fs.s3.GetObject(params)
+		req, resp := fs.s3.GetObjectRequest(params)
+		req.HTTPRequest.Header.Set("Accept-Encoding", "identity")
+
+		err := req.Send()
 		if err != nil {
 			return nil, mapAwsError(err)
 		}
@@ -872,7 +875,10 @@ func (fh *FileHandle) readFileSerial(fs *Goofys, offset int64, buf []byte) (byte
 		params.Range = &bytes
 	}
 
-	resp, err := fs.s3.GetObject(params)
+	req, resp := fs.s3.GetObjectRequest(params)
+	req.HTTPRequest.Header.Set("Accept-Encoding", "identity")
+
+	err = req.Send()
 	if err != nil {
 		return bytesRead, mapAwsError(err)
 	}
