@@ -59,13 +59,13 @@ connecting to a bucket in us-west-2. Units are seconds.
 
 # License
 
-Copyright (C) 2015 Ka-Hing Cheung
+Copyright (C) 2015 - 2017 Ka-Hing Cheung
 
 Licensed under the Apache License, Version 2.0
 
 # Current Status
 
-goofys has only been tested under Linux.
+goofys has been tested under Linux and OS X.
 
 List of non-POSIX behaviors/limitations:
   * only sequential writes supported
@@ -87,7 +87,7 @@ goofys has been tested with the following non-AWS providers:
 * Amplidata
 * EMC Atmos
 * Google Cloud Storage
-* Openstack Swift
+* OpenStack Swift
 * S3Proxy
 * Minio (limited)
 
