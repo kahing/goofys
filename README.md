@@ -15,14 +15,28 @@ round-trip would either fail (random writes) or faked (no per-file
 permission). Goofys does not have a on disk data cache, and
 consistency model is close-to-open.
 
-# Usage
+# Installation
 
-Pre-built binaries are available [here](https://github.com/kahing/goofys/releases/). You may also need to install fuse-utils first.
+* On Linux, install via [pre-built binaries](https://github.com/kahing/goofys/releases/). You may also need to install fuse-utils first.
+
+* On Mac OS X, install via [Homebrew](http://brew.sh/):
 
 ```ShellSession
+$ brew tap homebrew/fuse
+$ brew install goofys
+```
+
+* Or build from source:
+
+```
 $ export GOPATH=$HOME/work
 $ go get github.com/kahing/goofys
 $ go install github.com/kahing/goofys
+```
+
+# Usage
+
+```ShellSession
 $ cat > ~/.aws/credentials
 [default]
 aws_access_key_id = AKID1234567890
