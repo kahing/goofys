@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 
 	"golang.org/x/net/context"
@@ -63,6 +64,34 @@ func registerSIGINTHandler(mountPoint string) {
 			}
 		}
 	}()
+}
+
+var waitedForSignal os.Signal
+
+func waitForSignal(wg *sync.WaitGroup) {
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGUSR1, syscall.SIGUSR2)
+
+	wg.Add(1)
+	go func() {
+		waitedForSignal = <-signalChan
+		wg.Done()
+	}()
+}
+
+func kill(pid int, s os.Signal) (err error) {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+
+	defer p.Release()
+
+	err = p.Signal(s)
+	if err != nil {
+		return err
+	}
+	return
 }
 
 // Mount the file system based on the supplied arguments, returning a
@@ -164,6 +193,9 @@ func main() {
 		massagePath()
 
 		if !flags.Foreground {
+			var wg sync.WaitGroup
+			waitForSignal(&wg)
+
 			massageArg0()
 
 			ctx := new(daemon.Context)
@@ -175,8 +207,17 @@ func main() {
 			}
 
 			if child != nil {
-				return
+				// attempt to wait for child to notify parent
+				wg.Wait()
+				if waitedForSignal == syscall.SIGUSR1 {
+					return
+				} else {
+					return fuse.EINVAL
+				}
 			} else {
+				// kill our own waiting goroutine
+				kill(os.Getpid(), syscall.SIGUSR1)
+				wg.Wait()
 				defer ctx.Release()
 			}
 
@@ -191,22 +232,28 @@ func main() {
 			flags)
 
 		if err != nil {
+			if !flags.Foreground {
+				kill(os.Getppid(), syscall.SIGUSR2)
+			}
 			log.Fatalf("Mounting file system: %v", err)
+			// fatal also terminates itself
+		} else {
+			if !flags.Foreground {
+				kill(os.Getppid(), syscall.SIGUSR1)
+			}
+			log.Println("File system has been successfully mounted.")
+			// Let the user unmount with Ctrl-C (SIGINT).
+			registerSIGINTHandler(mfs.Dir())
+
+			// Wait for the file system to be unmounted.
+			err = mfs.Join(context.Background())
+			if err != nil {
+				err = fmt.Errorf("MountedFileSystem.Join: %v", err)
+				return
+			}
+
+			log.Println("Successfully exiting.")
 		}
-
-		log.Println("File system has been successfully mounted.")
-
-		// Let the user unmount with Ctrl-C (SIGINT).
-		registerSIGINTHandler(mfs.Dir())
-
-		// Wait for the file system to be unmounted.
-		err = mfs.Join(context.Background())
-		if err != nil {
-			err = fmt.Errorf("MountedFileSystem.Join: %v", err)
-			return
-		}
-
-		log.Println("Successfully exiting.")
 		return
 	}
 
