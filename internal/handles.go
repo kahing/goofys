@@ -114,8 +114,8 @@ type FileHandle struct {
 	numOOORead        uint64 // number of out of order read
 }
 
-const MAX_READAHEAD = 100 * 1024 * 1024
-const READAHEAD_CHUNK = 20 * 1024 * 1024
+const MAX_READAHEAD = uint32(100 * 1024 * 1024)
+const READAHEAD_CHUNK = uint32(20 * 1024 * 1024)
 
 func NewFileHandle(in *Inode) *FileHandle {
 	fh := &FileHandle{inode: in}
@@ -599,12 +599,12 @@ func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, e
 
 type S3ReadBuffer struct {
 	s3     *s3.S3
-	offset int64
-	size   int
+	offset uint64
+	size   uint32
 	buf    *Buffer
 }
 
-func (b S3ReadBuffer) Init(fs *Goofys, fh *FileHandle, offset int64, size int) *S3ReadBuffer {
+func (b S3ReadBuffer) Init(fs *Goofys, fh *FileHandle, offset uint64, size uint32) *S3ReadBuffer {
 	b.s3 = fs.s3
 	b.offset = offset
 	b.size = size
@@ -620,7 +620,7 @@ func (b S3ReadBuffer) Init(fs *Goofys, fh *FileHandle, offset int64, size int) *
 			Key:    fs.key(*fh.inode.FullName),
 		}
 
-		bytes := fmt.Sprintf("bytes=%v-%v", offset, offset+int64(size)-1)
+		bytes := fmt.Sprintf("bytes=%v-%v", offset, offset+uint64(size)-1)
 		params.Range = &bytes
 
 		req, resp := fs.s3.GetObjectRequest(params)
@@ -637,18 +637,19 @@ func (b S3ReadBuffer) Init(fs *Goofys, fh *FileHandle, offset int64, size int) *
 	return &b
 }
 
-func (b *S3ReadBuffer) Read(offset int64, p []byte) (n int, err error) {
+func (b *S3ReadBuffer) Read(offset uint64, p []byte) (n int, err error) {
 	if b.offset == offset {
 		n, err = io.ReadFull(b.buf, p)
-		if err == io.ErrUnexpectedEOF {
+		if n != 0 && err == io.ErrUnexpectedEOF {
 			err = nil
 		}
 		if err == nil {
-			b.offset += int64(n)
-			b.size -= n
-		}
-		if b.size < 0 {
-			panic("size < 0")
+			if uint32(n) > b.size {
+				panic(fmt.Sprintf("read more than available %v %v", n, b.size))
+			}
+
+			b.offset += uint64(n)
+			b.size -= uint32(n)
 		}
 
 		return
@@ -659,10 +660,10 @@ func (b *S3ReadBuffer) Read(offset int64, p []byte) (n int, err error) {
 	}
 }
 
-func (fh *FileHandle) readFromReadAhead(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
+func (fh *FileHandle) readFromReadAhead(fs *Goofys, offset uint64, buf []byte) (bytesRead int, err error) {
 	var nread int
 	for len(fh.buffers) != 0 {
-		nread, err = fh.buffers[0].Read(offset+int64(bytesRead), buf)
+		nread, err = fh.buffers[0].Read(offset+uint64(bytesRead), buf)
 		bytesRead += nread
 		if err != nil {
 			return
@@ -685,26 +686,27 @@ func (fh *FileHandle) readFromReadAhead(fs *Goofys, offset int64, buf []byte) (b
 	return
 }
 
-func (fh *FileHandle) readAhead(fs *Goofys, offset int64, needAtLeast int) (err error) {
-	existingReadahead := 0
+func (fh *FileHandle) readAhead(fs *Goofys, offset uint64, needAtLeast int) (err error) {
+	existingReadahead := uint32(0)
 	for _, b := range fh.buffers {
-		existingReadahead += int(b.size)
+		existingReadahead += b.size
 	}
 
 	readAheadAmount := MAX_READAHEAD
 
 	for readAheadAmount-existingReadahead >= READAHEAD_CHUNK {
-		off := offset + int64(existingReadahead)
-		remaining := fh.inode.Attributes.Size - uint64(off)
+		off := offset + uint64(existingReadahead)
+		remaining := fh.inode.Attributes.Size - off
 
 		// only read up to readahead chunk each time
-		size := MinInt(readAheadAmount-existingReadahead, READAHEAD_CHUNK)
-		size = int(MinUInt64(uint64(size), remaining))
+		size := MinUInt32(readAheadAmount-existingReadahead, READAHEAD_CHUNK)
+		// but don't read past the file
+		size = uint32(MinUInt64(uint64(size), remaining))
 
 		if size != 0 {
 			fh.inode.logFuse("readahead", off, size, existingReadahead)
 
-			readAheadBuf := S3ReadBuffer{}.Init(fs, fh, int64(off), int(size))
+			readAheadBuf := S3ReadBuffer{}.Init(fs, fh, off, size)
 			if readAheadBuf != nil {
 				fh.buffers = append(fh.buffers, readAheadBuf)
 				existingReadahead += size
@@ -784,16 +786,16 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 		fh.buffers = nil
 	}
 
-	if !fs.flags.Cheap && fh.seqReadAmount >= READAHEAD_CHUNK && fh.numOOORead < 3 {
+	if !fs.flags.Cheap && fh.seqReadAmount >= uint64(READAHEAD_CHUNK) && fh.numOOORead < 3 {
 		if fh.reader != nil {
 			fh.inode.logFuse("cutover to the parallel algorithm")
 			fh.reader.Close()
 			fh.reader = nil
 		}
 
-		err = fh.readAhead(fs, offset, len(buf))
+		err = fh.readAhead(fs, uint64(offset), len(buf))
 		if err == nil {
-			bytesRead, err = fh.readFromReadAhead(fs, offset, buf)
+			bytesRead, err = fh.readFromReadAhead(fs, uint64(offset), buf)
 			return
 		} else {
 			// fall back to read serially

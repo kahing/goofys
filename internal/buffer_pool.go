@@ -297,8 +297,6 @@ type Buffer struct {
 	cond *sync.Cond
 
 	buf    *MBuf
-	rp     int
-	wp     int
 	reader io.ReadCloser
 	err    error
 }
@@ -369,7 +367,7 @@ func (b *Buffer) Read(p []byte) (n int, err error) {
 		bufferLog.Debugf("reading %v from stream", len(p))
 
 		n, err = b.reader.Read(p)
-		if err == io.ErrUnexpectedEOF {
+		if n != 0 && err == io.ErrUnexpectedEOF {
 			err = nil
 		}
 	}
@@ -380,7 +378,6 @@ func (b *Buffer) Read(p []byte) (n int, err error) {
 func (b *Buffer) Close() (err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.wp = -1
 
 	if b.reader != nil {
 		err = b.reader.Close()

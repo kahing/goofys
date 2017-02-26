@@ -30,6 +30,22 @@ func MinInt(a, b int) int {
 	}
 }
 
+func MaxUInt32(a, b uint32) uint32 {
+	if a > b {
+		return a
+	} else {
+		return b
+	}
+}
+
+func MinUInt32(a, b uint32) uint32 {
+	if a < b {
+		return a
+	} else {
+		return b
+	}
+}
+
 func MaxUInt64(a, b uint64) uint64 {
 	if a > b {
 		return a
