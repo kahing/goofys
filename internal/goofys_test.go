@@ -1211,3 +1211,47 @@ func (s *GoofysTest) TestWriteAnonymousFuse(t *C) {
 	t.Assert(ok, Equals, true)
 	t.Assert(pathErr.Err, Equals, fuse.ENOENT)
 }
+
+func (s *GoofysTest) TestWriteSyncWrite(t *C) {
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	err := os.MkdirAll(mountPoint, 0700)
+	t.Assert(err, IsNil)
+
+	defer os.Remove(mountPoint)
+
+	s.mount(t, mountPoint)
+
+	var f *os.File
+	var n int
+
+	defer func() {
+		if err != nil {
+			f.Close()
+		}
+
+		err := fuse.Unmount(mountPoint)
+		if err != nil {
+			time.Sleep(1 * time.Second)
+			err = fuse.Unmount(mountPoint)
+			t.Assert(err, IsNil)
+		}
+	}()
+
+	f, err = os.Create(mountPoint + "/TestWriteSyncWrite")
+	t.Assert(err, IsNil)
+
+	n, err = f.Write([]byte("hello\n"))
+	t.Assert(err, IsNil)
+	t.Assert(n, Equals, 6)
+
+	err = f.Sync()
+	t.Assert(err, IsNil)
+
+	n, err = f.Write([]byte("world\n"))
+	t.Assert(err, IsNil)
+	t.Assert(n, Equals, 6)
+
+	err = f.Close()
+	t.Assert(err, IsNil)
+}

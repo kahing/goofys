@@ -979,11 +979,8 @@ func (fs *Goofys) SyncFile(
 	ctx context.Context,
 	op *fuseops.SyncFileOp) (err error) {
 
-	fs.mu.Lock()
-	fh := fs.fileHandles[op.Handle]
-	fs.mu.Unlock()
-
-	err = fh.FlushFile(fs)
+	// intentionally ignored, so that write()/sync()/write() works
+	// see https://github.com/kahing/goofys/issues/154
 	return
 }
 

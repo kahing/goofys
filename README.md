@@ -89,6 +89,7 @@ List of non-POSIX behaviors/limitations:
   * `ctime`, `atime` is always the same as `mtime`
   * cannot rename non-empty directories
   * `unlink` returns success even if file is not present
+  * `fsync` is ignored, files are only flushed on `close`
 
 In addition to the items above, the following supportable but not yet implemented:
   * appending to a file
