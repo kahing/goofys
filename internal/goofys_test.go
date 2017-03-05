@@ -825,6 +825,17 @@ func (s *GoofysTest) mount(t *C, mountPoint string) {
 	t.Assert(err, IsNil)
 }
 
+func (s *GoofysTest) umount(t *C, mountPoint string) {
+	err := fuse.Unmount(mountPoint)
+	if err != nil {
+		time.Sleep(1 * time.Second)
+		err = fuse.Unmount(mountPoint)
+		t.Assert(err, IsNil)
+	}
+
+	os.Remove(mountPoint)
+}
+
 func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs ...string) {
 	s.mount(t, mountPoint)
 
@@ -1218,9 +1229,8 @@ func (s *GoofysTest) TestWriteSyncWrite(t *C) {
 	err := os.MkdirAll(mountPoint, 0700)
 	t.Assert(err, IsNil)
 
-	defer os.Remove(mountPoint)
-
 	s.mount(t, mountPoint)
+	defer s.umount(t, mountPoint)
 
 	var f *os.File
 	var n int
@@ -1228,13 +1238,6 @@ func (s *GoofysTest) TestWriteSyncWrite(t *C) {
 	defer func() {
 		if err != nil {
 			f.Close()
-		}
-
-		err := fuse.Unmount(mountPoint)
-		if err != nil {
-			time.Sleep(1 * time.Second)
-			err = fuse.Unmount(mountPoint)
-			t.Assert(err, IsNil)
 		}
 	}()
 
