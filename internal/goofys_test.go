@@ -1265,3 +1265,12 @@ func (s *GoofysTest) TestIssue156(t *C) {
 	// https://github.com/andrewgaul/s3proxy/issues/201
 	t.Assert(err, NotNil)
 }
+
+func (s *GoofysTest) TestIssue162(t *C) {
+	root := s.getRoot(t)
+
+	s.testWriteFile(t, "l├â┬╢r 006.jpg", 0, 0)
+
+	err := root.Rename(s.fs, "l├â┬╢r 006.jpg", root, "myfile.jpg")
+	t.Assert(err, IsNil)
+}
