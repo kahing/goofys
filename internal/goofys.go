@@ -445,6 +445,78 @@ func (fs *Goofys) GetInodeAttributes(
 	return
 }
 
+func (fs *Goofys) GetXattr(ctx context.Context,
+	op *fuseops.GetXattrOp) (err error) {
+	fs.mu.Lock()
+	inode := fs.getInodeOrDie(op.Inode)
+	fs.mu.Unlock()
+
+	value, err := inode.GetXattr(fs, op.Name)
+	if err != nil {
+		return
+	}
+
+	op.BytesRead = len(value)
+
+	if len(op.Dst) < op.BytesRead {
+		return syscall.ERANGE
+	} else {
+		copy(op.Dst, value)
+		return
+	}
+}
+
+func (fs *Goofys) ListXattr(ctx context.Context,
+	op *fuseops.ListXattrOp) (err error) {
+	fs.mu.Lock()
+	inode := fs.getInodeOrDie(op.Inode)
+	fs.mu.Unlock()
+
+	xattrs, err := inode.ListXattr(fs)
+
+	ncopied := 0
+
+	for _, name := range xattrs {
+		buf := op.Dst[ncopied:]
+		nlen := len(name) + 1
+
+		if nlen <= len(buf) {
+			copy(buf, name)
+			ncopied += nlen
+		}
+
+		op.BytesRead += nlen
+	}
+
+	if ncopied < op.BytesRead {
+		err = syscall.ERANGE
+	}
+
+	return
+}
+
+/*
+func (fs *Goofys) RemoveXattr(ctx context.Context,
+	op *fuseops.RemoveXattrOp) (err error) {
+	fs.mu.Lock()
+	inode := fs.getInodeOrDie(op.Inode)
+	fs.mu.Unlock()
+
+	fuseLog.Infof("RemoveXattr %v %v", *inode.Name, op.Name)
+	return
+}
+
+func (fs *Goofys) SetXattr(ctx context.Context,
+	op *fuseops.SetXattrOp) (err error) {
+	fs.mu.Lock()
+	inode := fs.getInodeOrDie(op.Inode)
+	fs.mu.Unlock()
+
+	fuseLog.Infof("SetXattr %v %v %v %x", *inode.Name, op.Name, op.Value, op.Flags)
+	return
+}
+*/
+
 func mapAwsError(err error) error {
 	if err == nil {
 		return nil
@@ -751,6 +823,9 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 			// can get updated
 			size := inode.Attributes.Size
 			inode.KnownSize = &size
+
+			inode.s3Metadata["etag"] = []byte(*resp.ETag)
+
 			return
 		case err = <-errObjectChan:
 			checking--
@@ -761,6 +836,11 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 				inode = NewInode(&name, &fullName, fs.flags)
 				inode.Attributes = &fs.rootAttrs
 				inode.KnownSize = &inode.Attributes.Size
+				// if cheap is not on, the dir blob
+				// could exist but this returned first
+				if fs.flags.Cheap {
+					inode.ImplicitDir = true
+				}
 				return
 			} else {
 				checkErr[2] = fuse.ENOENT
@@ -769,11 +849,12 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 		case err = <-errDirChan:
 			checking--
 			checkErr[2] = err
-		case _ = <-dirBlobChan:
+		case resp := <-dirBlobChan:
 			err = nil
 			inode = NewInode(&name, &fullName, fs.flags)
 			inode.Attributes = &fs.rootAttrs
 			inode.KnownSize = &inode.Attributes.Size
+			inode.s3Metadata["etag"] = []byte(*resp.ETag)
 			return
 		case err = <-errDirBlobChan:
 			checking--

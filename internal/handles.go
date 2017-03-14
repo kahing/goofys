@@ -18,7 +18,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -34,16 +36,18 @@ import (
 )
 
 type Inode struct {
-	Id         fuseops.InodeID
-	Name       *string
-	FullName   *string
-	flags      *FlagStorage
-	Attributes *fuseops.InodeAttributes
-	KnownSize  *uint64
-	Invalid    bool
-	AttrTime   time.Time
+	Id          fuseops.InodeID
+	Name        *string
+	FullName    *string
+	flags       *FlagStorage
+	Attributes  *fuseops.InodeAttributes
+	KnownSize   *uint64
+	Invalid     bool
+	AttrTime    time.Time
+	ImplicitDir bool
 
-	Metadata map[string]*string
+	userMetadata map[string][]byte
+	s3Metadata   map[string][]byte
 
 	log *logHandle
 
@@ -61,6 +65,7 @@ func NewInode(name *string, fullName *string, flags *FlagStorage) (inode *Inode)
 	inode.refcnt = 1
 	inode.log = GetLogger(*fullName)
 	inode.AttrTime = time.Now()
+	inode.s3Metadata = make(map[string][]byte)
 
 	if inode.flags.DebugFuse {
 		inode.log.Level = logrus.DebugLevel
@@ -74,6 +79,7 @@ type DirHandle struct {
 	mu          sync.Mutex // everything below is protected by mu
 	Entries     []fuseutil.Dirent
 	NameToEntry map[string]fuseops.InodeAttributes // XXX use a smaller struct
+	NameToETag  map[string]string
 	Marker      *string
 	BaseOffset  int
 }
@@ -81,6 +87,7 @@ type DirHandle struct {
 func NewDirHandle(inode *Inode) (dh *DirHandle) {
 	dh = &DirHandle{inode: inode}
 	dh.NameToEntry = make(map[string]fuseops.InodeAttributes)
+	dh.NameToETag = make(map[string]string)
 	return
 }
 
@@ -146,6 +153,7 @@ func (parent *Inode) lookupFromDirHandles(name string) (inode *Inode) {
 			inode.Attributes = &attr
 			size := inode.Attributes.Size
 			inode.KnownSize = &size
+			inode.s3Metadata["etag"] = []byte(dh.NameToETag[name])
 			return
 		}
 	}
@@ -366,6 +374,93 @@ func (inode *Inode) GetAttributes(fs *Goofys) (*fuseops.InodeAttributes, error) 
 		return nil, fuse.ENOENT
 	}
 	return inode.Attributes, nil
+}
+
+func (inode *Inode) isDir() bool {
+	return inode.Attributes.Mode&os.ModeDir != 0
+}
+
+// LOCKS_REQUIRED(inode.mu)
+func (inode *Inode) fillXattr(fs *Goofys) (err error) {
+	if !inode.ImplicitDir {
+		fullName := *inode.FullName
+		if inode.isDir() {
+			fullName += "/"
+		}
+
+		params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: &fullName}
+		resp, err := fs.s3.HeadObject(params)
+		if err != nil {
+			err = mapAwsError(err)
+			if err == fuse.ENOENT {
+				err = nil
+				if inode.isDir() {
+					inode.ImplicitDir = true
+				}
+			}
+			return err
+		}
+
+		inode.s3Metadata["etag"] = []byte(*resp.ETag)
+	}
+
+	return
+}
+
+func (inode *Inode) GetXattr(fs *Goofys, name string) ([]byte, error) {
+	inode.logFuse("GetXattr", name)
+
+	inode.mu.Lock()
+	defer inode.mu.Unlock()
+
+	var meta map[string][]byte
+
+	if strings.HasPrefix(name, "s3.") {
+		name = name[3:]
+		meta = inode.s3Metadata
+		if len(meta) == 0 {
+			err := inode.fillXattr(fs)
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else if strings.HasPrefix(name, "user.") {
+		name = name[5:]
+		meta = inode.userMetadata
+	}
+
+	if meta != nil {
+		value, ok := meta[name]
+		if ok {
+			return []byte(value), nil
+		} else {
+			return nil, syscall.ENODATA
+		}
+	} else {
+		return nil, syscall.ENODATA
+	}
+}
+
+func (inode *Inode) ListXattr(fs *Goofys) ([]string, error) {
+	inode.logFuse("ListXattr")
+
+	inode.mu.Lock()
+	defer inode.mu.Unlock()
+
+	var xattrs []string
+
+	if len(inode.s3Metadata) == 0 {
+		err := inode.fillXattr(fs)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	for k, _ := range inode.s3Metadata {
+		xattrs = append(xattrs, "s3."+k)
+	}
+
+	return xattrs, nil
 }
 
 func (inode *Inode) OpenFile(fs *Goofys) *FileHandle {
@@ -1196,6 +1291,7 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 				Uid:    fs.flags.Uid,
 				Gid:    fs.flags.Gid,
 			}
+			dh.NameToETag[baseName] = *obj.ETag
 		}
 
 		sort.Sort(sortedDirents(dh.Entries))
