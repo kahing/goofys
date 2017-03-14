@@ -710,7 +710,8 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 		go fs.LookUpInodeDir(fullName, dirChan, errDirChan)
 	}
 
-	notFound := 3
+	checking := 3
+	var checkErr [3]error
 
 	for {
 		select {
@@ -736,9 +737,8 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 			inode.KnownSize = &size
 			return
 		case err = <-errObjectChan:
-			if err == fuse.ENOENT {
-				notFound--
-			}
+			checking--
+			checkErr[0] = err
 		case resp := <-dirChan:
 			err = nil
 			if len(resp.CommonPrefixes) != 0 || len(resp.Contents) != 0 {
@@ -747,11 +747,12 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 				inode.KnownSize = &inode.Attributes.Size
 				return
 			} else {
-				err = fuse.ENOENT
-				notFound--
+				checkErr[2] = fuse.ENOENT
+				checking--
 			}
 		case err = <-errDirChan:
-			// do nothing
+			checking--
+			checkErr[2] = err
 		case _ = <-dirBlobChan:
 			err = nil
 			inode = NewInode(&name, &fullName, fs.flags)
@@ -759,12 +760,11 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 			inode.KnownSize = &inode.Attributes.Size
 			return
 		case err = <-errDirBlobChan:
-			if err == fuse.ENOENT {
-				notFound--
-			}
+			checking--
+			checkErr[1] = err
 		}
 
-		switch notFound {
+		switch checking {
 		case 2:
 			if fs.flags.Cheap {
 				go fs.LookUpInodeNotDir(fullName+"/", dirBlobChan, errDirBlobChan)
@@ -774,6 +774,14 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 				go fs.LookUpInodeDir(fullName, dirChan, errDirChan)
 			}
 		case 0:
+			for _, e := range checkErr {
+				if e != fuse.ENOENT {
+					err = e
+					return
+				}
+			}
+
+			err = fuse.ENOENT
 			return
 		}
 	}

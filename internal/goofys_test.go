@@ -1258,3 +1258,10 @@ func (s *GoofysTest) TestWriteSyncWrite(t *C) {
 	err = f.Close()
 	t.Assert(err, IsNil)
 }
+
+func (s *GoofysTest) TestIssue156(t *C) {
+	_, err := s.LookUpInode(t, "\xae\x8a-")
+	// S3Proxy and aws s3 return different errors
+	// https://github.com/andrewgaul/s3proxy/issues/201
+	t.Assert(err, NotNil)
+}
