@@ -1267,10 +1267,20 @@ func (s *GoofysTest) TestIssue156(t *C) {
 }
 
 func (s *GoofysTest) TestIssue162(t *C) {
-	root := s.getRoot(t)
-
-	s.testWriteFile(t, "l├â┬╢r 006.jpg", 0, 0)
-
-	err := root.Rename(s.fs, "l├â┬╢r 006.jpg", root, "myfile.jpg")
+	params := &s3.PutObjectInput{
+		Bucket: &s.fs.bucket,
+		Key:    aws.String("dir1/l├â┬╢r 006.jpg"),
+		Body:   bytes.NewReader([]byte("foo")),
+	}
+	_, err := s.s3.PutObject(params)
 	t.Assert(err, IsNil)
+
+	dir, err := s.LookUpInode(t, "dir1")
+	t.Assert(err, IsNil)
+
+	err = dir.Rename(s.fs, "l├â┬╢r 006.jpg", dir, "myfile.jpg")
+	t.Assert(err, IsNil)
+
+	resp, err := s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: aws.String("dir1/myfile.jpg")})
+	t.Assert(*resp.ContentLength, Equals, int64(3))
 }

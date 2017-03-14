@@ -521,7 +521,7 @@ func (fs *Goofys) mpuCopyPart(from string, to string, mpuId string, bytes string
 	params := &s3.UploadPartCopyInput{
 		Bucket:            &fs.bucket,
 		Key:               fs.key(to),
-		CopySource:        &from,
+		CopySource:        aws.String(pathEscape(from)),
 		UploadId:          &mpuId,
 		CopySourceRange:   &bytes,
 		CopySourceIfMatch: srcEtag,
@@ -638,6 +638,12 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 	return
 }
 
+// can be replaced by url.PathEscape in golang 1.8
+func pathEscape(path string) string {
+	u := url.URL{Path: path}
+	return u.EscapedPath()
+}
+
 func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (err error) {
 	var metadata map[string]*string
 	var srcEtag *string
@@ -662,7 +668,7 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 
 	params := &s3.CopyObjectInput{
 		Bucket:            &fs.bucket,
-		CopySource:        &from,
+		CopySource:        aws.String(pathEscape(from)),
 		Key:               fs.key(to),
 		StorageClass:      &fs.flags.StorageClass,
 		ContentType:       fs.getMimeType(to),
