@@ -58,6 +58,26 @@ goofys#bucket   /mnt/mountpoint        fuse     _netdev,allow_other,--file-mode=
 
 Got more questions? Check out [questions other people asked](https://github.com/kahing/goofys/issues?utf8=%E2%9C%93&q=is%3Aissue%20label%3Aquestion%20)
 
+
+# Using Docker
+
+
+```shell
+$ docker run -d --privileged --device /dev/fuse \
+             --cap-add SYS_ADMIN --cap-add MKNOD \
+             -e "BUCKETNAME=<BUCKETNAME>" \
+             -e "AWS_ACCESS_KEY_ID=<AWS_ACCESS_KEY_ID>" \
+             -e "AWS_SECRET_ACCESS_KEY=<AWS_SECRET_ACCESS_KEY>" \
+             -e GOOFYS_UID="<UID>" \
+             -e GOOFYS_GID="<GID>" \
+             -e GOOFYS_ENTRYPOING=<ENTRYPOING>" \
+             -v "/var/lib/goofys/test:/var/lib/goofys:shared" \
+             kahing/goofys
+```
+
+See also the provided `docker-compose.yml` example for more.
+
+
 # Benchmark
 
 Using `--stat-cache-ttl 0 --type-cache-ttl 0` for goofys
