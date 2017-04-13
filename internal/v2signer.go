@@ -130,7 +130,7 @@ func (v2 *signer) Sign() error {
 	} else {
 		uri = v2.Request.URL.Path
 	}
-	path := uri
+	path := pathEscape(uri)
 	if !v2.pathStyle {
 		host := strings.SplitN(v2.Request.URL.Host, ".", 2)[0]
 		path = "/" + host + uri
