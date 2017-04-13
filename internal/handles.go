@@ -1241,7 +1241,7 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 			en.Offset = fuseops.DirOffset(i+dh.BaseOffset) + 1 + 2
 		}
 
-		if *resp.IsTruncated {
+		if resp.IsTruncated != nil && *resp.IsTruncated {
 			dh.Marker = resp.NextMarker
 		} else {
 			dh.Marker = nil
