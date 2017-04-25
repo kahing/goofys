@@ -92,7 +92,6 @@ List of non-POSIX behaviors/limitations:
   * `fsync` is ignored, files are only flushed on `close`
 
 In addition to the items above, the following supportable but not yet implemented:
-  * appending to a file
   * creating files larger than 1TB
 
 ## Compatibility with non-AWS S3
