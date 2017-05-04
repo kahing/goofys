@@ -733,7 +733,23 @@ func (fh *FileHandle) readAhead(fs *Goofys, offset uint64, needAtLeast int) (err
 
 func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
 	fh.inode.logFuse("ReadFile", offset, len(buf))
+	defer fh.inode.logFuse("< ReadFile", bytesRead, err)
 
+	nwant := len(buf)
+	var nread int
+
+	for bytesRead < nwant && err == nil {
+		nread, err = fh.readFile(fs, offset+int64(bytesRead), buf[bytesRead:])
+		if nread == 0 {
+			break
+		}
+		bytesRead += nread
+	}
+
+	return
+}
+
+func (fh *FileHandle) readFile(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
 	fh.mu.Lock()
 	defer fh.mu.Unlock()
 
@@ -748,8 +764,6 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 				bytesRead = -1
 			}
 		}
-
-		fh.inode.logFuse("< ReadFile", bytesRead, err)
 	}()
 
 	if uint64(offset) >= fh.inode.Attributes.Size {
