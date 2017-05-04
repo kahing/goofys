@@ -308,9 +308,6 @@ func (b Buffer) Init(buf *MBuf, r ReaderProvider) *Buffer {
 	b.cond = sync.NewCond(&b.mu)
 
 	go func() {
-		b.mu.Lock()
-		defer b.mu.Unlock()
-
 		b.readLoop(r)
 	}()
 
@@ -319,32 +316,58 @@ func (b Buffer) Init(buf *MBuf, r ReaderProvider) *Buffer {
 
 func (b *Buffer) readLoop(r ReaderProvider) {
 	for {
+		b.mu.Lock()
 		if b.reader == nil {
 			b.reader, b.err = r()
 			b.cond.Broadcast()
 			if b.err != nil {
+				b.mu.Unlock()
 				break
 			}
 		}
 
 		if b.buf == nil {
+			b.mu.Unlock()
 			break
 		}
 
 		nread, err := b.buf.WriteFrom(b.reader)
 		if err != nil {
 			b.err = err
+			b.mu.Unlock()
 			break
 		}
+		bufferLog.Debugf("wrote %v into buffer", nread)
 
 		if nread == 0 {
 			b.reader.Close()
+			b.mu.Unlock()
 			break
 		}
+
+		b.mu.Unlock()
+		// if we get here we've read _something_, bounce this goroutine
+		// to allow another one to read
+		runtime.Gosched()
 	}
+	bufferLog.Debugf("<-- readLoop()")
+}
+
+func (b *Buffer) readFromStream(p []byte) (n int, err error) {
+	bufferLog.Debugf("reading %v from stream", len(p))
+
+	n, err = b.reader.Read(p)
+	if n != 0 && err == io.ErrUnexpectedEOF {
+		err = nil
+	} else {
+		bufferLog.Debugf("read %v from stream", n)
+	}
+	return
 }
 
 func (b *Buffer) Read(p []byte) (n int, err error) {
+	bufferLog.Debugf("Buffer.Read(%v)", len(p))
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -360,16 +383,15 @@ func (b *Buffer) Read(p []byte) (n int, err error) {
 		if n == 0 {
 			b.buf.Free()
 			b.buf = nil
+			bufferLog.Debugf("drained buffer")
+			n, err = b.readFromStream(p)
+		} else {
+			bufferLog.Debugf("read %v from buffer", n)
 		}
 	} else if b.err != nil {
 		err = b.err
 	} else {
-		bufferLog.Debugf("reading %v from stream", len(p))
-
-		n, err = b.reader.Read(p)
-		if n != 0 && err == io.ErrUnexpectedEOF {
-			err = nil
-		}
+		n, err = b.readFromStream(p)
 	}
 
 	return

@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Sirupsen/logrus"
 	. "gopkg.in/check.v1"
 )
 
@@ -27,6 +28,7 @@ type BufferTest struct {
 }
 
 var _ = Suite(&BufferTest{})
+var ignored2 = logrus.DebugLevel
 
 type SeqReader struct {
 	cur int64
@@ -63,7 +65,7 @@ type SlowReader struct {
 
 func (r *SlowReader) Read(p []byte) (n int, err error) {
 	time.Sleep(r.sleep)
-	return r.r.Read(p[:MaxInt(len(p), 1337)])
+	return r.r.Read(p[:MinInt(len(p), 1336)])
 }
 
 func (r *SlowReader) Close() error {
@@ -106,7 +108,13 @@ func CompareReader(r1, r2 io.Reader) (int, error) {
 		}
 	}
 
-	return -1, nil
+	// should have consumed all of r2
+	nread2, err := r2.Read(buf2[:])
+	if nread2 == 0 || err == io.ErrUnexpectedEOF {
+		return -1, nil
+	} else {
+		return nread2, err
+	}
 }
 
 func (s *BufferTest) TestMBuf(t *C) {
@@ -182,7 +190,7 @@ func (s *BufferTest) TestBuffer(t *C) {
 	t.Assert(len(mb.buffers), Equals, 2)
 
 	r := func() (io.ReadCloser, error) {
-		return &SlowReader{io.LimitReader(&SeqReader{}, int64(n)), 100 * time.Millisecond}, nil
+		return &SlowReader{io.LimitReader(&SeqReader{}, int64(n)), 1 * time.Millisecond}, nil
 	}
 
 	b := Buffer{}.Init(mb, r)
