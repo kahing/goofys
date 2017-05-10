@@ -560,43 +560,6 @@ func (fh *FileHandle) WriteFile(fs *Goofys, offset int64, data []byte) (err erro
 	return
 }
 
-func tryReadAll(r io.ReadCloser, buf []byte) (bytesRead int, err error) {
-	toRead := len(buf)
-	for toRead > 0 {
-		buf := buf[bytesRead : bytesRead+int(toRead)]
-
-		nread, err := r.Read(buf)
-		bytesRead += nread
-		toRead -= nread
-
-		if err != nil {
-			return bytesRead, err
-		}
-	}
-
-	return
-}
-
-func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, err error) {
-	if fh.inode.flags.DebugFuse {
-		defer func() {
-			fh.inode.logFuse("< readFromStream", bytesRead)
-		}()
-	}
-
-	if fh.reader != nil {
-		// try to service read from existing stream
-		bytesRead, err = tryReadAll(fh.reader, buf)
-		if err == io.EOF {
-			fh.reader.Close()
-			fh.reader = nil
-		}
-		return
-	}
-
-	return
-}
-
 type S3ReadBuffer struct {
 	s3     *s3.S3
 	offset uint64
@@ -822,7 +785,7 @@ func (fh *FileHandle) readFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 		}
 	}
 
-	bytesRead, err = fh.readFileSerial(fs, offset, buf)
+	bytesRead, err = fh.readFromStream(fs, offset, buf)
 
 	return
 }
@@ -852,8 +815,11 @@ func (fh *FileHandle) Release() {
 	}
 }
 
-func (fh *FileHandle) readFileSerial(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
+func (fh *FileHandle) readFromStream(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
 	defer func() {
+		if fh.inode.flags.DebugFuse {
+			fh.inode.logFuse("< readFromStream", bytesRead)
+		}
 		if err != nil {
 			if bytesRead > 0 {
 				err = nil
@@ -868,46 +834,33 @@ func (fh *FileHandle) readFileSerial(fs *Goofys, offset int64, buf []byte) (byte
 		return
 	}
 
-	bytesRead, err = fh.readFromStream(offset, buf)
-	if err != nil {
-		return
+	if fh.reader == nil {
+		params := &s3.GetObjectInput{
+			Bucket: &fs.bucket,
+			Key:    fs.key(*fh.inode.FullName),
+		}
+
+		if offset != 0 {
+			bytes := fmt.Sprintf("bytes=%v-", offset)
+			params.Range = &bytes
+		}
+
+		req, resp := fs.s3.GetObjectRequest(params)
+		req.HTTPRequest.Header.Set("Accept-Encoding", "identity")
+
+		err = req.Send()
+		if err != nil {
+			return bytesRead, mapAwsError(err)
+		}
+
+		fh.reader = resp.Body
 	}
 
-	if bytesRead == len(buf) || uint64(offset) == fh.inode.Attributes.Size {
-		// nothing more to read
-		return
-	}
-
-	offset += int64(bytesRead)
-	buf = buf[bytesRead:]
-
-	params := &s3.GetObjectInput{
-		Bucket: &fs.bucket,
-		Key:    fs.key(*fh.inode.FullName),
-	}
-
-	if offset != 0 {
-		bytes := fmt.Sprintf("bytes=%v-", offset)
-		params.Range = &bytes
-	}
-
-	req, resp := fs.s3.GetObjectRequest(params)
-	req.HTTPRequest.Header.Set("Accept-Encoding", "identity")
-
-	err = req.Send()
-	if err != nil {
-		return bytesRead, mapAwsError(err)
-	}
-
-	fh.reader = resp.Body
-
-	nread, err := tryReadAll(resp.Body, buf)
+	bytesRead, err = fh.reader.Read(buf)
 	if err == io.EOF {
 		fh.reader.Close()
 		fh.reader = nil
 	}
-
-	bytesRead += nread
 
 	return
 }
