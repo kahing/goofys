@@ -172,6 +172,10 @@ func massageArg0() {
 
 func main() {
 	app := NewApp()
+
+	var flags *FlagStorage
+	var child *os.Process
+
 	app.Action = func(c *cli.Context) (err error) {
 		// We should get two arguments exactly. Otherwise error out.
 		if len(c.Args()) != 2 {
@@ -186,9 +190,7 @@ func main() {
 		// Populate and parse flags.
 		bucketName := c.Args()[0]
 		mountPoint := c.Args()[1]
-		flags := PopulateFlags(c)
-
-		InitLoggers(!flags.Foreground)
+		flags = PopulateFlags(c)
 
 		massagePath()
 
@@ -199,12 +201,13 @@ func main() {
 			massageArg0()
 
 			ctx := new(daemon.Context)
-			var child *os.Process
 			child, err = ctx.Reborn()
 
 			if err != nil {
 				panic(fmt.Sprintf("unable to daemonize: %v", err))
 			}
+
+			InitLoggers(!flags.Foreground && child == nil)
 
 			if child != nil {
 				// attempt to wait for child to notify parent
@@ -221,6 +224,8 @@ func main() {
 				defer ctx.Release()
 			}
 
+		} else {
+			InitLoggers(!flags.Foreground)
 		}
 
 		// Mount the file system.
@@ -259,6 +264,8 @@ func main() {
 
 	err := app.Run(MassageMountFlags(os.Args))
 	if err != nil {
-		log.Fatalln(err)
+		if !flags.Foreground && child != nil {
+			log.Fatalln("Unable to mount file system, see syslog for details")
+		}
 	}
 }
