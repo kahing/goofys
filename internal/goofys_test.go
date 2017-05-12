@@ -451,7 +451,7 @@ func (s *GoofysTest) TestReadOffset(t *C) {
 func (s *GoofysTest) TestCreateFiles(t *C) {
 	fileName := "testCreateFile"
 
-	_, fh := s.getRoot(t).Create(s.fs, fileName)
+	_, fh := s.getRoot(t).CreateAndOpen(s.fs, fileName)
 
 	err := fh.FlushFile(s.fs)
 	t.Assert(err, IsNil)
@@ -524,7 +524,7 @@ func (s *GoofysTest) testWriteFileAt(t *C, fileName string, offset int64, size i
 	var fh *FileHandle
 
 	if offset == 0 {
-		_, fh = s.getRoot(t).Create(s.fs, fileName)
+		_, fh = s.getRoot(t).CreateAndOpen(s.fs, fileName)
 	} else {
 		in, err := s.getRoot(t).LookUp(s.fs, fileName)
 		t.Assert(err, IsNil)
@@ -639,7 +639,7 @@ func (s *GoofysTest) TestMkDir(t *C) {
 	t.Assert(err, IsNil)
 
 	fileName := "file"
-	_, fh := inode.Create(s.fs, fileName)
+	_, fh := inode.CreateAndOpen(s.fs, fileName)
 
 	err = fh.FlushFile(s.fs)
 	t.Assert(err, IsNil)
@@ -840,10 +840,7 @@ func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs .
 	s.mount(t, mountPoint)
 
 	if umount {
-		defer func() {
-			err := fuse.Unmount(mountPoint)
-			t.Assert(err, IsNil)
-		}()
+		defer s.umount(t, mountPoint)
 	}
 
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
@@ -973,8 +970,7 @@ func (s *GoofysTest) TestIssue69(t *C) {
 		err := os.Chdir("/")
 		t.Assert(err, IsNil)
 
-		err = fuse.Unmount(mountPoint)
-		t.Assert(err, IsNil)
+		s.umount(t, mountPoint)
 	}()
 
 	err = os.Chdir(mountPoint)
@@ -1191,8 +1187,7 @@ func (s *GoofysTest) TestWriteAnonymousFuse(t *C) {
 
 	s.mount(t, mountPoint)
 	defer func() {
-		err := fuse.Unmount(mountPoint)
-		t.Assert(err, IsNil)
+		s.umount(t, mountPoint)
 	}()
 
 	err = ioutil.WriteFile(mountPoint+"/test", []byte(""), 0600)
@@ -1283,4 +1278,29 @@ func (s *GoofysTest) TestIssue162(t *C) {
 
 	resp, err := s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: aws.String("dir1/myfile.jpg")})
 	t.Assert(*resp.ContentLength, Equals, int64(3))
+}
+
+func (s *GoofysTest) TestMkNod(t *C) {
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	err := os.MkdirAll(mountPoint, 0700)
+	t.Assert(err, IsNil)
+
+	defer os.Remove(mountPoint)
+
+	s.mount(t, mountPoint)
+	defer s.umount(t, mountPoint)
+
+	err = syscall.Mknod(mountPoint+"/test", syscall.S_IFREG|0600, 0)
+	t.Assert(err, IsNil)
+
+	fi, err := os.Stat(mountPoint + "/test")
+	t.Assert(err, IsNil)
+
+	t.Assert(fi.Size(), Equals, int64(0))
+	t.Assert(fi.Name(), Equals, "test")
+
+	contents, err := ioutil.ReadFile(mountPoint + "/test")
+	t.Assert(err, IsNil)
+	t.Assert(contents, DeepEquals, []byte(""))
 }

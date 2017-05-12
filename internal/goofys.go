@@ -1041,6 +1041,37 @@ func (fs *Goofys) ReleaseFileHandle(
 	return
 }
 
+func (fs *Goofys) MkNode(
+	ctx context.Context,
+	op *fuseops.MkNodeOp) (err error) {
+
+	fs.mu.Lock()
+	parent := fs.getInodeOrDie(op.Parent)
+	fs.mu.Unlock()
+
+	inode, fh := parent.CreateAndOpen(fs, op.Name)
+
+	fs.mu.Lock()
+
+	nextInode := fs.nextInodeID
+	fs.nextInodeID++
+
+	inode.Id = nextInode
+
+	fs.inodes[inode.Id] = inode
+
+	op.Entry.Child = inode.Id
+	op.Entry.Attributes = *inode.Attributes
+	op.Entry.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
+	op.Entry.EntryExpiration = time.Now().Add(fs.flags.TypeCacheTTL)
+	fs.mu.Unlock()
+
+	// no need to actually allocate the file handle
+	err = fh.FlushFile(fs)
+
+	return
+}
+
 func (fs *Goofys) CreateFile(
 	ctx context.Context,
 	op *fuseops.CreateFileOp) (err error) {
@@ -1049,7 +1080,7 @@ func (fs *Goofys) CreateFile(
 	parent := fs.getInodeOrDie(op.Parent)
 	fs.mu.Unlock()
 
-	inode, fh := parent.Create(fs, op.Name)
+	inode, fh := parent.CreateAndOpen(fs, op.Name)
 
 	fs.mu.Lock()
 	defer fs.mu.Unlock()

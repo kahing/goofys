@@ -227,9 +227,21 @@ func (parent *Inode) Unlink(fs *Goofys, name string) (err error) {
 	return
 }
 
-func (parent *Inode) Create(
+func (parent *Inode) CreateAndOpen(
 	fs *Goofys,
 	name string) (inode *Inode, fh *FileHandle) {
+
+	inode = parent.Create(fs, name)
+
+	fh = NewFileHandle(inode)
+	fh.poolHandle = fs.bufferPool
+	fh.buf = MBuf{}.Init(fh.poolHandle, 0, true)
+	fh.dirty = true
+
+	return
+}
+
+func (parent *Inode) Create(fs *Goofys, name string) (inode *Inode) {
 
 	parent.logFuse("Create", name)
 	fullName := parent.getChildName(name)
@@ -250,11 +262,6 @@ func (parent *Inode) Create(
 		Uid:    fs.flags.Uid,
 		Gid:    fs.flags.Gid,
 	}
-
-	fh = NewFileHandle(inode)
-	fh.poolHandle = fs.bufferPool
-	fh.buf = MBuf{}.Init(fh.poolHandle, 0, true)
-	fh.dirty = true
 
 	return
 }
