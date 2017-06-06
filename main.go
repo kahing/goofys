@@ -37,7 +37,7 @@ import (
 
 	"github.com/kardianos/osext"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 
 	daemon "github.com/sevlyar/go-daemon"
 )
