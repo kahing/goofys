@@ -222,6 +222,8 @@ func (s *GoofysTest) setupDefaultEnv(t *C) (bucket string) {
 		"dir1/file3":      nil,
 		"dir2/dir3/":      nil,
 		"dir2/dir3/file4": nil,
+		"dir4/":           nil,
+		"dir4/file5":      nil,
 		"empty_dir/":      nil,
 		"empty_dir2/":     nil,
 		"zero":            bytes.NewReader([]byte{}),
@@ -364,7 +366,7 @@ func (s *GoofysTest) TestReadDir(t *C) {
 	dh := s.getRoot(t).OpenDir()
 	defer dh.CloseDir()
 
-	s.assertEntries(t, s.getRoot(t), []string{"dir1", "dir2", "empty_dir", "empty_dir2", "file1", "file2", "zero"})
+	s.assertEntries(t, s.getRoot(t), []string{"dir1", "dir2", "dir4", "empty_dir", "empty_dir2", "file1", "file2", "zero"})
 
 	// test listing dir1/
 	in, err := s.LookUpInode(t, "dir1")
@@ -880,6 +882,36 @@ func (s *GoofysTest) TestCheap(t *C) {
 	s.fs.flags.Cheap = true
 	s.TestLookUpInode(t)
 	s.TestWriteLargeFile(t)
+}
+
+func (s *GoofysTest) TestExplicitDir(t *C) {
+	s.fs.flags.ExplicitDir = true
+	s.testExplicitDir(t)
+}
+
+func (s *GoofysTest) TestExplicitDirAndCheap(t *C) {
+	s.fs.flags.ExplicitDir = true
+	s.fs.flags.Cheap = true
+	s.testExplicitDir(t)
+}
+
+func (s *GoofysTest) testExplicitDir(t *C) {
+
+	_, err := s.LookUpInode(t, "file1")
+	t.Assert(err, IsNil)
+
+	_, err = s.LookUpInode(t, "fileNotFound")
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	// dir1/ doesn't exist so we shouldn't be able to see it
+	_, err = s.LookUpInode(t, "dir1/file3")
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	_, err = s.LookUpInode(t, "dir4/file5")
+	t.Assert(err, IsNil)
+
+	_, err = s.LookUpInode(t, "empty_dir")
+	t.Assert(err, IsNil)
 }
 
 func (s *GoofysTest) TestBenchLs(t *C) {

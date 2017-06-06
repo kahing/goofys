@@ -186,6 +186,11 @@ func NewApp() (app *cli.App) {
 				Usage: "Reduce S3 operation costs at the expense of some performance (default: off)",
 			},
 
+			cli.BoolFlag{
+				Name:  "no-implicit-dir",
+				Usage: "Assume all directory objects (\"dir/\") exist (default: off)",
+			},
+
 			cli.DurationFlag{
 				Name:  "stat-cache-ttl",
 				Value: time.Minute,
@@ -231,7 +236,7 @@ func NewApp() (app *cli.App) {
 		flagCategories[f] = "aws"
 	}
 
-	for _, f := range []string{"cheap", "stat-cache-ttl", "type-cache-ttl"} {
+	for _, f := range []string{"cheap", "no-implicit-dir", "stat-cache-ttl", "type-cache-ttl"} {
 		flagCategories[f] = "tuning"
 	}
 
@@ -266,6 +271,7 @@ type FlagStorage struct {
 
 	// Tuning
 	Cheap        bool
+	ExplicitDir  bool
 	StatCacheTTL time.Duration
 	TypeCacheTTL time.Duration
 
@@ -311,6 +317,7 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 
 		// Tuning,
 		Cheap:        c.Bool("cheap"),
+		ExplicitDir:  c.Bool("no-implicit-dir"),
 		StatCacheTTL: c.Duration("stat-cache-ttl"),
 		TypeCacheTTL: c.Duration("type-cache-ttl"),
 
