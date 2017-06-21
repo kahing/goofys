@@ -228,3 +228,20 @@ func (s *BufferTest) TestPool(t *C) {
 
 	wg.Wait()
 }
+
+func (s *BufferTest) TestIssue193(t *C) {
+	h := NewBufferPool(1000 * 1024 * 1024)
+
+	n := uint64(2 * BUF_SIZE)
+	mb := MBuf{}.Init(h, n, false)
+
+	r := func() (io.ReadCloser, error) {
+		return &SlowReader{io.LimitReader(&SeqReader{}, int64(n)), 1 * time.Millisecond}, nil
+	}
+
+	b := Buffer{}.Init(mb, r)
+	b.Close()
+
+	// let the readloop read
+	time.Sleep(1000 * time.Millisecond)
+}

@@ -327,6 +327,7 @@ func (b *Buffer) readLoop(r ReaderProvider) {
 		}
 
 		if b.buf == nil {
+			// buffer was drained
 			b.mu.Unlock()
 			break
 		}
@@ -407,6 +408,7 @@ func (b *Buffer) Close() (err error) {
 
 	if b.buf != nil {
 		b.buf.Free()
+		b.buf = nil
 	}
 
 	return
