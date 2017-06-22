@@ -698,6 +698,9 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 	fh.inode.logFuse("ReadFile", offset, len(buf))
 	defer fh.inode.logFuse("< ReadFile", bytesRead, err)
 
+	fh.mu.Lock()
+	defer fh.mu.Unlock()
+
 	nwant := len(buf)
 	var nread int
 
@@ -713,9 +716,6 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 }
 
 func (fh *FileHandle) readFile(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
-	fh.mu.Lock()
-	defer fh.mu.Unlock()
-
 	defer func() {
 		fh.readBufOffset += int64(bytesRead)
 		fh.seqReadAmount += uint64(bytesRead)
