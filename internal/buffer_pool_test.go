@@ -242,6 +242,5 @@ func (s *BufferTest) TestIssue193(t *C) {
 	b := Buffer{}.Init(mb, r)
 	b.Close()
 
-	// let the readloop read
-	time.Sleep(1000 * time.Millisecond)
+	// readloop would have caused a panic
 }
