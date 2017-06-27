@@ -695,7 +695,9 @@ func (fh *FileHandle) readAhead(fs *Goofys, offset uint64, needAtLeast int) (err
 
 func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
 	fh.inode.logFuse("ReadFile", offset, len(buf))
-	defer fh.inode.logFuse("< ReadFile", bytesRead, err)
+	defer func() {
+		fh.inode.logFuse("< ReadFile", bytesRead, err)
+	}()
 
 	fh.mu.Lock()
 	defer fh.mu.Unlock()
