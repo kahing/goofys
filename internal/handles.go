@@ -587,7 +587,6 @@ func (b S3ReadBuffer) Init(fs *Goofys, fh *FileHandle, offset uint64, size uint3
 		params.Range = &bytes
 
 		req, resp := fs.s3.GetObjectRequest(params)
-		req.HTTPRequest.Header.Set("Accept-Encoding", "identity")
 
 		err := req.Send()
 		if err != nil {
@@ -846,7 +845,6 @@ func (fh *FileHandle) readFromStream(fs *Goofys, offset int64, buf []byte) (byte
 		}
 
 		req, resp := fs.s3.GetObjectRequest(params)
-		req.HTTPRequest.Header.Set("Accept-Encoding", "identity")
 
 		err = req.Send()
 		if err != nil {

@@ -32,6 +32,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/corehandlers"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 
@@ -230,6 +231,16 @@ func (fs *Goofys) fallbackV2Signer() (err error) {
 	return
 }
 
+func addAcceptEncoding(req *request.Request) {
+	if req.HTTPRequest.Method == "GET" {
+		// we need "Accept-Encoding: identity" so that objects
+		// with content-encoding won't be automatically
+		// deflated, but we don't want to sign it because GCS
+		// doesn't like it
+		req.HTTPRequest.Header.Set("Accept-Encoding", "identity")
+	}
+}
+
 func (fs *Goofys) newS3() *s3.S3 {
 	svc := s3.New(fs.sess)
 	if fs.v2Signer {
@@ -237,6 +248,7 @@ func (fs *Goofys) newS3() *s3.S3 {
 		svc.Handlers.Sign.PushBack(SignV2)
 		svc.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
 	}
+	svc.Handlers.Sign.PushBack(addAcceptEncoding)
 	return svc
 }
 
