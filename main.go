@@ -264,7 +264,7 @@ func main() {
 
 	err := app.Run(MassageMountFlags(os.Args))
 	if err != nil {
-		if !flags.Foreground && child != nil {
+		if flags != nil && !flags.Foreground && child != nil {
 			log.Fatalln("Unable to mount file system, see syslog for details")
 		}
 	}
