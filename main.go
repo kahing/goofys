@@ -170,7 +170,11 @@ func massageArg0() {
 	}
 }
 
+var Version string
+
 func main() {
+	VersionHash = Version
+
 	app := NewApp()
 
 	var flags *FlagStorage

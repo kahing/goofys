@@ -69,12 +69,14 @@ COPYRIGHT:
 `
 }
 
+var VersionHash string
+
 func NewApp() (app *cli.App) {
 	uid, gid := MyUserAndGroup()
 
 	app = &cli.App{
 		Name:     "goofys",
-		Version:  "0.0.12",
+		Version:  "0.0.12-" + VersionHash,
 		Usage:    "Mount an S3 bucket locally",
 		HideHelp: true,
 		Writer:   os.Stderr,
