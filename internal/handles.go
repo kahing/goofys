@@ -697,6 +697,12 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 	fh.inode.logFuse("ReadFile", offset, len(buf))
 	defer func() {
 		fh.inode.logFuse("< ReadFile", bytesRead, err)
+
+		if err != nil {
+			if bytesRead > 0 || err == io.EOF {
+				err = nil
+			}
+		}
 	}()
 
 	fh.mu.Lock()
@@ -707,10 +713,9 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 
 	for bytesRead < nwant && err == nil {
 		nread, err = fh.readFile(fs, offset+int64(bytesRead), buf[bytesRead:])
-		if nread == 0 {
-			break
+		if nread > 0 {
+			bytesRead += nread
 		}
-		bytesRead += nread
 	}
 
 	return
@@ -718,22 +723,20 @@ func (fh *FileHandle) ReadFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 
 func (fh *FileHandle) readFile(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
 	defer func() {
-		fh.readBufOffset += int64(bytesRead)
-		fh.seqReadAmount += uint64(bytesRead)
-
-		if err != nil {
-			if bytesRead > 0 {
-				err = nil
-			} else if bytesRead == 0 {
-				bytesRead = -1
-			}
+		if bytesRead > 0 {
+			fh.readBufOffset += int64(bytesRead)
+			fh.seqReadAmount += uint64(bytesRead)
 		}
+
+		fh.inode.logFuse("< readFile", bytesRead, err)
 	}()
 
 	if uint64(offset) >= fh.inode.Attributes.Size {
 		// nothing to read
 		if fh.inode.KnownSize == nil || fh.inode.Invalid {
 			err = fuse.ENOENT
+		} else {
+			err = io.EOF
 		}
 		return
 	}
@@ -821,13 +824,6 @@ func (fh *FileHandle) readFromStream(fs *Goofys, offset int64, buf []byte) (byte
 		if fh.inode.flags.DebugFuse {
 			fh.inode.logFuse("< readFromStream", bytesRead)
 		}
-		if err != nil {
-			if bytesRead > 0 {
-				err = nil
-			} else if bytesRead == 0 {
-				bytesRead = -1
-			}
-		}
 	}()
 
 	if uint64(offset) >= fh.inode.Attributes.Size {
@@ -857,9 +853,12 @@ func (fh *FileHandle) readFromStream(fs *Goofys, offset int64, buf []byte) (byte
 	}
 
 	bytesRead, err = fh.reader.Read(buf)
-	if err == io.EOF {
+	if err != nil {
+		fh.inode.logFuse("< readFromStream error", bytesRead, err)
+		// always retry error on read
 		fh.reader.Close()
 		fh.reader = nil
+		err = nil
 	}
 
 	return
