@@ -840,10 +840,7 @@ func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs .
 	s.mount(t, mountPoint)
 
 	if umount {
-		defer func() {
-			err := fuse.Unmount(mountPoint)
-			t.Assert(err, IsNil)
-		}()
+		defer s.umount(t, mountPoint)
 	}
 
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
@@ -973,8 +970,7 @@ func (s *GoofysTest) TestIssue69(t *C) {
 		err := os.Chdir("/")
 		t.Assert(err, IsNil)
 
-		err = fuse.Unmount(mountPoint)
-		t.Assert(err, IsNil)
+		s.umount(t, mountPoint)
 	}()
 
 	err = os.Chdir(mountPoint)
@@ -1190,10 +1186,7 @@ func (s *GoofysTest) TestWriteAnonymousFuse(t *C) {
 	defer os.Remove(mountPoint)
 
 	s.mount(t, mountPoint)
-	defer func() {
-		err := fuse.Unmount(mountPoint)
-		t.Assert(err, IsNil)
-	}()
+	defer s.umount(t, mountPoint)
 
 	err = ioutil.WriteFile(mountPoint+"/test", []byte(""), 0600)
 	t.Assert(err, NotNil)
