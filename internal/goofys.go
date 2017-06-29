@@ -825,7 +825,9 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 			inode.KnownSize = &size
 
 			inode.s3Metadata["etag"] = []byte(*resp.ETag)
-
+			if resp.StorageClass != nil {
+				inode.s3Metadata["storage-class"] = []byte(*resp.StorageClass)
+			}
 			return
 		case err = <-errObjectChan:
 			checking--
@@ -855,6 +857,9 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 			inode.Attributes = &fs.rootAttrs
 			inode.KnownSize = &inode.Attributes.Size
 			inode.s3Metadata["etag"] = []byte(*resp.ETag)
+			if resp.StorageClass != nil {
+				inode.s3Metadata["storage-class"] = []byte(*resp.StorageClass)
+			}
 			return
 		case err = <-errDirBlobChan:
 			checking--

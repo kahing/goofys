@@ -1300,7 +1300,7 @@ func (s *GoofysTest) TestXAttr(t *C) {
 	value, err := xattr.Get(mountPoint+"/file1", "s3.etag")
 	t.Assert(err, IsNil)
 	// md5sum of "file1"
-	t.Assert("\"826e8142e6baabe8af779f5f490cf5f5\"", Equals, string(value))
+	t.Assert(string(value), Equals, "\"826e8142e6baabe8af779f5f490cf5f5\"")
 
 	_, err = ioutil.ReadDir(mountPoint + "/dir1")
 	t.Assert(err, IsNil)
@@ -1308,7 +1308,7 @@ func (s *GoofysTest) TestXAttr(t *C) {
 	value, err = xattr.Get(mountPoint+"/dir1/file3", "s3.etag")
 	t.Assert(err, IsNil)
 	// md5sum of "dir1/file3"
-	t.Assert("\"5cd67e0e59fb85be91a515afe0f4bb24\"", Equals, string(value))
+	t.Assert(string(value), Equals, "\"5cd67e0e59fb85be91a515afe0f4bb24\"")
 
 	names, err = xattr.List(mountPoint + "/empty_dir2")
 	t.Assert(err, IsNil)
@@ -1317,7 +1317,7 @@ func (s *GoofysTest) TestXAttr(t *C) {
 	value, err = xattr.Get(mountPoint+"/empty_dir", "s3.etag")
 	t.Assert(err, IsNil)
 	// dir blobs are empty
-	t.Assert("\"d41d8cd98f00b204e9800998ecf8427e\"", Equals, string(value))
+	t.Assert(string(value), Equals, "\"d41d8cd98f00b204e9800998ecf8427e\"")
 
 	// implicit dir blobs don't have s3.etag at all
 	names, err = xattr.List(mountPoint + "/dir1")
@@ -1327,4 +1327,18 @@ func (s *GoofysTest) TestXAttr(t *C) {
 	value, err = xattr.Get(mountPoint+"/dir2", "s3.etag")
 	t.Assert(xattr.IsNotExist(err), Equals, true)
 
+	// s3proxy doesn't support storage class yet
+	if hasEnv("AWS") {
+		s.fs.flags.StorageClass = "STANDARD_IA"
+
+		err = ioutil.WriteFile(mountPoint+"/ia", []byte(""), 0777)
+		t.Assert(err, IsNil)
+
+		names, err = xattr.List(mountPoint + "/ia")
+		t.Assert(names, DeepEquals, []string{"s3.etag", "s3.storage-class"})
+
+		value, err = xattr.Get(mountPoint+"/ia", "s3.storage-class")
+		t.Assert(err, IsNil)
+		t.Assert(string(value), Equals, "STANDARD_IA")
+	}
 }
