@@ -966,7 +966,9 @@ func (fh *FileHandle) readFromStream(fs *Goofys, offset int64, buf []byte) (byte
 
 	bytesRead, err = fh.reader.Read(buf)
 	if err != nil {
-		fh.inode.logFuse("< readFromStream error", bytesRead, err)
+		if err != io.EOF {
+			fh.inode.logFuse("< readFromStream error", bytesRead, err)
+		}
 		// always retry error on read
 		fh.reader.Close()
 		fh.reader = nil
