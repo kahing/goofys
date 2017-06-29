@@ -789,17 +789,21 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 	objectChan := make(chan s3.HeadObjectOutput, 1)
 	errDirBlobChan := make(chan error, 1)
 	dirBlobChan := make(chan s3.HeadObjectOutput, 1)
-	errDirChan := make(chan error, 1)
-	dirChan := make(chan s3.ListObjectsOutput, 1)
+	var errDirChan chan error;
+	var dirChan chan s3.ListObjectsOutput;
+
+	checking := 3
+	var checkErr [3]error
 
 	go fs.LookUpInodeNotDir(fullName, objectChan, errObjectChan)
 	if !fs.flags.Cheap {
 		go fs.LookUpInodeNotDir(fullName+"/", dirBlobChan, errDirBlobChan)
-		go fs.LookUpInodeDir(fullName, dirChan, errDirChan)
+		if !fs.flags.NoDirCompat {
+			errDirChan = make(chan error, 1)
+			dirChan = make(chan s3.ListObjectsOutput, 1)
+			go fs.LookUpInodeDir(fullName, dirChan, errDirChan)
+		}
 	}
-
-	checking := 3
-	var checkErr [3]error
 
 	for {
 		select {
@@ -867,9 +871,17 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 				go fs.LookUpInodeNotDir(fullName+"/", dirBlobChan, errDirBlobChan)
 			}
 		case 1:
-			if fs.flags.Cheap {
+			if fs.flags.NoDirCompat {
+				checkErr[2] = fuse.ENOENT
+				goto doneCase
+			} else if fs.flags.Cheap {
+				errDirChan = make(chan error, 1)
+				dirChan = make(chan s3.ListObjectsOutput, 1)
 				go fs.LookUpInodeDir(fullName, dirChan, errDirChan)
 			}
+			break
+		doneCase:
+		   fallthrough
 		case 0:
 			for _, e := range checkErr {
 				if e != fuse.ENOENT {
