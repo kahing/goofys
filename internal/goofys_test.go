@@ -819,6 +819,9 @@ func isTravis() bool {
 }
 
 func (s *GoofysTest) mount(t *C, mountPoint string) {
+	err := os.MkdirAll(mountPoint, 0700)
+	t.Assert(err, IsNil)
+
 	server := fuseutil.NewFileSystemServer(s.fs)
 
 	// Mount the file system.
@@ -829,7 +832,7 @@ func (s *GoofysTest) mount(t *C, mountPoint string) {
 		DisableWritebackCaching: true,
 	}
 
-	_, err := fuse.Mount(mountPoint, server, mountCfg)
+	_, err = fuse.Mount(mountPoint, server, mountCfg)
 	t.Assert(err, IsNil)
 }
 
@@ -873,11 +876,6 @@ func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs .
 func (s *GoofysTest) TestFuse(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
-	err := os.MkdirAll(mountPoint, 0700)
-	t.Assert(err, IsNil)
-
-	defer os.Remove(mountPoint)
-
 	s.runFuseTest(t, mountPoint, true, "../test/fuse-test.sh", mountPoint)
 }
 
@@ -920,21 +918,11 @@ func (s *GoofysTest) testExplicitDir(t *C) {
 func (s *GoofysTest) TestBenchLs(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
-	err := os.MkdirAll(mountPoint, 0700)
-	t.Assert(err, IsNil)
-
-	defer os.Remove(mountPoint)
-
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "ls")
 }
 
 func (s *GoofysTest) TestBenchCreate(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
-
-	err := os.MkdirAll(mountPoint, 0700)
-	t.Assert(err, IsNil)
-
-	defer os.Remove(mountPoint)
 
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "create")
 }
@@ -942,21 +930,11 @@ func (s *GoofysTest) TestBenchCreate(t *C) {
 func (s *GoofysTest) TestBenchCreateParallel(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
-	err := os.MkdirAll(mountPoint, 0700)
-	t.Assert(err, IsNil)
-
-	defer os.Remove(mountPoint)
-
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "create_parallel")
 }
 
 func (s *GoofysTest) TestBenchIO(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
-
-	err := os.MkdirAll(mountPoint, 0700)
-	t.Assert(err, IsNil)
-
-	defer os.Remove(mountPoint)
 
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "md5")
 }
@@ -999,9 +977,6 @@ func (s *GoofysTest) TestIssue69(t *C) {
 
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
-	err := os.MkdirAll(mountPoint, 0700)
-	t.Assert(err, IsNil)
-
 	s.mount(t, mountPoint)
 
 	defer func() {
@@ -1011,7 +986,7 @@ func (s *GoofysTest) TestIssue69(t *C) {
 		s.umount(t, mountPoint)
 	}()
 
-	err = os.Chdir(mountPoint)
+	err := os.Chdir(mountPoint)
 	t.Assert(err, IsNil)
 
 	_, err = os.Stat("dir1")
@@ -1092,11 +1067,6 @@ func (s *GoofysTest) TestFuseWithPrefix(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
 	s.fs = NewGoofys(s.fs.bucket+":testprefix", s.awsConfig, s.fs.flags)
-
-	err := os.MkdirAll(mountPoint, 0700)
-	t.Assert(err, IsNil)
-
-	defer os.Remove(mountPoint)
 
 	s.runFuseTest(t, mountPoint, true, "../test/fuse-test.sh", mountPoint)
 }
@@ -1218,15 +1188,10 @@ func (s *GoofysTest) TestWriteAnonymousFuse(t *C) {
 
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
-	err := os.MkdirAll(mountPoint, 0700)
-	t.Assert(err, IsNil)
-
-	defer os.Remove(mountPoint)
-
 	s.mount(t, mountPoint)
 	defer s.umount(t, mountPoint)
 
-	err = ioutil.WriteFile(mountPoint+"/test", []byte(""), 0600)
+	err := ioutil.WriteFile(mountPoint+"/test", []byte(""), 0600)
 	t.Assert(err, NotNil)
 	pathErr, ok := err.(*os.PathError)
 	t.Assert(ok, Equals, true)
@@ -1257,14 +1222,12 @@ func (s *GoofysTest) TestWriteAnonymousFuse(t *C) {
 func (s *GoofysTest) TestWriteSyncWrite(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
-	err := os.MkdirAll(mountPoint, 0700)
-	t.Assert(err, IsNil)
-
 	s.mount(t, mountPoint)
 	defer s.umount(t, mountPoint)
 
 	var f *os.File
 	var n int
+	var err error
 
 	defer func() {
 		if err != nil {
@@ -1316,11 +1279,8 @@ func (s *GoofysTest) TestIssue162(t *C) {
 	t.Assert(*resp.ContentLength, Equals, int64(3))
 }
 
-func (s *GoofysTest) TestXAttr(t *C) {
+func (s *GoofysTest) TestXAttrGet(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
-
-	err := os.MkdirAll(mountPoint, 0700)
-	t.Assert(err, IsNil)
 
 	s.mount(t, mountPoint)
 	defer s.umount(t, mountPoint)
@@ -1380,4 +1340,34 @@ func (s *GoofysTest) TestXAttr(t *C) {
 		t.Assert(err, IsNil)
 		t.Assert(string(value), Equals, "STANDARD_IA")
 	}
+}
+
+func (s *GoofysTest) TestXAttrCopied(t *C) {
+	root := s.getRoot(t)
+
+	err := root.Rename(s.fs, "file1", root, "file0")
+	t.Assert(err, IsNil)
+
+	in, err := s.LookUpInode(t, "file1")
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	in, err = s.LookUpInode(t, "file0")
+	t.Assert(err, IsNil)
+
+	_, err = in.GetXattr(s.fs, "user.name")
+	t.Assert(err, IsNil)
+}
+
+func (s *GoofysTest) TestXAttrRemove(t *C) {
+	in, err := s.LookUpInode(t, "file1")
+	t.Assert(err, IsNil)
+
+	_, err = in.GetXattr(s.fs, "user.name")
+	t.Assert(err, IsNil)
+
+	err = in.RemoveXattr(s.fs, "user.name")
+	t.Assert(err, IsNil)
+
+	_, err = in.GetXattr(s.fs, "user.name")
+	t.Assert(err, Equals, syscall.ENODATA)
 }

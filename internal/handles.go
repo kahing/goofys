@@ -443,34 +443,73 @@ func (inode *Inode) fillXattr(fs *Goofys) (err error) {
 	return
 }
 
+// LOCKS_REQUIRED(inode.mu)
+func (inode *Inode) getXattrMap(fs *Goofys, name string) (
+	meta map[string][]byte, newName string, err error) {
+
+	err = inode.fillXattr(fs)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if strings.HasPrefix(name, "s3.") {
+		newName = name[3:]
+		meta = inode.s3Metadata
+	} else if strings.HasPrefix(name, "user.") {
+		newName = name[5:]
+		meta = inode.userMetadata
+	} else {
+		return nil, "", syscall.ENODATA
+	}
+
+	return
+}
+
+// LOCKS_REQUIRED(inode.mu)
+func (inode *Inode) updateXattr(fs *Goofys) (err error) {
+	err = inode.fillXattr(fs)
+	if err != nil {
+		return
+	}
+
+	err = fs.copyObjectMaybeMultipart(int64(inode.Attributes.Size), *inode.FullName, *inode.FullName)
+	return
+}
+
+func (inode *Inode) RemoveXattr(fs *Goofys, name string) error {
+	inode.logFuse("RemoveXattr", name)
+
+	inode.mu.Lock()
+	defer inode.mu.Unlock()
+
+	meta, name, err := inode.getXattrMap(fs, name)
+	if err != nil {
+		return err
+	}
+
+	if _, ok := meta[name]; ok {
+		delete(meta, name)
+		err = inode.updateXattr(fs)
+		return err
+	} else {
+		return syscall.ENODATA
+	}
+}
+
 func (inode *Inode) GetXattr(fs *Goofys, name string) ([]byte, error) {
 	inode.logFuse("GetXattr", name)
 
 	inode.mu.Lock()
 	defer inode.mu.Unlock()
 
-	var meta map[string][]byte
-
-	err := inode.fillXattr(fs)
+	meta, name, err := inode.getXattrMap(fs, name)
 	if err != nil {
 		return nil, err
 	}
 
-	if strings.HasPrefix(name, "s3.") {
-		name = name[3:]
-		meta = inode.s3Metadata
-	} else if strings.HasPrefix(name, "user.") {
-		name = name[5:]
-		meta = inode.userMetadata
-	}
-
-	if meta != nil {
-		value, ok := meta[name]
-		if ok {
-			return []byte(value), nil
-		} else {
-			return nil, syscall.ENODATA
-		}
+	value, ok := meta[name]
+	if ok {
+		return []byte(value), nil
 	} else {
 		return nil, syscall.ENODATA
 	}

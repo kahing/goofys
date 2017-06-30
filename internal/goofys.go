@@ -495,17 +495,18 @@ func (fs *Goofys) ListXattr(ctx context.Context,
 	return
 }
 
-/*
 func (fs *Goofys) RemoveXattr(ctx context.Context,
 	op *fuseops.RemoveXattrOp) (err error) {
 	fs.mu.Lock()
 	inode := fs.getInodeOrDie(op.Inode)
 	fs.mu.Unlock()
 
-	fuseLog.Infof("RemoveXattr %v %v", *inode.Name, op.Name)
+	err = inode.RemoveXattr(fs, op.Name)
+
 	return
 }
 
+/*
 func (fs *Goofys) SetXattr(ctx context.Context,
 	op *fuseops.SetXattrOp) (err error) {
 	fs.mu.Lock()
