@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -395,8 +396,29 @@ func (inode *Inode) isDir() bool {
 }
 
 // LOCKS_REQUIRED(inode.mu)
+func (inode *Inode) fillXattrFromHead(resp *s3.HeadObjectOutput) {
+	inode.userMetadata = make(map[string][]byte)
+
+	inode.s3Metadata["etag"] = []byte(*resp.ETag)
+	if resp.StorageClass != nil {
+		inode.s3Metadata["storage-class"] = []byte(*resp.StorageClass)
+	}
+
+	for k, v := range resp.Metadata {
+		k = strings.ToLower(k)
+		value, err := url.PathUnescape(*v)
+		if err != nil {
+			value = *v
+		}
+		inode.userMetadata[k] = []byte(value)
+	}
+}
+
+// LOCKS_REQUIRED(inode.mu)
 func (inode *Inode) fillXattr(fs *Goofys) (err error) {
-	if !inode.ImplicitDir {
+	if !inode.ImplicitDir &&
+		(len(inode.s3Metadata) == 0 && inode.userMetadata == nil) {
+
 		fullName := *inode.FullName
 		if inode.isDir() {
 			fullName += "/"
@@ -415,10 +437,7 @@ func (inode *Inode) fillXattr(fs *Goofys) (err error) {
 			return err
 		}
 
-		inode.s3Metadata["etag"] = []byte(*resp.ETag)
-		if resp.StorageClass != nil {
-			inode.s3Metadata["storage-class"] = []byte(*resp.StorageClass)
-		}
+		inode.fillXattrFromHead(resp)
 	}
 
 	return
@@ -432,15 +451,14 @@ func (inode *Inode) GetXattr(fs *Goofys, name string) ([]byte, error) {
 
 	var meta map[string][]byte
 
+	err := inode.fillXattr(fs)
+	if err != nil {
+		return nil, err
+	}
+
 	if strings.HasPrefix(name, "s3.") {
 		name = name[3:]
 		meta = inode.s3Metadata
-		if len(meta) == 0 {
-			err := inode.fillXattr(fs)
-			if err != nil {
-				return nil, err
-			}
-		}
 	} else if strings.HasPrefix(name, "user.") {
 		name = name[5:]
 		meta = inode.userMetadata
@@ -466,15 +484,17 @@ func (inode *Inode) ListXattr(fs *Goofys) ([]string, error) {
 
 	var xattrs []string
 
-	if len(inode.s3Metadata) == 0 {
-		err := inode.fillXattr(fs)
-		if err != nil {
-			return nil, err
-		}
+	err := inode.fillXattr(fs)
+	if err != nil {
+		return nil, err
 	}
 
 	for k, _ := range inode.s3Metadata {
 		xattrs = append(xattrs, "s3."+k)
+	}
+
+	for k, _ := range inode.userMetadata {
+		xattrs = append(xattrs, "user."+k)
 	}
 
 	return xattrs, nil

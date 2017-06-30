@@ -720,7 +720,8 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 	return
 }
 
-// can be replaced by url.PathEscape in golang 1.8
+// note that this is NOT the same as url.PathEscape in golang 1.8,
+// as this preserves / and url.PathEscape converts / to %2F
 func pathEscape(path string) string {
 	u := url.URL{Path: path}
 	return u.EscapedPath()
@@ -828,10 +829,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 			size := inode.Attributes.Size
 			inode.KnownSize = &size
 
-			inode.s3Metadata["etag"] = []byte(*resp.ETag)
-			if resp.StorageClass != nil {
-				inode.s3Metadata["storage-class"] = []byte(*resp.StorageClass)
-			}
+			inode.fillXattrFromHead(&resp)
 			return
 		case err = <-errObjectChan:
 			checking--
@@ -860,10 +858,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 			inode = NewInode(&name, &fullName, fs.flags)
 			inode.Attributes = &fs.rootAttrs
 			inode.KnownSize = &inode.Attributes.Size
-			inode.s3Metadata["etag"] = []byte(*resp.ETag)
-			if resp.StorageClass != nil {
-				inode.s3Metadata["storage-class"] = []byte(*resp.StorageClass)
-			}
+			inode.fillXattrFromHead(&resp)
 			return
 		case err = <-errDirBlobChan:
 			checking--

@@ -199,6 +199,9 @@ func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker)
 			Bucket: &bucket,
 			Key:    &path,
 			Body:   r,
+			Metadata: map[string]*string{
+				"name": aws.String(path + "+/#%00"),
+			},
 		}
 
 		_, err := s.s3.PutObject(params)
@@ -1324,7 +1327,7 @@ func (s *GoofysTest) TestXAttr(t *C) {
 
 	names, err := xattr.List(mountPoint + "/file1")
 	t.Assert(err, IsNil)
-	t.Assert(names, DeepEquals, []string{"s3.etag"})
+	t.Assert(names, DeepEquals, []string{"s3.etag", "user.name"})
 
 	_, err = xattr.Get(mountPoint+"/file1", "user.foobar")
 	t.Assert(xattr.IsNotExist(err), Equals, true)
@@ -1333,6 +1336,10 @@ func (s *GoofysTest) TestXAttr(t *C) {
 	t.Assert(err, IsNil)
 	// md5sum of "file1"
 	t.Assert(string(value), Equals, "\"826e8142e6baabe8af779f5f490cf5f5\"")
+
+	value, err = xattr.Get(mountPoint+"/file1", "user.name")
+	t.Assert(err, IsNil)
+	t.Assert(string(value), Equals, "file1+/#\x00")
 
 	_, err = ioutil.ReadDir(mountPoint + "/dir1")
 	t.Assert(err, IsNil)
@@ -1344,7 +1351,7 @@ func (s *GoofysTest) TestXAttr(t *C) {
 
 	names, err = xattr.List(mountPoint + "/empty_dir2")
 	t.Assert(err, IsNil)
-	t.Assert(names, DeepEquals, []string{"s3.etag"})
+	t.Assert(names, DeepEquals, []string{"s3.etag", "user.name"})
 
 	value, err = xattr.Get(mountPoint+"/empty_dir", "s3.etag")
 	t.Assert(err, IsNil)
@@ -1367,7 +1374,7 @@ func (s *GoofysTest) TestXAttr(t *C) {
 		t.Assert(err, IsNil)
 
 		names, err = xattr.List(mountPoint + "/ia")
-		t.Assert(names, DeepEquals, []string{"s3.etag", "s3.storage-class"})
+		t.Assert(names, DeepEquals, []string{"s3.etag", "s3.storage-class", "user.name"})
 
 		value, err = xattr.Get(mountPoint+"/ia", "s3.storage-class")
 		t.Assert(err, IsNil)
