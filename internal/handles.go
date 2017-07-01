@@ -444,7 +444,7 @@ func (inode *Inode) fillXattr(fs *Goofys) (err error) {
 }
 
 // LOCKS_REQUIRED(inode.mu)
-func (inode *Inode) getXattrMap(fs *Goofys, name string) (
+func (inode *Inode) getXattrMap(fs *Goofys, name string, userOnly bool) (
 	meta map[string][]byte, newName string, err error) {
 
 	err = inode.fillXattr(fs)
@@ -453,6 +453,10 @@ func (inode *Inode) getXattrMap(fs *Goofys, name string) (
 	}
 
 	if strings.HasPrefix(name, "s3.") {
+		if userOnly {
+			return nil, "", syscall.EACCES
+		}
+
 		newName = name[3:]
 		meta = inode.s3Metadata
 	} else if strings.HasPrefix(name, "user.") {
@@ -465,15 +469,49 @@ func (inode *Inode) getXattrMap(fs *Goofys, name string) (
 	return
 }
 
+func convertMetadata(meta map[string][]byte) (metadata map[string]*string) {
+	metadata = make(map[string]*string)
+	for k, v := range meta {
+		metadata[k] = aws.String(xattrEscape(v))
+	}
+	return
+}
+
 // LOCKS_REQUIRED(inode.mu)
 func (inode *Inode) updateXattr(fs *Goofys) (err error) {
-	err = inode.fillXattr(fs)
+	err = fs.copyObjectMaybeMultipart(int64(inode.Attributes.Size),
+		*inode.FullName, *inode.FullName,
+		aws.String(string(inode.s3Metadata["etag"])), convertMetadata(inode.userMetadata))
+	return
+}
+
+func (inode *Inode) SetXattr(fs *Goofys, name string, value []byte, flags uint32) error {
+	inode.logFuse("RemoveXattr", name)
+
+	inode.mu.Lock()
+	defer inode.mu.Unlock()
+
+	meta, name, err := inode.getXattrMap(fs, name, true)
 	if err != nil {
-		return
+		return err
 	}
 
-	err = fs.copyObjectMaybeMultipart(int64(inode.Attributes.Size), *inode.FullName, *inode.FullName)
-	return
+	if flags != 0x0 {
+		_, ok := meta[name]
+		if flags == 0x1 {
+			if ok {
+				return syscall.EEXIST
+			}
+		} else if flags == 0x2 {
+			if !ok {
+				return syscall.ENODATA
+			}
+		}
+	}
+
+	meta[name] = value
+	err = inode.updateXattr(fs)
+	return err
 }
 
 func (inode *Inode) RemoveXattr(fs *Goofys, name string) error {
@@ -482,7 +520,7 @@ func (inode *Inode) RemoveXattr(fs *Goofys, name string) error {
 	inode.mu.Lock()
 	defer inode.mu.Unlock()
 
-	meta, name, err := inode.getXattrMap(fs, name)
+	meta, name, err := inode.getXattrMap(fs, name, true)
 	if err != nil {
 		return err
 	}
@@ -502,7 +540,7 @@ func (inode *Inode) GetXattr(fs *Goofys, name string) ([]byte, error) {
 	inode.mu.Lock()
 	defer inode.mu.Unlock()
 
-	meta, name, err := inode.getXattrMap(fs, name)
+	meta, name, err := inode.getXattrMap(fs, name, false)
 	if err != nil {
 		return nil, err
 	}
@@ -1235,7 +1273,7 @@ func (parent *Inode) Rename(fs *Goofys, from string, newParent *Inode, to string
 		size = 0
 	}
 
-	err = fs.copyObjectMaybeMultipart(size, fromFullName, toFullName)
+	err = fs.copyObjectMaybeMultipart(size, fromFullName, toFullName, nil, nil)
 	if err != nil {
 		return err
 	}

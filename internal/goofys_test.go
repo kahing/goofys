@@ -41,7 +41,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 
-	"github.com/ivaxer/go-xattr"
+	"github.com/kahing/go-xattr"
 
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
@@ -763,7 +763,7 @@ func (s *GoofysTest) TestRename(t *C) {
 
 	// not really rename but can be used by rename
 	from, to = s.fs.bucket+"/file2", "new_file"
-	err = s.fs.copyObjectMultipart(int64(len(from)), from, to, "", nil)
+	err = s.fs.copyObjectMultipart(int64(len(from)), from, to, "", nil, nil)
 	t.Assert(err, IsNil)
 }
 
@@ -1370,4 +1370,37 @@ func (s *GoofysTest) TestXAttrRemove(t *C) {
 
 	_, err = in.GetXattr(s.fs, "user.name")
 	t.Assert(err, Equals, syscall.ENODATA)
+}
+
+func (s *GoofysTest) TestXAttrSet(t *C) {
+	in, err := s.LookUpInode(t, "file1")
+	t.Assert(err, IsNil)
+
+	err = in.SetXattr(s.fs, "user.bar", []byte("hello"), xattr.REPLACE)
+	t.Assert(err, Equals, syscall.ENODATA)
+
+	err = in.SetXattr(s.fs, "user.bar", []byte("hello"), xattr.CREATE)
+	t.Assert(err, IsNil)
+
+	err = in.SetXattr(s.fs, "user.bar", []byte("hello"), xattr.CREATE)
+	t.Assert(err, Equals, syscall.EEXIST)
+
+	in, err = s.LookUpInode(t, "file1")
+	t.Assert(err, IsNil)
+
+	value, err := in.GetXattr(s.fs, "user.bar")
+	t.Assert(err, IsNil)
+	t.Assert(string(value), Equals, "hello")
+
+	value = []byte("file1+%/#\x00")
+
+	err = in.SetXattr(s.fs, "user.bar", value, xattr.REPLACE)
+	t.Assert(err, IsNil)
+
+	in, err = s.LookUpInode(t, "file1")
+	t.Assert(err, IsNil)
+
+	value2, err := in.GetXattr(s.fs, "user.bar")
+	t.Assert(err, IsNil)
+	t.Assert(value2, DeepEquals, value)
 }

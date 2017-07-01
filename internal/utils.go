@@ -14,6 +14,11 @@
 
 package internal
 
+import (
+	"fmt"
+	"unicode"
+)
+
 func MaxInt(a, b int) int {
 	if a > b {
 		return a
@@ -60,4 +65,18 @@ func MinUInt64(a, b uint64) uint64 {
 	} else {
 		return b
 	}
+}
+
+func xattrEscape(value []byte) (s string) {
+	for _, c := range value {
+		if c == '%' {
+			s += "%25"
+		} else if unicode.IsPrint(rune(c)) {
+			s += string(c)
+		} else {
+			s += "%" + fmt.Sprintf("%02X", c)
+		}
+	}
+
+	return
 }

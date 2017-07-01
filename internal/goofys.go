@@ -506,17 +506,15 @@ func (fs *Goofys) RemoveXattr(ctx context.Context,
 	return
 }
 
-/*
 func (fs *Goofys) SetXattr(ctx context.Context,
 	op *fuseops.SetXattrOp) (err error) {
 	fs.mu.Lock()
 	inode := fs.getInodeOrDie(op.Inode)
 	fs.mu.Unlock()
 
-	fuseLog.Infof("SetXattr %v %v %v %x", *inode.Name, op.Name, op.Value, op.Flags)
+	err = inode.SetXattr(fs, op.Name, op.Value, op.Flags)
 	return
 }
-*/
 
 func mapAwsError(err error) error {
 	if err == nil {
@@ -655,7 +653,7 @@ func (fs *Goofys) mpuCopyParts(size int64, from string, to string, mpuId string,
 }
 
 func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId string,
-	srcEtag *string) (err error) {
+	srcEtag *string, metadata map[string]*string) (err error) {
 	var wg sync.WaitGroup
 	nParts := sizeToParts(size)
 	etags := make([]*string, nParts)
@@ -666,6 +664,7 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 			Key:          fs.key(to),
 			StorageClass: &fs.flags.StorageClass,
 			ContentType:  fs.getMimeType(to),
+			Metadata:     metadata,
 		}
 
 		if fs.flags.UseSSE {
@@ -728,11 +727,9 @@ func pathEscape(path string) string {
 	return u.EscapedPath()
 }
 
-func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (err error) {
-	var metadata map[string]*string
-	var srcEtag *string
+func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string, srcEtag *string, metadata map[string]*string) (err error) {
 
-	if size == -1 {
+	if size == -1 || srcEtag == nil || metadata == nil {
 		params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: fs.key(from)}
 		resp, err := fs.s3.HeadObject(params)
 		if err != nil {
@@ -747,7 +744,7 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 	from = fs.bucket + "/" + *fs.key(from)
 
 	if size > 5*1024*1024*1024 {
-		return fs.copyObjectMultipart(size, from, to, "", srcEtag)
+		return fs.copyObjectMultipart(size, from, to, "", srcEtag, metadata)
 	}
 
 	params := &s3.CopyObjectInput{
@@ -760,6 +757,8 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 		MetadataDirective: aws.String(s3.MetadataDirectiveReplace),
 	}
 
+	s3Log.Debug(params)
+
 	if fs.flags.UseSSE {
 		params.ServerSideEncryption = &fs.sseType
 		if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
@@ -771,10 +770,11 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string) (
 		params.ACL = &fs.flags.ACL
 	}
 
-	_, err = fs.s3.CopyObject(params)
+	resp, err := fs.s3.CopyObject(params)
 	if err != nil {
 		err = mapAwsError(err)
 	}
+	s3Log.Debug(resp)
 
 	return
 }
