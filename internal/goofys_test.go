@@ -1280,63 +1280,78 @@ func (s *GoofysTest) TestIssue162(t *C) {
 }
 
 func (s *GoofysTest) TestXAttrGet(t *C) {
-	mountPoint := "/tmp/mnt" + s.fs.bucket
+	file1, err := s.LookUpInode(t, "file1")
+	t.Assert(err, IsNil)
 
-	s.mount(t, mountPoint)
-	defer s.umount(t, mountPoint)
-
-	names, err := xattr.List(mountPoint + "/file1")
+	names, err := file1.ListXattr(s.fs)
 	t.Assert(err, IsNil)
 	t.Assert(names, DeepEquals, []string{"s3.etag", "user.name"})
 
-	_, err = xattr.Get(mountPoint+"/file1", "user.foobar")
+	_, err = file1.GetXattr(s.fs, "user.foobar")
 	t.Assert(xattr.IsNotExist(err), Equals, true)
 
-	value, err := xattr.Get(mountPoint+"/file1", "s3.etag")
+	value, err := file1.GetXattr(s.fs, "s3.etag")
 	t.Assert(err, IsNil)
 	// md5sum of "file1"
 	t.Assert(string(value), Equals, "\"826e8142e6baabe8af779f5f490cf5f5\"")
 
-	value, err = xattr.Get(mountPoint+"/file1", "user.name")
+	value, err = file1.GetXattr(s.fs, "user.name")
 	t.Assert(err, IsNil)
 	t.Assert(string(value), Equals, "file1+/#\x00")
 
-	_, err = ioutil.ReadDir(mountPoint + "/dir1")
+	dir1, err := s.LookUpInode(t, "dir1")
 	t.Assert(err, IsNil)
+
 	// list dir1 to populate file3 in dir1's handle, then get file3's xattr
-	value, err = xattr.Get(mountPoint+"/dir1/file3", "s3.etag")
+	dh := dir1.OpenDir()
+	defer dh.CloseDir()
+	s.readDirFully(t, dh)
+
+	file3, err := dir1.LookUp(s.fs, "file3")
+	t.Assert(err, IsNil)
+	t.Assert(file3.userMetadata, IsNil)
+
+	value, err = file3.GetXattr(s.fs, "s3.etag")
 	t.Assert(err, IsNil)
 	// md5sum of "dir1/file3"
 	t.Assert(string(value), Equals, "\"5cd67e0e59fb85be91a515afe0f4bb24\"")
 
-	names, err = xattr.List(mountPoint + "/empty_dir2")
+	emptyDir2, err := s.LookUpInode(t, "empty_dir2")
+	t.Assert(err, IsNil)
+
+	names, err = emptyDir2.ListXattr(s.fs)
 	t.Assert(err, IsNil)
 	t.Assert(names, DeepEquals, []string{"s3.etag", "user.name"})
 
-	value, err = xattr.Get(mountPoint+"/empty_dir", "s3.etag")
+	emptyDir, err := s.LookUpInode(t, "empty_dir")
+	t.Assert(err, IsNil)
+
+	value, err = emptyDir.GetXattr(s.fs, "s3.etag")
 	t.Assert(err, IsNil)
 	// dir blobs are empty
 	t.Assert(string(value), Equals, "\"d41d8cd98f00b204e9800998ecf8427e\"")
 
 	// implicit dir blobs don't have s3.etag at all
-	names, err = xattr.List(mountPoint + "/dir1")
+	names, err = dir1.ListXattr(s.fs)
 	t.Assert(err, IsNil)
-	t.Assert(names, DeepEquals, []string{})
+	t.Assert(names, HasLen, 0)
 
-	value, err = xattr.Get(mountPoint+"/dir2", "s3.etag")
-	t.Assert(xattr.IsNotExist(err), Equals, true)
+	value, err = dir1.GetXattr(s.fs, "s3.etag")
+	t.Assert(err, Equals, syscall.ENODATA)
 
 	// s3proxy doesn't support storage class yet
 	if hasEnv("AWS") {
 		s.fs.flags.StorageClass = "STANDARD_IA"
 
-		err = ioutil.WriteFile(mountPoint+"/ia", []byte(""), 0777)
+		s.testWriteFile(t, "ia", 1, 128*1024)
+
+		ia, err := s.LookUpInode(t, "ia")
 		t.Assert(err, IsNil)
 
-		names, err = xattr.List(mountPoint + "/ia")
+		names, err = ia.ListXattr(s.fs)
 		t.Assert(names, DeepEquals, []string{"s3.etag", "s3.storage-class", "user.name"})
 
-		value, err = xattr.Get(mountPoint+"/ia", "s3.storage-class")
+		value, err = ia.GetXattr(s.fs, "s3.storage-class")
 		t.Assert(err, IsNil)
 		t.Assert(string(value), Equals, "STANDARD_IA")
 	}
