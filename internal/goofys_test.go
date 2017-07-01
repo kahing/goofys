@@ -1363,10 +1363,7 @@ func (s *GoofysTest) TestXAttrCopied(t *C) {
 	err := root.Rename(s.fs, "file1", root, "file0")
 	t.Assert(err, IsNil)
 
-	in, err := s.LookUpInode(t, "file1")
-	t.Assert(err, Equals, fuse.ENOENT)
-
-	in, err = s.LookUpInode(t, "file0")
+	in, err := s.LookUpInode(t, "file0")
 	t.Assert(err, IsNil)
 
 	_, err = in.GetXattr(s.fs, "user.name")
@@ -1418,4 +1415,20 @@ func (s *GoofysTest) TestXAttrSet(t *C) {
 	value2, err := in.GetXattr(s.fs, "user.bar")
 	t.Assert(err, IsNil)
 	t.Assert(value2, DeepEquals, value)
+
+	// setting with flag = 0 always works
+	err = in.SetXattr(s.fs, "user.bar", []byte("world"), 0)
+	t.Assert(err, IsNil)
+
+	err = in.SetXattr(s.fs, "user.baz", []byte("world"), 0)
+	t.Assert(err, IsNil)
+
+	value, err = in.GetXattr(s.fs, "user.bar")
+	t.Assert(err, IsNil)
+
+	value2, err = in.GetXattr(s.fs, "user.baz")
+	t.Assert(err, IsNil)
+
+	t.Assert(value2, DeepEquals, value)
+	t.Assert(string(value2), DeepEquals, "world")
 }
