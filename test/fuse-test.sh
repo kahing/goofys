@@ -382,18 +382,18 @@ function test_extended_attributes {
     touch $TEST_TEXT_FILE
 
     # set value
-    setfattr -n key1 -v value1 $TEST_TEXT_FILE
-    getfattr -n key1 --only-values $TEST_TEXT_FILE | grep -q '^value1$'
+    setfattr -n user.key1 -v value1 $TEST_TEXT_FILE
+    getfattr -n user.key1 --only-values $TEST_TEXT_FILE | grep -q '^value1$'
 
     # append value
-    setfattr -n key2 -v value2 $TEST_TEXT_FILE
-    getfattr -n key1 --only-values $TEST_TEXT_FILE | grep -q '^value1$'
-    getfattr -n key2 --only-values $TEST_TEXT_FILE | grep -q '^value2$'
+    setfattr -n user.key2 -v value2 $TEST_TEXT_FILE
+    getfattr -n user.key1 --only-values $TEST_TEXT_FILE | grep -q '^value1$'
+    getfattr -n user.key2 --only-values $TEST_TEXT_FILE | grep -q '^value2$'
 
     # remove value
-    setfattr -x key1 $TEST_TEXT_FILE
-    ! getfattr -n key1 --only-values $TEST_TEXT_FILE
-    getfattr -n key2 --only-values $TEST_TEXT_FILE | grep -q '^value2$'
+    setfattr -x user.key1 $TEST_TEXT_FILE
+    ! getfattr -n user.key1 --only-values $TEST_TEXT_FILE
+    getfattr -n user.key2 --only-values $TEST_TEXT_FILE | grep -q '^value2$'
 }
 
 function test_mtime_file {
@@ -467,7 +467,7 @@ function run_all_tests {
     test_multipart_copy
     test_special_characters
     #test_symlink
-    #test_extended_attributes
+    test_extended_attributes
     #test_mtime_file
     test_rm_rf_dir
     #test_write_after_seek_ahead

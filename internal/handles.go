@@ -424,7 +424,7 @@ func (inode *Inode) fillXattr(fs *Goofys) (err error) {
 			fullName += "/"
 		}
 
-		params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: &fullName}
+		params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: fs.key(fullName)}
 		resp, err := fs.s3.HeadObject(params)
 		if err != nil {
 			err = mapAwsError(err)
@@ -438,6 +438,10 @@ func (inode *Inode) fillXattr(fs *Goofys) (err error) {
 		}
 
 		inode.fillXattrFromHead(resp)
+	}
+
+	if inode.userMetadata == nil {
+		return syscall.ENODATA
 	}
 
 	return
@@ -463,7 +467,11 @@ func (inode *Inode) getXattrMap(fs *Goofys, name string, userOnly bool) (
 		newName = name[5:]
 		meta = inode.userMetadata
 	} else {
-		return nil, "", syscall.ENODATA
+		if userOnly {
+			return nil, "", syscall.EACCES
+		} else {
+			return nil, "", syscall.ENODATA
+		}
 	}
 
 	return
@@ -509,7 +517,7 @@ func (inode *Inode) SetXattr(fs *Goofys, name string, value []byte, flags uint32
 		}
 	}
 
-	meta[name] = value
+	meta[name] = Dup(value)
 	err = inode.updateXattr(fs)
 	return err
 }

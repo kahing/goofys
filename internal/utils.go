@@ -80,3 +80,9 @@ func xattrEscape(value []byte) (s string) {
 
 	return
 }
+
+func Dup(value []byte) []byte {
+	ret := make([]byte, len(value))
+	copy(ret, value)
+	return ret
+}
