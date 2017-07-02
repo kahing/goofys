@@ -440,10 +440,6 @@ func (inode *Inode) fillXattr(fs *Goofys) (err error) {
 		inode.fillXattrFromHead(resp)
 	}
 
-	if inode.userMetadata == nil {
-		return syscall.ENODATA
-	}
-
 	return
 }
 
@@ -472,6 +468,10 @@ func (inode *Inode) getXattrMap(fs *Goofys, name string, userOnly bool) (
 		} else {
 			return nil, "", syscall.ENODATA
 		}
+	}
+
+	if meta == nil {
+		return nil, "", syscall.ENODATA
 	}
 
 	return
