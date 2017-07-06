@@ -22,7 +22,7 @@ consistency model is close-to-open.
 * On Mac OS X, install via [Homebrew](http://brew.sh/):
 
 ```ShellSession
-$ brew tap homebrew/fuse
+$ brew cask install osxfuse
 $ brew install goofys
 ```
 
