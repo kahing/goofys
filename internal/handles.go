@@ -950,8 +950,10 @@ func (fh *FileHandle) readFile(fs *Goofys, offset int64, buf []byte) (bytesRead 
 
 	if uint64(offset) >= fh.inode.Attributes.Size {
 		// nothing to read
-		if fh.inode.KnownSize == nil || fh.inode.Invalid {
+		if fh.inode.Invalid {
 			err = fuse.ENOENT
+		} else if fh.inode.KnownSize == nil {
+			err = io.EOF
 		} else {
 			err = io.EOF
 		}
