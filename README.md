@@ -12,8 +12,9 @@ It's a Filey System instead of a File System because goofys strives
 for performance first and POSIX second. Particularly things that are
 difficult to support on S3 or would translate into more than one
 round-trip would either fail (random writes) or faked (no per-file
-permission). Goofys does not have a on disk data cache, and
-consistency model is close-to-open.
+permission). Goofys does not have a on disk data cache (checkout
+[catfs](https://github.com/kahing/catfs)), and consistency model is
+close-to-open.
 
 # Installation
 
@@ -110,6 +111,7 @@ goofys has been tested with the following non-AWS providers:
   * Data is stored on [Amazon S3](https://aws.amazon.com/s3/)
   * [Amazon SDK for Go](https://github.com/aws/aws-sdk-go)
   * Other related fuse filesystems
+    * [catfs](https://github.com/kahing/catfs): caching layer that can be used with goofys
     * [s3fs](https://github.com/s3fs-fuse/s3fs-fuse): another popular filesystem for S3
     * [gcsfuse](https://github.com/googlecloudplatform/gcsfuse):
       filesystem for
