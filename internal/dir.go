@@ -145,9 +145,10 @@ func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *s3.ListObjectsOutput
 	}
 
 	params := &s3.ListObjectsInput{
-		Bucket: &fs.bucket,
-		Prefix: &reqPrefix,
-		Marker: marker,
+		Bucket:       &fs.bucket,
+		Prefix:       &reqPrefix,
+		Marker:       marker,
+		EncodingType: aws.String("url"),
 	}
 
 	resp, err = fs.s3.ListObjects(params)
@@ -241,10 +242,11 @@ func (dh *DirHandle) listObjects(prefix string) (resp *s3.ListObjectsOutput, err
 
 	listObjectsFlat := func() {
 		params := &s3.ListObjectsInput{
-			Bucket:    &fs.bucket,
-			Delimiter: aws.String("/"),
-			Marker:    dh.Marker,
-			Prefix:    &prefix,
+			Bucket:       &fs.bucket,
+			Delimiter:    aws.String("/"),
+			Marker:       dh.Marker,
+			Prefix:       &prefix,
+			EncodingType: aws.String("url"),
 		}
 
 		resp, err := fs.s3.ListObjects(params)
