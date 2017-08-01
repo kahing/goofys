@@ -353,6 +353,8 @@ function test_special_characters {
     ls 'special?' 2>&1 | grep -q 'No such file or directory'
     ls 'special*' 2>&1 | grep -q 'No such file or directory'
     ls 'special~' 2>&1 | grep -q 'No such file or directory'
+    ls 'special&' 2>&1 | grep -q 'No such file or directory'
+    ls 'special@' 2>&1 | grep -q 'No such file or directory'
     ls 'specialµ' 2>&1 | grep -q 'No such file or directory'
 }
 
