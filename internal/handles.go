@@ -395,10 +395,11 @@ func isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
 	fullName += "/"
 
 	params := &s3.ListObjectsInput{
-		Bucket:    &fs.bucket,
-		Delimiter: aws.String("/"),
-		MaxKeys:   aws.Int64(2),
-		Prefix:    fs.key(fullName),
+		Bucket:       &fs.bucket,
+		Delimiter:    aws.String("/"),
+		MaxKeys:      aws.Int64(2),
+		Prefix:       fs.key(fullName),
+		EncodingType: aws.String("url"),
 	}
 
 	resp, err := fs.s3.ListObjects(params)
@@ -1072,10 +1073,11 @@ func (parent *Inode) LookUpInodeNotDir(name string, c chan s3.HeadObjectOutput, 
 
 func (parent *Inode) LookUpInodeDir(name string, c chan s3.ListObjectsOutput, errc chan error) {
 	params := &s3.ListObjectsInput{
-		Bucket:    &parent.fs.bucket,
-		Delimiter: aws.String("/"),
-		MaxKeys:   aws.Int64(1),
-		Prefix:    parent.fs.key(name + "/"),
+		Bucket:       &parent.fs.bucket,
+		Delimiter:    aws.String("/"),
+		MaxKeys:      aws.Int64(1),
+		Prefix:       parent.fs.key(name + "/"),
+		EncodingType: aws.String("url"),
 	}
 
 	resp, err := parent.fs.s3.ListObjects(params)
