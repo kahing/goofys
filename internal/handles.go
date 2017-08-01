@@ -399,7 +399,9 @@ func (inode *Inode) isDir() bool {
 func (inode *Inode) fillXattrFromHead(resp *s3.HeadObjectOutput) {
 	inode.userMetadata = make(map[string][]byte)
 
-	inode.s3Metadata["etag"] = []byte(*resp.ETag)
+	if resp.ETag != nil {
+		inode.s3Metadata["etag"] = []byte(*resp.ETag)
+	}
 	if resp.StorageClass != nil {
 		inode.s3Metadata["storage-class"] = []byte(*resp.StorageClass)
 	}
@@ -435,9 +437,9 @@ func (inode *Inode) fillXattr(fs *Goofys) (err error) {
 				}
 			}
 			return err
+		} else {
+			inode.fillXattrFromHead(resp)
 		}
-
-		inode.fillXattrFromHead(resp)
 	}
 
 	return

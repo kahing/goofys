@@ -483,6 +483,7 @@ func (fs *Goofys) ListXattr(ctx context.Context,
 		if nlen <= len(buf) {
 			copy(buf, name)
 			ncopied += nlen
+			buf[nlen-1] = '\x00'
 		}
 
 		op.BytesRead += nlen
