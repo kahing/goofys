@@ -838,6 +838,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 		case err = <-errObjectChan:
 			checking--
 			checkErr[0] = err
+			s3Log.Debugf("HEAD %v = %v", fullName, err)
 		case resp := <-dirChan:
 			err = nil
 			if len(resp.CommonPrefixes) != 0 || len(resp.Contents) != 0 {
@@ -857,6 +858,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 		case err = <-errDirChan:
 			checking--
 			checkErr[2] = err
+			s3Log.Debugf("LIST %v/ = %v", fullName, err)
 		case resp := <-dirBlobChan:
 			err = nil
 			inode = NewInode(&name, &fullName, fs.flags)
@@ -867,6 +869,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 		case err = <-errDirBlobChan:
 			checking--
 			checkErr[1] = err
+			s3Log.Debugf("HEAD %v/ = %v", fullName, err)
 		}
 
 		switch checking {
@@ -903,6 +906,9 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 func (fs *Goofys) LookUpInode(
 	ctx context.Context,
 	op *fuseops.LookUpInodeOp) (err error) {
+
+	var inode *Inode
+	defer func() { fuseLog.Debugf("<-- LookUpInode %v %v %v", op.Parent, op.Name, err) }()
 
 	fs.mu.Lock()
 
@@ -953,8 +959,6 @@ func (fs *Goofys) LookUpInode(
 	op.Entry.Attributes = *inode.Attributes
 	op.Entry.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
 	op.Entry.EntryExpiration = time.Now().Add(fs.flags.TypeCacheTTL)
-
-	inode.logFuse("<-- LookUpInode")
 
 	return
 }

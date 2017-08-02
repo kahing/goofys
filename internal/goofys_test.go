@@ -179,11 +179,15 @@ func (s *GoofysTest) SetUpSuite(t *C) {
 func (s *GoofysTest) TearDownSuite(t *C) {
 }
 
-func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker) {
-	_, err := s.s3.CreateBucket(&s3.CreateBucketInput{
+func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker, public bool) {
+	param := s3.CreateBucketInput{
 		Bucket: &bucket,
 		//ACL: aws.String(s3.BucketCannedACLPrivate),
-	})
+	}
+	if public {
+		param.ACL = aws.String("public-read")
+	}
+	_, err := s.s3.CreateBucket(&param)
 	t.Assert(err, IsNil)
 
 	for path, r := range env {
@@ -218,7 +222,7 @@ func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker)
 	t.Log("setupEnv done")
 }
 
-func (s *GoofysTest) setupDefaultEnv(t *C) (bucket string) {
+func (s *GoofysTest) setupDefaultEnv(t *C, public bool) (bucket string) {
 	s.env = map[string]io.ReadSeeker{
 		"file1":           nil,
 		"file2":           nil,
@@ -233,12 +237,12 @@ func (s *GoofysTest) setupDefaultEnv(t *C) (bucket string) {
 	}
 
 	bucket = "goofys-test-" + RandStringBytesMaskImprSrc(16)
-	s.setupEnv(t, bucket, s.env)
+	s.setupEnv(t, bucket, s.env, public)
 	return bucket
 }
 
 func (s *GoofysTest) SetUpTest(t *C) {
-	bucket := s.setupDefaultEnv(t)
+	bucket := s.setupDefaultEnv(t, false)
 
 	s.ctx = context.Background()
 
@@ -1130,27 +1134,14 @@ func (s *GoofysTest) TestUnlinkCache(t *C) {
 }
 
 func (s *GoofysTest) anonymous(t *C) {
-	_, err := s.fs.s3.PutBucketAcl(&s3.PutBucketAclInput{
-		ACL:    aws.String("public-read"),
-		Bucket: &s.fs.bucket,
-	})
-	t.Assert(err, IsNil)
+	bucket := s.setupDefaultEnv(t, true)
+	s.fs = NewGoofys(bucket, s.awsConfig, s.fs.flags)
+	t.Assert(s.fs, NotNil)
 
 	s.fs.awsConfig = selectTestConfig(t)
 	s.fs.awsConfig.Credentials = credentials.AnonymousCredentials
 	s.fs.sess = session.New(s.fs.awsConfig)
 	s.fs.s3 = s.fs.newS3()
-
-	// wait for bucket acl to take effect
-	for {
-		time.Sleep(1 * time.Second)
-		params := &s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: aws.String("file1")}
-		_, err := s.s3.HeadObject(params)
-
-		if err == nil {
-			break
-		}
-	}
 }
 
 func (s *GoofysTest) TestWriteAnonymous(t *C) {
