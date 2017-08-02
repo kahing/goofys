@@ -165,7 +165,29 @@ func selectTestConfig(t *C) *aws.Config {
 func (s *GoofysTest) SetUpSuite(t *C) {
 }
 
+func (s *GoofysTest) deleteBucket(t *C) {
+	resp, err := s.s3.ListObjects(&s3.ListObjectsInput{Bucket: &s.fs.bucket})
+	t.Assert(err, IsNil)
+
+	num_objs := len(resp.Contents)
+
+	var items s3.Delete
+	var objs = make([]*s3.ObjectIdentifier, num_objs)
+
+	for i, o := range resp.Contents {
+		objs[i] = &s3.ObjectIdentifier{Key: aws.String(*o.Key)}
+	}
+
+	// Add list of objects to delete to Delete object
+	items.SetObjects(objs)
+	_, err = s.s3.DeleteObjects(&s3.DeleteObjectsInput{Bucket: &s.fs.bucket, Delete: &items})
+	t.Assert(err, IsNil)
+
+	s.s3.DeleteBucket(&s3.DeleteBucketInput{Bucket: &s.fs.bucket})
+}
+
 func (s *GoofysTest) TearDownSuite(t *C) {
+	s.deleteBucket(t)
 }
 
 func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker, public bool) {
@@ -1136,6 +1158,9 @@ func (s *GoofysTest) TestUnlinkCache(t *C) {
 }
 
 func (s *GoofysTest) anonymous(t *C) {
+	// delete the original bucket
+	s.deleteBucket(t)
+
 	bucket := s.setupDefaultEnv(t, true)
 
 	s.fs = NewGoofys(bucket, s.awsConfig, s.fs.flags)
