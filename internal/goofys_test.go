@@ -163,17 +163,6 @@ func selectTestConfig(t *C) *aws.Config {
 }
 
 func (s *GoofysTest) SetUpSuite(t *C) {
-	s.awsConfig = selectTestConfig(t)
-
-	s.sess = session.New(s.awsConfig)
-	s.s3 = s3.New(s.sess)
-	if !hasEnv("MINIO") {
-		s.s3.Handlers.Sign.Clear()
-		s.s3.Handlers.Sign.PushBack(SignV2)
-		s.s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
-	}
-	_, err := s.s3.ListBuckets(nil)
-	t.Assert(err, IsNil)
 }
 
 func (s *GoofysTest) TearDownSuite(t *C) {
@@ -242,6 +231,19 @@ func (s *GoofysTest) setupDefaultEnv(t *C, public bool) (bucket string) {
 }
 
 func (s *GoofysTest) SetUpTest(t *C) {
+	s.awsConfig = selectTestConfig(t)
+	s.sess = session.New(s.awsConfig)
+	s.s3 = s3.New(s.sess)
+
+	if !hasEnv("MINIO") {
+		s.s3.Handlers.Sign.Clear()
+		s.s3.Handlers.Sign.PushBack(SignV2)
+		s.s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
+	}
+
+	_, err := s.s3.ListBuckets(nil)
+	t.Assert(err, IsNil)
+
 	bucket := s.setupDefaultEnv(t, false)
 
 	s.ctx = context.Background()
@@ -1135,9 +1137,12 @@ func (s *GoofysTest) TestUnlinkCache(t *C) {
 
 func (s *GoofysTest) anonymous(t *C) {
 	bucket := s.setupDefaultEnv(t, true)
+
 	s.fs = NewGoofys(bucket, s.awsConfig, s.fs.flags)
 	t.Assert(s.fs, NotNil)
 
+	// should have auto-detected within NewGoofys, but doing this here to ensure
+	// we are using anonymous credentials
 	s.fs.awsConfig = selectTestConfig(t)
 	s.fs.awsConfig.Credentials = credentials.AnonymousCredentials
 	s.fs.sess = session.New(s.fs.awsConfig)
