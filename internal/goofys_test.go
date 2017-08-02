@@ -1349,7 +1349,7 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 		t.Assert(err, IsNil)
 
 		names, err = ia.ListXattr(s.fs)
-		t.Assert(names, DeepEquals, []string{"s3.etag", "s3.storage-class", "user.name"})
+		t.Assert(names, DeepEquals, []string{"s3.etag", "s3.storage-class"})
 
 		value, err = ia.GetXattr(s.fs, "s3.storage-class")
 		t.Assert(err, IsNil)
