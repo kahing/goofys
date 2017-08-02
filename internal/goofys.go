@@ -614,6 +614,7 @@ func (fs *Goofys) mpuCopyPart(from string, to string, mpuId string, bytes string
 
 	resp, err := fs.s3.UploadPartCopy(params)
 	if err != nil {
+		s3Log.Errorf("UploadPartCopy %v = %v", params, err)
 		*errout = mapAwsError(err)
 		return
 	}
@@ -712,8 +713,9 @@ func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId 
 
 		s3Log.Debug(params)
 
-		_, err = fs.s3.CompleteMultipartUpload(params)
+		_, err := fs.s3.CompleteMultipartUpload(params)
 		if err != nil {
+			s3Log.Errorf("Complete MPU %v = %v", params, err)
 			return mapAwsError(err)
 		}
 	}

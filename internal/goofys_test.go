@@ -708,7 +708,6 @@ func (s *GoofysTest) TestRenameLarge(t *C) {
 
 func (s *GoofysTest) TestRename(t *C) {
 	root := s.getRoot(t)
-
 	from, to := "dir1", "new_dir"
 	err := root.Rename(s.fs, from, root, to)
 	t.Assert(err, Equals, fuse.ENOTEMPTY)
@@ -763,7 +762,7 @@ func (s *GoofysTest) TestRename(t *C) {
 
 	// not really rename but can be used by rename
 	from, to = s.fs.bucket+"/file2", "new_file"
-	err = s.fs.copyObjectMultipart(int64(len(from)), from, to, "", nil, nil)
+	err = s.fs.copyObjectMultipart(int64(len("file2")), from, to, "", nil, nil)
 	t.Assert(err, IsNil)
 }
 
