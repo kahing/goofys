@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -317,9 +318,16 @@ func (fs *Goofys) detectBucketLocationByHEAD() (err error, isAws bool) {
 		return
 	}
 
-	resp, err = http.DefaultTransport.RoundTrip(req)
-	if err != nil {
-		return
+	for i := 0; i < 3; i++ {
+		resp, err = http.DefaultTransport.RoundTrip(req)
+		if err != nil {
+			return
+		}
+		if resp.StatusCode < 500 {
+			break
+		} else if resp.StatusCode == 503 && resp.Status == "503 Slow Down" {
+			time.Sleep(time.Duration(i+1) * time.Second)
+		}
 	}
 
 	region := resp.Header["X-Amz-Bucket-Region"]
@@ -348,10 +356,8 @@ func (fs *Goofys) detectBucketLocationByHEAD() (err error, isAws bool) {
 		err = fuse.ENOENT
 	case 405:
 		err = syscall.ENOTSUP
-	case 500:
-		err = syscall.EAGAIN
 	default:
-		err = awserr.NewRequestFailure(nil, resp.StatusCode, "")
+		err = awserr.New(strconv.Itoa(resp.StatusCode), resp.Status, nil)
 	}
 
 	if len(region) != 0 {
