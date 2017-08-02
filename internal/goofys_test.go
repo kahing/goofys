@@ -232,7 +232,7 @@ func (s *GoofysTest) setupDefaultEnv(t *C) (bucket string) {
 		"zero":            bytes.NewReader([]byte{}),
 	}
 
-	bucket = RandStringBytesMaskImprSrc(16)
+	bucket = "goofys-test-" + RandStringBytesMaskImprSrc(16)
 	s.setupEnv(t, bucket, s.env)
 	return bucket
 }
@@ -1159,6 +1159,7 @@ func (s *GoofysTest) TestWriteAnonymous(t *C) {
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 
 	fileName := "test"
+
 	createOp := fuseops.CreateFileOp{
 		Parent: s.getRoot(t).Id,
 		Name:   fileName,
