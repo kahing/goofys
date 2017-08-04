@@ -117,7 +117,7 @@ func waitFor(t *C, addr string) (err error) {
 			return
 		} else {
 			t.Log("Cound not connect: %v", err)
-			time.Sleep(1 * time.Second)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 
@@ -866,7 +866,7 @@ func (s *GoofysTest) mount(t *C, mountPoint string) {
 func (s *GoofysTest) umount(t *C, mountPoint string) {
 	err := fuse.Unmount(mountPoint)
 	if err != nil {
-		time.Sleep(1 * time.Second)
+		time.Sleep(100 * time.Millisecond)
 		err = fuse.Unmount(mountPoint)
 		t.Assert(err, IsNil)
 	}
