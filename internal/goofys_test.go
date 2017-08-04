@@ -354,17 +354,17 @@ func (s *GoofysTest) TestGetInodeAttributes(t *C) {
 	t.Assert(attr.Size, Equals, uint64(len("file1")))
 }
 
-func (s *GoofysTest) readDirFully(t *C, dh *DirHandle) (entries []fuseutil.Dirent) {
+func (s *GoofysTest) readDirFully(t *C, dh *DirHandle) (entries []DirHandleEntry) {
 	dh.mu.Lock()
 	defer dh.mu.Unlock()
 
 	en, err := dh.ReadDir(s.fs, fuseops.DirOffset(0))
 	t.Assert(err, IsNil)
-	t.Assert(en.Name, Equals, ".")
+	t.Assert(*en.Name, Equals, ".")
 
 	en, err = dh.ReadDir(s.fs, fuseops.DirOffset(1))
 	t.Assert(err, IsNil)
-	t.Assert(en.Name, Equals, "..")
+	t.Assert(*en.Name, Equals, "..")
 
 	for i := fuseops.DirOffset(2); ; i++ {
 		en, err = dh.ReadDir(s.fs, i)
@@ -378,9 +378,9 @@ func (s *GoofysTest) readDirFully(t *C, dh *DirHandle) (entries []fuseutil.Diren
 	}
 }
 
-func namesOf(entries []fuseutil.Dirent) (names []string) {
+func namesOf(entries []DirHandleEntry) (names []string) {
 	for _, en := range entries {
-		names = append(names, en.Name)
+		names = append(names, *en.Name)
 	}
 	return
 }
@@ -420,7 +420,7 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 	dh := parent.OpenDir()
 	defer dh.CloseDir()
 
-	var entries []*fuseutil.Dirent
+	var entries []*DirHandleEntry
 
 	dh.mu.Lock()
 	for i := fuseops.DirOffset(0); ; i++ {
@@ -437,19 +437,19 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 
 	for _, en := range entries {
 		if en.Type == fuseutil.DT_File {
-			in, err := parent.LookUp(s.fs, en.Name)
+			in, err := parent.LookUp(s.fs, *en.Name)
 			t.Assert(err, IsNil)
 
 			fh := in.OpenFile(s.fs)
 			buf := make([]byte, 4096)
 
 			nread, err := fh.ReadFile(s.fs, 0, buf)
-			if en.Name == "zero" {
+			if *en.Name == "zero" {
 				t.Assert(nread, Equals, 0)
 			} else {
-				t.Assert(nread, Equals, len(en.Name))
+				t.Assert(nread, Equals, len(*en.Name))
 				buf = buf[0:nread]
-				t.Assert(string(buf), Equals, en.Name)
+				t.Assert(string(buf), Equals, *en.Name)
 			}
 		} else {
 
@@ -944,7 +944,6 @@ func (s *GoofysTest) testExplicitDir(t *C) {
 
 func (s *GoofysTest) TestBenchLs(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
-
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "ls")
 }
 

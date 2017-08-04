@@ -77,13 +77,19 @@ func NewInode(name *string, fullName *string, flags *FlagStorage) (inode *Inode)
 }
 
 type DirHandleEntry struct {
-	Attributes   fuseops.InodeAttributes // XXX use a smaller struct
+	Name   *string
+	Type   fuseutil.DirentType
+	Offset fuseops.DirOffset
+
+	Attributes   *fuseops.InodeAttributes // XXX use a smaller struct
 	ETag         *string
 	StorageClass *string
 }
 
-func (entry DirHandleEntry) Init(attr *fuseops.InodeAttributes) *DirHandleEntry {
-	entry.Attributes = *attr
+func (entry DirHandleEntry) Init(name *string, t fuseutil.DirentType, attr *fuseops.InodeAttributes) *DirHandleEntry {
+	entry.Name = name
+	entry.Attributes = attr
+	entry.Type = t
 	return &entry
 }
 
@@ -91,7 +97,7 @@ type DirHandle struct {
 	inode *Inode
 
 	mu          sync.Mutex // everything below is protected by mu
-	Entries     []fuseutil.Dirent
+	Entries     []*DirHandleEntry
 	NameToEntry map[string]*DirHandleEntry
 	Marker      *string
 	BaseOffset  int
@@ -162,7 +168,7 @@ func (parent *Inode) lookupFromDirHandles(name string) (inode *Inode) {
 		if ok {
 			fullName := parent.getChildName(name)
 			inode = NewInode(&name, &fullName, parent.flags)
-			inode.Attributes = &entry.Attributes
+			inode.Attributes = entry.Attributes
 			size := inode.Attributes.Size
 			inode.KnownSize = &size
 			if entry.ETag != nil {
@@ -1348,18 +1354,14 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 }
 
 // Dirents, sorted by name.
-type sortedDirents []fuseutil.Dirent
+type sortedDirents []*DirHandleEntry
 
 func (p sortedDirents) Len() int           { return len(p) }
-func (p sortedDirents) Less(i, j int) bool { return p[i].Name < p[j].Name }
+func (p sortedDirents) Less(i, j int) bool { return *p[i].Name < *p[j].Name }
 func (p sortedDirents) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
-func makeDirEntry(name string, t fuseutil.DirentType) fuseutil.Dirent {
-	return fuseutil.Dirent{Name: name, Type: t, Inode: fuseops.RootInodeID + 1}
-}
-
 // LOCKS_REQUIRED(dh.mu)
-func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Dirent, error) {
+func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandleEntry, err error) {
 	// If the request is for offset zero, we assume that either this is the first
 	// call or rewinddir has been called. Reset state.
 	if offset == 0 {
@@ -1367,15 +1369,23 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 	}
 
 	if offset == 0 {
-		e := makeDirEntry(".", fuseutil.DT_Directory)
-		e.Offset = 1
-		dh.NameToEntry["."] = DirHandleEntry{}.Init(&fs.rootAttrs)
-		return &e, nil
+		en = &DirHandleEntry{
+			Name:       aws.String("."),
+			Type:       fuseutil.DT_Directory,
+			Attributes: &fs.rootAttrs,
+			Offset:     1,
+		}
+		dh.NameToEntry["."] = en
+		return
 	} else if offset == 1 {
-		e := makeDirEntry("..", fuseutil.DT_Directory)
-		e.Offset = 2
-		dh.NameToEntry[".."] = DirHandleEntry{}.Init(&fs.rootAttrs)
-		return &e, nil
+		en = &DirHandleEntry{
+			Name:       aws.String(".."),
+			Type:       fuseutil.DT_Directory,
+			Attributes: &fs.rootAttrs,
+			Offset:     2,
+		}
+		dh.NameToEntry[".."] = en
+		return
 	}
 
 	i := int(offset) - dh.BaseOffset - 2
@@ -1418,7 +1428,7 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 		s3Log.Debug(resp)
 		dh.mu.Lock()
 
-		dh.Entries = make([]fuseutil.Dirent, 0, len(resp.CommonPrefixes)+len(resp.Contents))
+		dh.Entries = make([]*DirHandleEntry, 0, len(resp.CommonPrefixes)+len(resp.Contents))
 
 		for _, dir := range resp.CommonPrefixes {
 			// strip trailing /
@@ -1428,8 +1438,14 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 			if len(dirName) == 0 {
 				continue
 			}
-			dh.Entries = append(dh.Entries, makeDirEntry(dirName, fuseutil.DT_Directory))
-			dh.NameToEntry[dirName] = DirHandleEntry{}.Init(&fs.rootAttrs)
+			en = &DirHandleEntry{
+				Name:       &dirName,
+				Type:       fuseutil.DT_Directory,
+				Attributes: &fs.rootAttrs,
+			}
+
+			dh.Entries = append(dh.Entries, en)
+			dh.NameToEntry[dirName] = en
 		}
 
 		for _, obj := range resp.Contents {
@@ -1438,27 +1454,33 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 				// this is a directory blob
 				continue
 			}
-			dh.Entries = append(dh.Entries, makeDirEntry(baseName, fuseutil.DT_File))
-			dh.NameToEntry[baseName] = DirHandleEntry{}.Init(&fuseops.InodeAttributes{
-				Size:   uint64(*obj.Size),
-				Nlink:  1,
-				Mode:   fs.flags.FileMode,
-				Atime:  *obj.LastModified,
-				Mtime:  *obj.LastModified,
-				Ctime:  *obj.LastModified,
-				Crtime: *obj.LastModified,
-				Uid:    fs.flags.Uid,
-				Gid:    fs.flags.Gid,
-			})
-			dh.NameToEntry[baseName].ETag = obj.ETag
-			dh.NameToEntry[baseName].StorageClass = obj.StorageClass
+			en = &DirHandleEntry{
+				Name: &baseName,
+				Type: fuseutil.DT_File,
+				Attributes: &fuseops.InodeAttributes{
+					Size:   uint64(*obj.Size),
+					Nlink:  1,
+					Mode:   fs.flags.FileMode,
+					Atime:  *obj.LastModified,
+					Mtime:  *obj.LastModified,
+					Ctime:  *obj.LastModified,
+					Crtime: *obj.LastModified,
+					Uid:    fs.flags.Uid,
+					Gid:    fs.flags.Gid,
+				},
+				ETag:         obj.ETag,
+				StorageClass: obj.StorageClass,
+			}
+
+			dh.Entries = append(dh.Entries, en)
+			dh.NameToEntry[baseName] = en
 		}
 
 		sort.Sort(sortedDirents(dh.Entries))
 
 		// Fix up offset fields.
 		for i := 0; i < len(dh.Entries); i++ {
-			en := &dh.Entries[i]
+			en := dh.Entries[i]
 			// offset is 1 based, also need to account for "." and ".."
 			en.Offset = fuseops.DirOffset(i+dh.BaseOffset) + 1 + 2
 		}
@@ -1477,7 +1499,7 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (*fuseutil.Di
 		return nil, fuse.EINVAL
 	}
 
-	return &dh.Entries[i], nil
+	return dh.Entries[i], nil
 }
 
 func (dh *DirHandle) CloseDir() error {

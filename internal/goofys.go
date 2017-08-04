@@ -1027,6 +1027,29 @@ func (fs *Goofys) OpenDir(
 	return
 }
 
+/*
+// LOCKS_EXCLUDED(fs.mu)
+func (fs *Goofys) insertInodeFromDirent(entry *fuseutil.Dirent) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	inode := NewInode(name, fullname, fs.flags)
+	// these are fake dir entries, we will realize the refcnt when
+	// lookup is done
+	inode.refcnt = 0
+	fs.insertInode(inode)
+}
+*/
+
+func makeDirEntry(en *DirHandleEntry) fuseutil.Dirent {
+	return fuseutil.Dirent{
+		Name:   *en.Name,
+		Type:   en.Type,
+		Inode:  fuseops.RootInodeID + 1,
+		Offset: en.Offset,
+	}
+}
+
 // LOCKS_EXCLUDED(fs.mu)
 func (fs *Goofys) ReadDir(
 	ctx context.Context,
@@ -1056,7 +1079,9 @@ func (fs *Goofys) ReadDir(
 			break
 		}
 
-		n := fuseutil.WriteDirent(op.Dst[op.BytesRead:], *e)
+		//fs.insertInodeFromDirent(e)
+
+		n := fuseutil.WriteDirent(op.Dst[op.BytesRead:], makeDirEntry(e))
 		if n == 0 {
 			break
 		}
