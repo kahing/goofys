@@ -962,9 +962,7 @@ func (fs *Goofys) LookUpInode(
 		if inode == nil {
 			fs.mu.Lock()
 			inode = newInode
-			inode.Id = fs.allocateInodeId()
-			fs.inodesCache[*inode.FullName] = inode
-			fs.inodes[inode.Id] = inode
+			fs.insertInode(inode)
 			fs.mu.Unlock()
 		} else {
 			inode.Attributes = newInode.Attributes
@@ -978,6 +976,13 @@ func (fs *Goofys) LookUpInode(
 	op.Entry.EntryExpiration = time.Now().Add(fs.flags.TypeCacheTTL)
 
 	return
+}
+
+// LOCKS_REQUIRED(fs.mu)
+func (fs *Goofys) insertInode(inode *Inode) {
+	inode.Id = fs.allocateInodeId()
+	fs.inodesCache[*inode.FullName] = inode
+	fs.inodes[inode.Id] = inode
 }
 
 // LOCKS_EXCLUDED(fs.mu)
@@ -1182,13 +1187,7 @@ func (fs *Goofys) CreateFile(
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	nextInode := fs.nextInodeID
-	fs.nextInodeID++
-
-	inode.Id = nextInode
-
-	fs.inodes[inode.Id] = inode
-	fs.inodesCache[*inode.FullName] = inode
+	fs.insertInode(inode)
 
 	op.Entry.Child = inode.Id
 	op.Entry.Attributes = *inode.Attributes
@@ -1225,13 +1224,8 @@ func (fs *Goofys) MkDir(
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	nextInode := fs.nextInodeID
-	fs.nextInodeID++
+	fs.insertInode(inode)
 
-	inode.Id = nextInode
-
-	fs.inodesCache[*inode.FullName] = inode
-	fs.inodes[inode.Id] = inode
 	op.Entry.Child = inode.Id
 	op.Entry.Attributes = *inode.Attributes
 	op.Entry.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
