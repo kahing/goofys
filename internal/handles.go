@@ -52,8 +52,9 @@ type Inode struct {
 
 	log *logHandle
 
-	mu      sync.Mutex          // everything below is protected by mu
-	handles map[*DirHandle]bool // value is ignored
+	mu          sync.Mutex          // everything below is protected by mu
+	dirHandles  map[*DirHandle]bool // value is ignored
+	fileHandles map[*FileHandle]bool
 
 	// the refcnt is an exception, it's protected by the global lock
 	// Goofys.mu
@@ -62,7 +63,8 @@ type Inode struct {
 
 func NewInode(name *string, fullName *string, flags *FlagStorage) (inode *Inode) {
 	inode = &Inode{Name: name, FullName: fullName, flags: flags}
-	inode.handles = make(map[*DirHandle]bool)
+	inode.dirHandles = make(map[*DirHandle]bool)
+	inode.fileHandles = make(map[*FileHandle]bool)
 	inode.refcnt = 1
 	inode.log = GetLogger(*fullName)
 	inode.AttrTime = time.Now()
@@ -104,6 +106,7 @@ func NewDirHandle(inode *Inode) (dh *DirHandle) {
 type FileHandle struct {
 	inode *Inode
 
+	mpuKey    *string
 	dirty     bool
 	writeInit sync.Once
 	mpuWG     sync.WaitGroup
@@ -115,8 +118,7 @@ type FileHandle struct {
 	lastPartId      int
 
 	poolHandle *BufferPool
-	//buf        []byte
-	buf *MBuf
+	buf        *MBuf
 
 	lastWriteError error
 
@@ -152,7 +154,7 @@ func (parent *Inode) lookupFromDirHandles(name string) (inode *Inode) {
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
-	for dh := range parent.handles {
+	for dh := range parent.dirHandles {
 		dh.mu.Lock()
 		defer dh.mu.Unlock()
 
@@ -278,6 +280,7 @@ func (parent *Inode) Create(
 	fh.poolHandle = fs.bufferPool
 	fh.buf = MBuf{}.Init(fh.poolHandle, 0, true)
 	fh.dirty = true
+	inode.fileHandles[fh] = true
 
 	return
 }
@@ -589,7 +592,13 @@ func (inode *Inode) ListXattr(fs *Goofys) ([]string, error) {
 
 func (inode *Inode) OpenFile(fs *Goofys) *FileHandle {
 	inode.logFuse("OpenFile")
-	return NewFileHandle(inode)
+
+	inode.mu.Lock()
+	defer inode.mu.Unlock()
+
+	fh := NewFileHandle(inode)
+	inode.fileHandles[fh] = true
+	return fh
 }
 
 func (fh *FileHandle) initWrite(fs *Goofys) {
@@ -604,9 +613,11 @@ func (fh *FileHandle) initMPU(fs *Goofys) {
 		fh.mpuWG.Done()
 	}()
 
+	fh.mpuKey = fh.inode.FullName
+
 	params := &s3.CreateMultipartUploadInput{
 		Bucket:       &fs.bucket,
-		Key:          fs.key(*fh.inode.FullName),
+		Key:          fs.key(*fh.mpuKey),
 		StorageClass: &fs.flags.StorageClass,
 		ContentType:  fs.getMimeType(*fh.inode.FullName),
 	}
@@ -1038,6 +1049,11 @@ func (fh *FileHandle) Release() {
 			// freed when they finish/error out
 		}
 	}
+
+	fh.inode.mu.Lock()
+	defer fh.inode.mu.Unlock()
+
+	delete(fh.inode.fileHandles, fh)
 }
 
 func (fh *FileHandle) readFromStream(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
@@ -1217,7 +1233,7 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 
 	params := &s3.CompleteMultipartUploadInput{
 		Bucket:   &fs.bucket,
-		Key:      fs.key(*fh.inode.FullName),
+		Key:      fs.key(*fh.mpuKey),
 		UploadId: fh.mpuId,
 		MultipartUpload: &s3.CompletedMultipartUpload{
 			Parts: parts,
@@ -1234,6 +1250,11 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 	s3Log.Debug(resp)
 	fh.mpuId = nil
 
+	if *fh.mpuKey != *fh.inode.FullName {
+		// the file was renamed
+		err = renameObject(fs, fh.nextWriteOffset, *fh.mpuKey, *fh.inode.FullName)
+	}
+
 	return
 }
 
@@ -1246,7 +1267,11 @@ func (parent *Inode) Rename(fs *Goofys, from string, newParent *Inode, to string
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
-	fromIsDir, err := isEmptyDir(fs, fromFullName)
+	var size int64
+	var fromIsDir bool
+	var toIsDir bool
+
+	fromIsDir, err = isEmptyDir(fs, fromFullName)
 	if err != nil {
 		// we don't support renaming a directory that's not empty
 		return
@@ -1259,7 +1284,7 @@ func (parent *Inode) Rename(fs *Goofys, from string, newParent *Inode, to string
 		defer newParent.mu.Unlock()
 	}
 
-	toIsDir, err := isEmptyDir(fs, toFullName)
+	toIsDir, err = isEmptyDir(fs, toFullName)
 	if err != nil {
 		return
 	}
@@ -1278,13 +1303,18 @@ func (parent *Inode) Rename(fs *Goofys, from string, newParent *Inode, to string
 		return syscall.EISDIR
 	}
 
-	size := int64(-1)
+	size = int64(-1)
 	if fromIsDir {
 		fromFullName += "/"
 		toFullName += "/"
 		size = 0
 	}
 
+	err = renameObject(fs, size, fromFullName, toFullName)
+	return
+}
+
+func renameObject(fs *Goofys, size int64, fromFullName string, toFullName string) (err error) {
 	err = fs.copyObjectMaybeMultipart(size, fromFullName, toFullName, nil, nil)
 	if err != nil {
 		return err
@@ -1299,6 +1329,7 @@ func (parent *Inode) Rename(fs *Goofys, from string, newParent *Inode, to string
 	if err != nil {
 		return mapAwsError(err)
 	}
+	s3Log.Debugf("Deleted %v", delParams)
 
 	return
 }
@@ -1311,7 +1342,7 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 	inode.mu.Lock()
 	defer inode.mu.Unlock()
 
-	inode.handles[dh] = true
+	inode.dirHandles[dh] = true
 
 	return
 }
@@ -1454,7 +1485,7 @@ func (dh *DirHandle) CloseDir() error {
 
 	inode.mu.Lock()
 	defer inode.mu.Unlock()
-	delete(inode.handles, dh)
+	delete(inode.dirHandles, dh)
 
 	return nil
 }

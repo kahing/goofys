@@ -781,6 +781,7 @@ func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string, s
 
 	resp, err := fs.s3.CopyObject(params)
 	if err != nil {
+		s3Log.Errorf("CopyObject %v = %v", params, err)
 		err = mapAwsError(err)
 	}
 	s3Log.Debug(resp)
@@ -925,6 +926,16 @@ func (fs *Goofys) LookUpInode(
 		expireTime := inode.AttrTime.Add(fs.flags.StatCacheTTL)
 		if !expireTime.After(time.Now()) {
 			ok = false
+			if len(inode.fileHandles) != 0 {
+				// we have an open file handle, object
+				// in S3 may not represent the true
+				// state of the file anyway, so just
+				// return what we know which is
+				// potentially more accurate
+				ok = true
+			} else {
+				inode.logFuse("lookup expired")
+			}
 		}
 	}
 	fs.mu.Unlock()
@@ -1177,6 +1188,7 @@ func (fs *Goofys) CreateFile(
 	inode.Id = nextInode
 
 	fs.inodes[inode.Id] = inode
+	fs.inodesCache[*inode.FullName] = inode
 
 	op.Entry.Child = inode.Id
 	op.Entry.Attributes = *inode.Attributes
@@ -1299,12 +1311,23 @@ func (fs *Goofys) Rename(
 	fs.mu.Lock()
 	parent := fs.getInodeOrDie(op.OldParent)
 	newParent := fs.getInodeOrDie(op.NewParent)
+	inode := fs.inodesCache[parent.getChildName(op.OldName)]
 	fs.mu.Unlock()
 
 	err = parent.Rename(fs, op.OldName, newParent, op.NewName)
+	if err != nil {
+		if err == fuse.ENOENT {
+			// if the source doesn't exist, it could be
+			// because this is a new file and we haven't
+			// flushed it yet, pretend that's ok because
+			// when we flush we will handle the rename
+			if len(inode.fileHandles) != 0 {
+				err = nil
+			}
+		}
+	}
 	if err == nil {
 		fs.mu.Lock()
-		inode := fs.inodesCache[parent.getChildName(op.OldName)]
 		oldFullName := *inode.FullName
 		newFullName := newParent.getChildName(op.NewName)
 		inode.FullName = &newFullName
@@ -1316,7 +1339,7 @@ func (fs *Goofys) Rename(
 
 		// XXX layering violation
 		inode.mu.Lock()
-		inode.handles = make(map[*DirHandle]bool)
+		inode.dirHandles = make(map[*DirHandle]bool)
 		inode.mu.Unlock()
 	}
 	return

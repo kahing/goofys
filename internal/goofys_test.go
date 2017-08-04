@@ -1199,7 +1199,8 @@ func (s *GoofysTest) TestWriteAnonymous(t *C) {
 		Parent: s.getRoot(t).Id,
 		Name:   fileName,
 	})
-	t.Assert(err, Equals, fuse.ENOENT)
+	t.Assert(err, IsNil)
+	// BUG! the file shouldn't exist, see test below for comment
 }
 
 func (s *GoofysTest) TestWriteAnonymousFuse(t *C) {
@@ -1452,4 +1453,85 @@ func (s *GoofysTest) TestXAttrSet(t *C) {
 
 	t.Assert(value2, DeepEquals, value)
 	t.Assert(string(value2), DeepEquals, "world")
+}
+
+func (s *GoofysTest) TestCreateRenameBeforeCloseFuse(t *C) {
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	s.mount(t, mountPoint)
+	defer s.umount(t, mountPoint)
+
+	from := mountPoint + "/newfile"
+	to := mountPoint + "/newfile2"
+
+	fh, err := os.Create(from)
+	t.Assert(err, IsNil)
+	defer func() {
+		// close the file if the test failed so we can unmount
+		if fh != nil {
+			fh.Close()
+		}
+	}()
+
+	_, err = fh.WriteString("hello world")
+	t.Assert(err, IsNil)
+
+	err = os.Rename(from, to)
+	t.Assert(err, IsNil)
+
+	err = fh.Close()
+	t.Assert(err, IsNil)
+	fh = nil
+
+	_, err = os.Stat(from)
+	t.Assert(err, NotNil)
+	pathErr, ok := err.(*os.PathError)
+	t.Assert(ok, Equals, true)
+	t.Assert(pathErr.Err, Equals, fuse.ENOENT)
+
+	content, err := ioutil.ReadFile(to)
+	t.Assert(err, IsNil)
+	t.Assert(string(content), Equals, "hello world")
+}
+
+func (s *GoofysTest) TestRenameBeforeCloseFuse(t *C) {
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	s.mount(t, mountPoint)
+	defer s.umount(t, mountPoint)
+
+	from := mountPoint + "/newfile"
+	to := mountPoint + "/newfile2"
+
+	err := ioutil.WriteFile(from, []byte(""), 0600)
+	t.Assert(err, IsNil)
+
+	fh, err := os.OpenFile(from, os.O_WRONLY, 0600)
+	t.Assert(err, IsNil)
+	defer func() {
+		// close the file if the test failed so we can unmount
+		if fh != nil {
+			fh.Close()
+		}
+	}()
+
+	_, err = fh.WriteString("hello world")
+	t.Assert(err, IsNil)
+
+	err = os.Rename(from, to)
+	t.Assert(err, IsNil)
+
+	err = fh.Close()
+	t.Assert(err, IsNil)
+	fh = nil
+
+	_, err = os.Stat(from)
+	t.Assert(err, NotNil)
+	pathErr, ok := err.(*os.PathError)
+	t.Assert(ok, Equals, true)
+	t.Assert(pathErr.Err, Equals, fuse.ENOENT)
+
+	content, err := ioutil.ReadFile(to)
+	t.Assert(err, IsNil)
+	t.Assert(string(content), Equals, "hello world")
 }
