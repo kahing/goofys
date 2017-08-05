@@ -392,6 +392,39 @@ func (s *GoofysTest) assertEntries(t *C, in *Inode, names []string) {
 	t.Assert(namesOf(s.readDirFully(t, dh)), DeepEquals, names)
 }
 
+func (s *GoofysTest) readDirIntoCache(t *C, inode fuseops.InodeID) {
+	openDirOp := fuseops.OpenDirOp{Inode: inode}
+	err := s.fs.OpenDir(nil, &openDirOp)
+	t.Assert(err, IsNil)
+
+	readDirOp := fuseops.ReadDirOp{
+		Inode:  inode,
+		Handle: openDirOp.Handle,
+		Dst:    make([]byte, 8*1024),
+	}
+
+	err = s.fs.ReadDir(nil, &readDirOp)
+	t.Assert(err, IsNil)
+}
+
+func (s *GoofysTest) TestReadDirCacheLookup(t *C) {
+	s.fs.flags.StatCacheTTL = 1 * time.Minute
+	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+
+	s.readDirIntoCache(t, fuseops.RootInodeID)
+	s.disableS3()
+
+	// should be cached so lookup should not need to talk to s3
+	entries := []string{"dir1", "dir2", "dir4", "empty_dir", "empty_dir2", "file1", "file2", "zero"}
+	for _, en := range entries {
+		err := s.fs.LookUpInode(nil, &fuseops.LookUpInodeOp{
+			Parent: fuseops.RootInodeID,
+			Name:   en,
+		})
+		t.Assert(err, IsNil)
+	}
+}
+
 func (s *GoofysTest) TestReadDir(t *C) {
 	// test listing /
 	dh := s.getRoot(t).OpenDir()
@@ -1173,6 +1206,12 @@ func (s *GoofysTest) anonymous(t *C) {
 	s.fs.s3 = s.fs.newS3()
 }
 
+func (s *GoofysTest) disableS3() *s3.S3 {
+	s3 := s.fs.s3
+	s.fs.s3 = nil
+	return s3
+}
+
 func (s *GoofysTest) TestWriteAnonymous(t *C) {
 	s.anonymous(t)
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
@@ -1323,13 +1362,19 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 	dir1, err := s.LookUpInode(t, "dir1")
 	t.Assert(err, IsNil)
 
-	// list dir1 to populate file3 in dir1's handle, then get file3's xattr
-	dh := dir1.OpenDir()
-	defer dh.CloseDir()
-	s.readDirFully(t, dh)
-
-	file3, err := dir1.LookUp(s.fs, "file3")
+	// list dir1 to populate file3 in cache, then get file3's xattr
+	lookup := fuseops.LookUpInodeOp{
+		Parent: fuseops.RootInodeID,
+		Name:   "dir1",
+	}
+	err = s.fs.LookUpInode(nil, &lookup)
 	t.Assert(err, IsNil)
+
+	s.readDirIntoCache(t, lookup.Entry.Child)
+
+	file3, ok := s.fs.inodesCache[dir1.getChildName("file3")]
+	t.Assert(ok, Equals, true)
+	t.Assert(file3, NotNil)
 	t.Assert(file3.userMetadata, IsNil)
 
 	value, err = file3.GetXattr(s.fs, "s3.etag")

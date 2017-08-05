@@ -52,8 +52,7 @@ type Inode struct {
 
 	log *logHandle
 
-	mu          sync.Mutex          // everything below is protected by mu
-	dirHandles  map[*DirHandle]bool // value is ignored
+	mu          sync.Mutex // everything below is protected by mu
 	fileHandles map[*FileHandle]bool
 
 	// the refcnt is an exception, it's protected by the global lock
@@ -63,7 +62,6 @@ type Inode struct {
 
 func NewInode(name *string, fullName *string, flags *FlagStorage) (inode *Inode) {
 	inode = &Inode{Name: name, FullName: fullName, flags: flags}
-	inode.dirHandles = make(map[*DirHandle]bool)
 	inode.fileHandles = make(map[*FileHandle]bool)
 	inode.refcnt = 1
 	inode.log = GetLogger(*fullName)
@@ -96,16 +94,14 @@ func (entry DirHandleEntry) Init(name *string, t fuseutil.DirentType, attr *fuse
 type DirHandle struct {
 	inode *Inode
 
-	mu          sync.Mutex // everything below is protected by mu
-	Entries     []*DirHandleEntry
-	NameToEntry map[string]*DirHandleEntry
-	Marker      *string
-	BaseOffset  int
+	mu         sync.Mutex // everything below is protected by mu
+	Entries    []*DirHandleEntry
+	Marker     *string
+	BaseOffset int
 }
 
 func NewDirHandle(inode *Inode) (dh *DirHandle) {
 	dh = &DirHandle{inode: inode}
-	dh.NameToEntry = make(map[string]*DirHandleEntry)
 	return
 }
 
@@ -155,42 +151,8 @@ func (inode *Inode) errFuse(op string, args ...interface{}) {
 	fuseLog.Errorln(op, inode.Id, *inode.FullName, args)
 }
 
-// LOCKS_REQUIRED(parent.mu)
-func (parent *Inode) lookupFromDirHandles(name string) (inode *Inode) {
-	parent.mu.Lock()
-	defer parent.mu.Unlock()
-
-	for dh := range parent.dirHandles {
-		dh.mu.Lock()
-		defer dh.mu.Unlock()
-
-		entry, ok := dh.NameToEntry[name]
-		if ok {
-			fullName := parent.getChildName(name)
-			inode = NewInode(&name, &fullName, parent.flags)
-			inode.Attributes = entry.Attributes
-			size := inode.Attributes.Size
-			inode.KnownSize = &size
-			if entry.ETag != nil {
-				inode.s3Metadata["etag"] = []byte(*entry.ETag)
-			}
-			if entry.StorageClass != nil {
-				inode.s3Metadata["storage-class"] = []byte(*entry.StorageClass)
-			}
-			return
-		}
-	}
-
-	return
-}
-
 func (parent *Inode) LookUp(fs *Goofys, name string) (inode *Inode, err error) {
 	parent.logFuse("Inode.LookUp", name)
-
-	inode = parent.lookupFromDirHandles(name)
-	if inode != nil {
-		return
-	}
 
 	inode, err = fs.LookUpInodeMaybeDir(name, parent.getChildName(name))
 	if err != nil {
@@ -214,11 +176,6 @@ func (parent *Inode) getChildName(name string) string {
 // that was legacy
 func (inode *Inode) Ref() {
 	inode.logFuse("Ref", inode.refcnt)
-
-	if inode.refcnt == 0 {
-		fuseLog.Errorln("Ref", inode.Id, *inode.FullName, "refcnt == 0")
-		panic("refcnt == 0")
-	}
 
 	inode.refcnt++
 	return
@@ -1344,12 +1301,6 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 	inode.logFuse("OpenDir")
 
 	dh = NewDirHandle(inode)
-
-	inode.mu.Lock()
-	defer inode.mu.Unlock()
-
-	inode.dirHandles[dh] = true
-
 	return
 }
 
@@ -1375,7 +1326,6 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandl
 			Attributes: &fs.rootAttrs,
 			Offset:     1,
 		}
-		dh.NameToEntry["."] = en
 		return
 	} else if offset == 1 {
 		en = &DirHandleEntry{
@@ -1384,7 +1334,6 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandl
 			Attributes: &fs.rootAttrs,
 			Offset:     2,
 		}
-		dh.NameToEntry[".."] = en
 		return
 	}
 
@@ -1445,7 +1394,6 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandl
 			}
 
 			dh.Entries = append(dh.Entries, en)
-			dh.NameToEntry[dirName] = en
 		}
 
 		for _, obj := range resp.Contents {
@@ -1473,7 +1421,6 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandl
 			}
 
 			dh.Entries = append(dh.Entries, en)
-			dh.NameToEntry[baseName] = en
 		}
 
 		sort.Sort(sortedDirents(dh.Entries))
@@ -1503,11 +1450,5 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandl
 }
 
 func (dh *DirHandle) CloseDir() error {
-	inode := dh.inode
-
-	inode.mu.Lock()
-	defer inode.mu.Unlock()
-	delete(inode.dirHandles, dh)
-
 	return nil
 }

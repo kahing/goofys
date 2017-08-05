@@ -1027,19 +1027,19 @@ func (fs *Goofys) OpenDir(
 	return
 }
 
-/*
 // LOCKS_EXCLUDED(fs.mu)
-func (fs *Goofys) insertInodeFromDirent(entry *fuseutil.Dirent) {
+func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	inode := NewInode(name, fullname, fs.flags)
+	path := parent.getChildName(*entry.Name)
+	inode := NewInode(entry.Name, &path, fs.flags)
+	inode.Attributes = entry.Attributes
 	// these are fake dir entries, we will realize the refcnt when
 	// lookup is done
 	inode.refcnt = 0
 	fs.insertInode(inode)
 }
-*/
 
 func makeDirEntry(en *DirHandleEntry) fuseutil.Dirent {
 	return fuseutil.Dirent{
@@ -1058,7 +1058,7 @@ func (fs *Goofys) ReadDir(
 	// Find the handle.
 	fs.mu.Lock()
 	dh := fs.dirHandles[op.Handle]
-	//inode := fs.inodes[op.Inode]
+	inode := fs.inodes[op.Inode]
 	fs.mu.Unlock()
 
 	if dh == nil {
@@ -1079,7 +1079,7 @@ func (fs *Goofys) ReadDir(
 			break
 		}
 
-		//fs.insertInodeFromDirent(e)
+		fs.insertInodeFromDirEntry(inode, e)
 
 		n := fuseutil.WriteDirent(op.Dst[op.BytesRead:], makeDirEntry(e))
 		if n == 0 {
@@ -1355,11 +1355,6 @@ func (fs *Goofys) Rename(
 		fs.inodesCache[newFullName] = inode
 		delete(fs.inodesCache, oldFullName)
 		fs.mu.Unlock()
-
-		// XXX layering violation
-		inode.mu.Lock()
-		inode.dirHandles = make(map[*DirHandle]bool)
-		inode.mu.Unlock()
 	}
 	return
 }
