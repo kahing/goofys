@@ -915,13 +915,15 @@ func (fs *Goofys) LookUpInode(
 	op *fuseops.LookUpInodeOp) (err error) {
 
 	var inode *Inode
+	var ok bool
 	defer func() { fuseLog.Debugf("<-- LookUpInode %v %v %v", op.Parent, op.Name, err) }()
 
 	fs.mu.Lock()
 
 	parent := fs.getInodeOrDie(op.Parent)
-	inode, ok := fs.inodesCache[parent.getChildName(op.Name)]
-	if ok {
+	inode = fs.lookupChild(parent, op.Name)
+	if inode != nil {
+		ok = true
 		inode.Ref()
 		expireTime := inode.AttrTime.Add(fs.flags.StatCacheTTL)
 		if !expireTime.After(time.Now()) {
@@ -937,6 +939,8 @@ func (fs *Goofys) LookUpInode(
 				inode.logFuse("lookup expired")
 			}
 		}
+	} else {
+		ok = false
 	}
 	fs.mu.Unlock()
 
@@ -975,6 +979,22 @@ func (fs *Goofys) LookUpInode(
 	op.Entry.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
 	op.Entry.EntryExpiration = time.Now().Add(fs.flags.TypeCacheTTL)
 
+	return
+}
+
+func (fs *Goofys) renameInCache(from *Inode, toParent *Inode, toName string) {
+	oldFullName := *from.FullName
+	newFullName := toParent.getChildName(toName)
+	from.FullName = &newFullName
+	from.Name = &toName
+
+	fs.inodesCache[newFullName] = from
+	delete(fs.inodesCache, oldFullName)
+}
+
+// LOCKS_REQUIRED(fs.mu)
+func (fs *Goofys) lookupChild(parent *Inode, name string) (inode *Inode) {
+	inode, _ = fs.inodesCache[parent.getChildName(name)]
 	return
 }
 
@@ -1165,11 +1185,7 @@ func (fs *Goofys) FlushFile(
 	fs.mu.Unlock()
 
 	err = fh.FlushFile(fs)
-	if err == nil {
-		fs.mu.Lock()
-		fs.inodesCache[*fh.inode.FullName] = fh.inode
-		fs.mu.Unlock()
-	} else {
+	if err != nil {
 		// if we returned success from creat() earlier
 		// linux may think this file exists even when it doesn't,
 		// until TypeCacheTTL is over
@@ -1330,7 +1346,7 @@ func (fs *Goofys) Rename(
 	fs.mu.Lock()
 	parent := fs.getInodeOrDie(op.OldParent)
 	newParent := fs.getInodeOrDie(op.NewParent)
-	inode := fs.inodesCache[parent.getChildName(op.OldName)]
+	inode := fs.lookupChild(parent, op.OldName)
 	fs.mu.Unlock()
 
 	err = parent.Rename(fs, op.OldName, newParent, op.NewName)
@@ -1347,13 +1363,7 @@ func (fs *Goofys) Rename(
 	}
 	if err == nil {
 		fs.mu.Lock()
-		oldFullName := *inode.FullName
-		newFullName := newParent.getChildName(op.NewName)
-		inode.FullName = &newFullName
-		inode.Name = &op.NewName
-
-		fs.inodesCache[newFullName] = inode
-		delete(fs.inodesCache, oldFullName)
+		fs.renameInCache(inode, newParent, op.NewName)
 		fs.mu.Unlock()
 	}
 	return
