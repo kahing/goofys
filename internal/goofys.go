@@ -318,7 +318,8 @@ func (fs *Goofys) detectBucketLocationByHEAD() (err error, isAws bool) {
 		return
 	}
 
-	for i := 0; i < 3; i++ {
+	allowFails := 3
+	for i := 0; i < allowFails; i++ {
 		resp, err = http.DefaultTransport.RoundTrip(req)
 		if err != nil {
 			return
@@ -327,6 +328,8 @@ func (fs *Goofys) detectBucketLocationByHEAD() (err error, isAws bool) {
 			break
 		} else if resp.StatusCode == 503 && resp.Status == "503 Slow Down" {
 			time.Sleep(time.Duration(i+1) * time.Second)
+			// allow infinite retries for 503 slow down
+			allowFails += 1
 		}
 	}
 
