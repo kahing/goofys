@@ -47,6 +47,9 @@ type Inode struct {
 	AttrTime    time.Time
 	ImplicitDir bool
 
+	Parent   *Inode
+	Children []*Inode
+
 	userMetadata map[string][]byte
 	s3Metadata   map[string][]byte
 
@@ -60,13 +63,18 @@ type Inode struct {
 	refcnt uint64
 }
 
-func NewInode(name *string, fullName *string, flags *FlagStorage) (inode *Inode) {
-	inode = &Inode{Name: name, FullName: fullName, flags: flags}
-	inode.fileHandles = make(map[*FileHandle]bool)
-	inode.refcnt = 1
-	inode.log = GetLogger(*fullName)
-	inode.AttrTime = time.Now()
-	inode.s3Metadata = make(map[string][]byte)
+func NewInode(parent *Inode, name *string, fullName *string, flags *FlagStorage) (inode *Inode) {
+	inode = &Inode{
+		Name:        name,
+		FullName:    fullName,
+		flags:       flags,
+		AttrTime:    time.Now(),
+		Parent:      parent,
+		s3Metadata:  make(map[string][]byte),
+		log:         GetLogger(*fullName),
+		fileHandles: make(map[*FileHandle]bool),
+		refcnt:      1,
+	}
 
 	if inode.flags.DebugFuse {
 		inode.log.Level = logrus.DebugLevel
@@ -151,10 +159,74 @@ func (inode *Inode) errFuse(op string, args ...interface{}) {
 	fuseLog.Errorln(op, inode.Id, *inode.FullName, args)
 }
 
+func (parent *Inode) findChild(name string) (inode *Inode) {
+	parent.mu.Lock()
+	defer parent.mu.Unlock()
+
+	l := len(parent.Children)
+	if l == 0 {
+		return
+	}
+	i := sort.Search(l, func(i int) bool { return (*parent.Children[i].Name) >= name })
+	if i < l {
+		// found
+		if *parent.Children[i].Name == name {
+			inode = parent.Children[i]
+		}
+	}
+	return
+}
+
+func (parent *Inode) removeChild(inode *Inode) {
+	parent.removeName(*inode.Name)
+}
+
+func (parent *Inode) removeName(name string) {
+	parent.mu.Lock()
+	defer parent.mu.Unlock()
+
+	l := len(parent.Children)
+	if l == 0 {
+		return
+	}
+	i := sort.Search(l, func(i int) bool { return (*parent.Children[i].Name) >= name })
+	if i >= l || *parent.Children[i].Name != name {
+		panic(fmt.Sprintf("%v.removeName(%v) but child not found: %v", *parent.FullName, name, i))
+	}
+
+	copy(parent.Children[i:], parent.Children[i+1:])
+	parent.Children = parent.Children[:l-1]
+}
+
+func (parent *Inode) insertChild(inode *Inode) {
+	parent.mu.Lock()
+	defer parent.mu.Unlock()
+
+	l := len(parent.Children)
+	if l == 0 {
+		parent.Children = []*Inode{inode}
+		return
+	}
+
+	i := sort.Search(l, func(i int) bool { return (*parent.Children[i].Name) >= (*inode.Name) })
+	if i == l {
+		// not found = new value is the biggest
+		parent.Children = append(parent.Children, inode)
+	} else {
+		if *parent.Children[i].Name == *inode.Name {
+			panic(fmt.Sprintf("double insert of %v", parent.getChildName(*inode.Name)))
+		}
+
+		parent.Children = append(parent.Children, nil)
+		copy(parent.Children[i+1:], parent.Children[i:])
+		parent.Children[i] = inode
+	}
+}
+
 func (parent *Inode) LookUp(fs *Goofys, name string) (inode *Inode, err error) {
 	parent.logFuse("Inode.LookUp", name)
 
-	inode, err = fs.LookUpInodeMaybeDir(name, parent.getChildName(name))
+	inode, err = fs.LookUpInodeMaybeDir(parent, name, parent.getChildName(name))
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +298,7 @@ func (parent *Inode) Create(
 	defer parent.mu.Unlock()
 
 	now := time.Now()
-	inode = NewInode(&name, &fullName, parent.flags)
+	inode = NewInode(parent, &name, &fullName, parent.flags)
 	inode.Attributes = &fuseops.InodeAttributes{
 		Size:   0,
 		Nlink:  1,
@@ -278,7 +350,7 @@ func (parent *Inode) MkDir(
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
-	inode = NewInode(&name, &fullName, parent.flags)
+	inode = NewInode(parent, &name, &fullName, parent.flags)
 	inode.Attributes = &fs.rootAttrs
 	inode.KnownSize = &inode.Attributes.Size
 

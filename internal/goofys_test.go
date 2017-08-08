@@ -939,6 +939,13 @@ func (s *GoofysTest) TestFuse(t *C) {
 	s.runFuseTest(t, mountPoint, true, "../test/fuse-test.sh", mountPoint)
 }
 
+func (s *GoofysTest) TestFuseWithTTL(t *C) {
+	s.fs.flags.StatCacheTTL = 60 * 1000 * 1000 * 1000
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	s.runFuseTest(t, mountPoint, true, "../test/fuse-test.sh", mountPoint)
+}
+
 func (s *GoofysTest) TestCheap(t *C) {
 	s.fs.flags.Cheap = true
 	s.TestLookUpInode(t)
@@ -1168,27 +1175,6 @@ func (s *GoofysTest) TestRenameCache(t *C) {
 	t.Assert(err, IsNil)
 }
 
-func (s *GoofysTest) TestUnlinkCache(t *C) {
-	root := s.getRoot(t)
-	s.fs.flags.StatCacheTTL = 60 * 1000 * 1000 * 1000
-
-	lookupOp := fuseops.LookUpInodeOp{
-		Parent: root.Id,
-		Name:   "file1",
-	}
-
-	err := s.fs.LookUpInode(nil, &lookupOp)
-	t.Assert(err, IsNil)
-
-	unlinkOp := fuseops.UnlinkOp{Parent: root.Id, Name: "file1"}
-
-	err = s.fs.Unlink(nil, &unlinkOp)
-	t.Assert(err, IsNil)
-
-	err = s.fs.LookUpInode(nil, &lookupOp)
-	t.Assert(err, Equals, fuse.ENOENT)
-}
-
 func (s *GoofysTest) anonymous(t *C) {
 	// delete the original bucket
 	s.deleteBucket(t)
@@ -1372,8 +1358,8 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 
 	s.readDirIntoCache(t, lookup.Entry.Child)
 
-	file3, ok := s.fs.inodesCache[dir1.getChildName("file3")]
-	t.Assert(ok, Equals, true)
+	dir1 = s.fs.inodes[lookup.Entry.Child]
+	file3 := dir1.findChild("file3")
 	t.Assert(file3, NotNil)
 	t.Assert(file3.userMetadata, IsNil)
 
@@ -1578,4 +1564,43 @@ func (s *GoofysTest) TestRenameBeforeCloseFuse(t *C) {
 	content, err := ioutil.ReadFile(to)
 	t.Assert(err, IsNil)
 	t.Assert(string(content), Equals, "hello world")
+}
+
+func (s *GoofysTest) TestInodeInsert(t *C) {
+	root := s.getRoot(t)
+
+	root.insertChild(NewInode(root, aws.String("2"), aws.String("2"), s.fs.flags))
+	t.Assert(*root.Children[0].Name, Equals, "2")
+
+	root.insertChild(NewInode(root, aws.String("1"), aws.String("1"), s.fs.flags))
+	t.Assert(*root.Children[0].Name, Equals, "1")
+	t.Assert(*root.Children[1].Name, Equals, "2")
+
+	root.insertChild(NewInode(root, aws.String("4"), aws.String("4"), s.fs.flags))
+	t.Assert(*root.Children[0].Name, Equals, "1")
+	t.Assert(*root.Children[1].Name, Equals, "2")
+	t.Assert(*root.Children[2].Name, Equals, "4")
+
+	inode := root.findChild("1")
+	t.Assert(inode, NotNil)
+	t.Assert(*inode.Name, Equals, "1")
+
+	inode = root.findChild("2")
+	t.Assert(inode, NotNil)
+	t.Assert(*inode.Name, Equals, "2")
+
+	inode = root.findChild("4")
+	t.Assert(inode, NotNil)
+	t.Assert(*inode.Name, Equals, "4")
+
+	inode = root.findChild("0")
+	t.Assert(inode, IsNil)
+
+	inode = root.findChild("3")
+	t.Assert(inode, IsNil)
+
+	root.removeChild(root.Children[1])
+	root.removeChild(root.Children[0])
+	root.removeChild(root.Children[0])
+	t.Assert(len(root.Children), Equals, 0)
 }

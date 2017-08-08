@@ -91,8 +91,7 @@ type Goofys struct {
 	// INVARIANT: For all v, if IsDirName(v.Name()) then v is inode.DirInode
 	//
 	// GUARDED_BY(mu)
-	inodes      map[fuseops.InodeID]*Inode
-	inodesCache map[string]*Inode // fullname to inode
+	inodes map[fuseops.InodeID]*Inode
 
 	nextHandleID fuseops.HandleID
 	dirHandles   map[fuseops.HandleID]*DirHandle
@@ -202,13 +201,12 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 
 	fs.nextInodeID = fuseops.RootInodeID + 1
 	fs.inodes = make(map[fuseops.InodeID]*Inode)
-	root := NewInode(aws.String(""), aws.String(""), flags)
+	root := NewInode(nil, aws.String(""), aws.String(""), flags)
 	root.Id = fuseops.RootInodeID
 	root.Attributes = &fs.rootAttrs
 	root.KnownSize = &fs.rootAttrs.Size
 
 	fs.inodes[fuseops.RootInodeID] = root
-	fs.inodesCache = make(map[string]*Inode)
 
 	fs.nextHandleID = 1
 	fs.dirHandles = make(map[fuseops.HandleID]*DirHandle)
@@ -799,7 +797,7 @@ func (fs *Goofys) allocateInodeId() (id fuseops.InodeID) {
 }
 
 // returned inode has nil Id
-func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inode, err error) {
+func (fs *Goofys) LookUpInodeMaybeDir(parent *Inode, name string, fullName string) (inode *Inode, err error) {
 	errObjectChan := make(chan error, 1)
 	objectChan := make(chan s3.HeadObjectOutput, 1)
 	errDirBlobChan := make(chan error, 1)
@@ -825,7 +823,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 		case resp := <-objectChan:
 			err = nil
 			// XXX/TODO if both object and object/ exists, return dir
-			inode = NewInode(&name, &fullName, fs.flags)
+			inode = NewInode(parent, &name, &fullName, fs.flags)
 			inode.Attributes = &fuseops.InodeAttributes{
 				Size:   uint64(aws.Int64Value(resp.ContentLength)),
 				Nlink:  1,
@@ -852,7 +850,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 		case resp := <-dirChan:
 			err = nil
 			if len(resp.CommonPrefixes) != 0 || len(resp.Contents) != 0 {
-				inode = NewInode(&name, &fullName, fs.flags)
+				inode = NewInode(parent, &name, &fullName, fs.flags)
 				inode.Attributes = &fs.rootAttrs
 				inode.KnownSize = &inode.Attributes.Size
 				// if cheap is not on, the dir blob
@@ -871,7 +869,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(name string, fullName string) (inode *Inod
 			s3Log.Debugf("LIST %v/ = %v", fullName, err)
 		case resp := <-dirBlobChan:
 			err = nil
-			inode = NewInode(&name, &fullName, fs.flags)
+			inode = NewInode(parent, &name, &fullName, fs.flags)
 			inode.Attributes = &fs.rootAttrs
 			inode.KnownSize = &inode.Attributes.Size
 			inode.fillXattrFromHead(&resp)
@@ -960,7 +958,7 @@ func (fs *Goofys) LookUpInode(
 				stale := inode.DeRef(1)
 				if stale {
 					delete(fs.inodes, inode.Id)
-					delete(fs.inodesCache, *inode.FullName)
+					fs.removeFromCache(inode)
 				}
 			}
 			return err
@@ -969,7 +967,7 @@ func (fs *Goofys) LookUpInode(
 		if inode == nil {
 			fs.mu.Lock()
 			inode = newInode
-			fs.insertInode(inode)
+			fs.insertInode(parent, inode)
 			fs.mu.Unlock()
 		} else {
 			inode.Attributes = newInode.Attributes
@@ -985,26 +983,39 @@ func (fs *Goofys) LookUpInode(
 	return
 }
 
+func (fs *Goofys) removeFromCache(inode *Inode) {
+	if inode.Parent != nil {
+		inode.Parent.removeChild(inode)
+	}
+}
+
+// LOCKS_REQUIRED(fs.mu)
 func (fs *Goofys) renameInCache(from *Inode, toParent *Inode, toName string) {
-	oldFullName := *from.FullName
+	fs.removeFromCache(from)
+
 	newFullName := toParent.getChildName(toName)
 	from.FullName = &newFullName
 	from.Name = &toName
+	from.Parent = toParent
 
-	fs.inodesCache[newFullName] = from
-	delete(fs.inodesCache, oldFullName)
+	fs.insertIntoCache(toParent, from)
+}
+
+// LOCKS_REQUIRED(fs.mu)
+func (fs *Goofys) insertIntoCache(parent *Inode, inode *Inode) {
+	parent.insertChild(inode)
 }
 
 // LOCKS_REQUIRED(fs.mu)
 func (fs *Goofys) lookupChild(parent *Inode, name string) (inode *Inode) {
-	inode, _ = fs.inodesCache[parent.getChildName(name)]
+	inode = parent.findChild(name)
 	return
 }
 
 // LOCKS_REQUIRED(fs.mu)
-func (fs *Goofys) insertInode(inode *Inode) {
+func (fs *Goofys) insertInode(parent *Inode, inode *Inode) {
 	inode.Id = fs.allocateInodeId()
-	fs.inodesCache[*inode.FullName] = inode
+	fs.insertIntoCache(parent, inode)
 	fs.inodes[inode.Id] = inode
 }
 
@@ -1021,7 +1032,7 @@ func (fs *Goofys) ForgetInode(
 
 	if stale {
 		delete(fs.inodes, op.Inode)
-		delete(fs.inodesCache, *inode.FullName)
+		fs.removeFromCache(inode)
 	}
 
 	return
@@ -1055,13 +1066,29 @@ func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) 
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	path := parent.getChildName(*entry.Name)
-	inode := NewInode(entry.Name, &path, fs.flags)
-	inode.Attributes = entry.Attributes
-	// these are fake dir entries, we will realize the refcnt when
-	// lookup is done
-	inode.refcnt = 0
-	fs.insertInode(inode)
+	inode := fs.lookupChild(parent, *entry.Name)
+	if inode == nil {
+		path := parent.getChildName(*entry.Name)
+		inode := NewInode(parent, entry.Name, &path, fs.flags)
+		inode.Attributes = entry.Attributes
+		// these are fake dir entries, we will realize the refcnt when
+		// lookup is done
+		inode.refcnt = 0
+		fs.insertInode(parent, inode)
+	} else {
+		if entry.ETag != nil {
+			inode.s3Metadata["etag"] = []byte(*entry.ETag)
+		}
+		if entry.StorageClass != nil {
+			inode.s3Metadata["storage-class"] = []byte(*entry.StorageClass)
+		}
+		inode.KnownSize = &entry.Attributes.Size
+		inode.Attributes.Atime = entry.Attributes.Atime
+		inode.Attributes.Mtime = entry.Attributes.Mtime
+		inode.Attributes.Ctime = entry.Attributes.Ctime
+		inode.Attributes.Crtime = entry.Attributes.Crtime
+		inode.AttrTime = time.Now()
+	}
 }
 
 func makeDirEntry(en *DirHandleEntry) fuseutil.Dirent {
@@ -1231,7 +1258,7 @@ func (fs *Goofys) CreateFile(
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	fs.insertInode(inode)
+	fs.insertInode(parent, inode)
 
 	op.Entry.Child = inode.Id
 	op.Entry.Attributes = *inode.Attributes
@@ -1268,7 +1295,7 @@ func (fs *Goofys) MkDir(
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	fs.insertInode(inode)
+	fs.insertInode(parent, inode)
 
 	op.Entry.Child = inode.Id
 	op.Entry.Attributes = *inode.Attributes
@@ -1333,12 +1360,6 @@ func (fs *Goofys) Unlink(
 	fs.mu.Unlock()
 
 	err = parent.Unlink(fs, op.Name)
-	if err == nil {
-		fs.mu.Lock()
-		fullName := parent.getChildName(op.Name)
-		delete(fs.inodesCache, fullName)
-		fs.mu.Unlock()
-	}
 	return
 }
 
