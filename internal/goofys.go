@@ -911,6 +911,10 @@ func (fs *Goofys) LookUpInodeMaybeDir(parent *Inode, name string, fullName strin
 	}
 }
 
+func expired(cache time.Time, ttl time.Duration) bool {
+	return !cache.Add(ttl).After(time.Now())
+}
+
 func (fs *Goofys) LookUpInode(
 	ctx context.Context,
 	op *fuseops.LookUpInodeOp) (err error) {
@@ -926,8 +930,8 @@ func (fs *Goofys) LookUpInode(
 	if inode != nil {
 		ok = true
 		inode.Ref()
-		expireTime := inode.AttrTime.Add(fs.flags.StatCacheTTL)
-		if !expireTime.After(time.Now()) {
+
+		if expired(inode.AttrTime, fs.flags.StatCacheTTL) {
 			ok = false
 			if len(inode.fileHandles) != 0 {
 				// we have an open file handle, object
@@ -1108,17 +1112,19 @@ func (fs *Goofys) ReadDir(
 	// Find the handle.
 	fs.mu.Lock()
 	dh := fs.dirHandles[op.Handle]
-	inode := fs.inodes[op.Inode]
 	fs.mu.Unlock()
 
 	if dh == nil {
 		panic(fmt.Sprintf("can't find dh=%v", op.Handle))
 	}
 
-	dh.inode.logFuse("ReadDir", op.Offset)
+	inode := dh.inode
+	inode.logFuse("ReadDir", op.Offset)
 
 	dh.mu.Lock()
 	defer dh.mu.Unlock()
+
+	readFromS3 := false
 
 	for i := op.Offset; ; i++ {
 		e, err := dh.ReadDir(fs, i)
@@ -1126,17 +1132,25 @@ func (fs *Goofys) ReadDir(
 			return err
 		}
 		if e == nil {
+			// we've reached the end, if this was read
+			// from S3 then update the cache time
+			if readFromS3 {
+				inode.DirTime = time.Now()
+			}
 			break
 		}
 
-		fs.insertInodeFromDirEntry(inode, e)
+		if e.Inode == 0 {
+			readFromS3 = true
+			fs.insertInodeFromDirEntry(inode, e)
+		}
 
 		n := fuseutil.WriteDirent(op.Dst[op.BytesRead:], makeDirEntry(e))
 		if n == 0 {
 			break
 		}
 
-		dh.inode.logFuse("<-- ReadDir", e.Name, e.Offset)
+		dh.inode.logFuse("<-- ReadDir", *e.Name, e.Offset)
 
 		op.BytesRead += n
 	}

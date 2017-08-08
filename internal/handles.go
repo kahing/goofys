@@ -46,6 +46,7 @@ type Inode struct {
 	Invalid     bool
 	AttrTime    time.Time
 	ImplicitDir bool
+	DirTime     time.Time
 
 	Parent   *Inode
 	Children []*Inode
@@ -84,6 +85,7 @@ func NewInode(parent *Inode, name *string, fullName *string, flags *FlagStorage)
 
 type DirHandleEntry struct {
 	Name   *string
+	Inode  fuseops.InodeID
 	Type   fuseutil.DirentType
 	Offset fuseops.DirOffset
 
@@ -1389,6 +1391,33 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandl
 	// call or rewinddir has been called. Reset state.
 	if offset == 0 {
 		dh.Entries = nil
+	}
+
+	inode := dh.inode
+	inode.mu.Lock()
+	if !expired(inode.DirTime, fs.flags.TypeCacheTTL) {
+		if int(offset) >= len(inode.Children) {
+			inode.mu.Unlock()
+			return
+		}
+		child := inode.Children[offset]
+
+		en = &DirHandleEntry{
+			Name:       child.Name,
+			Inode:      child.Id,
+			Offset:     offset + 1,
+			Attributes: child.Attributes,
+		}
+		if inode.isDir() {
+			en.Type = fuseutil.DT_Directory
+		} else {
+			en.Type = fuseutil.DT_File
+		}
+	}
+	inode.mu.Unlock()
+
+	if en != nil {
+		return
 	}
 
 	if offset == 0 {

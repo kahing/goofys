@@ -360,10 +360,12 @@ func (s *GoofysTest) readDirFully(t *C, dh *DirHandle) (entries []DirHandleEntry
 
 	en, err := dh.ReadDir(s.fs, fuseops.DirOffset(0))
 	t.Assert(err, IsNil)
+	t.Assert(en, NotNil)
 	t.Assert(*en.Name, Equals, ".")
 
 	en, err = dh.ReadDir(s.fs, fuseops.DirOffset(1))
 	t.Assert(err, IsNil)
+	t.Assert(en, NotNil)
 	t.Assert(*en.Name, Equals, "..")
 
 	for i := fuseops.DirOffset(2); ; i++ {
@@ -1603,4 +1605,14 @@ func (s *GoofysTest) TestInodeInsert(t *C) {
 	root.removeChild(root.Children[0])
 	root.removeChild(root.Children[0])
 	t.Assert(len(root.Children), Equals, 0)
+}
+
+func (s *GoofysTest) TestReadDirCached(t *C) {
+	s.fs.flags.StatCacheTTL = 1 * time.Minute
+	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+
+	s.readDirIntoCache(t, fuseops.RootInodeID)
+	s.disableS3()
+
+	s.assertEntries(t, s.getRoot(t), []string{"dir1", "dir2", "dir4", "empty_dir", "empty_dir2", "file1", "file2", "zero"})
 }
