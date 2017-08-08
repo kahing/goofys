@@ -165,6 +165,11 @@ func (parent *Inode) findChild(name string) (inode *Inode) {
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
+	inode = parent.findChildUnlocked(name)
+	return
+}
+
+func (parent *Inode) findChildUnlocked(name string) (inode *Inode) {
 	l := len(parent.Children)
 	if l == 0 {
 		return
@@ -179,14 +184,26 @@ func (parent *Inode) findChild(name string) (inode *Inode) {
 	return
 }
 
+func (parent *Inode) removeChildUnlocked(inode *Inode) {
+	parent.removeNameUnlocked(*inode.Name)
+}
+
 func (parent *Inode) removeChild(inode *Inode) {
-	parent.removeName(*inode.Name)
+	parent.mu.Lock()
+	defer parent.mu.Unlock()
+
+	parent.removeChildUnlocked(inode)
+	return
 }
 
 func (parent *Inode) removeName(name string) {
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
+	parent.removeNameUnlocked(name)
+}
+
+func (parent *Inode) removeNameUnlocked(name string) {
 	l := len(parent.Children)
 	if l == 0 {
 		return
@@ -204,6 +221,10 @@ func (parent *Inode) insertChild(inode *Inode) {
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
+	parent.insertChildUnlocked(inode)
+}
+
+func (parent *Inode) insertChildUnlocked(inode *Inode) {
 	l := len(parent.Children)
 	if l == 0 {
 		parent.Children = []*Inode{inode}
@@ -1300,10 +1321,6 @@ func (parent *Inode) Rename(fs *Goofys, from string, newParent *Inode, to string
 
 	fromFullName := parent.getChildName(from)
 
-	// XXX don't hold the lock the entire time
-	parent.mu.Lock()
-	defer parent.mu.Unlock()
-
 	var size int64
 	var fromIsDir bool
 	var toIsDir bool
@@ -1315,11 +1332,6 @@ func (parent *Inode) Rename(fs *Goofys, from string, newParent *Inode, to string
 	}
 
 	toFullName := newParent.getChildName(to)
-
-	if parent != newParent {
-		newParent.mu.Lock()
-		defer newParent.mu.Unlock()
-	}
 
 	toIsDir, err = isEmptyDir(fs, toFullName)
 	if err != nil {

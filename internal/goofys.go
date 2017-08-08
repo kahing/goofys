@@ -926,7 +926,7 @@ func (fs *Goofys) LookUpInode(
 	fs.mu.Lock()
 
 	parent := fs.getInodeOrDie(op.Parent)
-	inode = fs.lookupChild(parent, op.Name)
+	inode = parent.findChild(op.Name)
 	if inode != nil {
 		ok = true
 		inode.Ref()
@@ -962,7 +962,7 @@ func (fs *Goofys) LookUpInode(
 				stale := inode.DeRef(1)
 				if stale {
 					delete(fs.inodes, inode.Id)
-					fs.removeFromCache(inode)
+					parent.removeChild(inode)
 				}
 			}
 			return err
@@ -987,39 +987,11 @@ func (fs *Goofys) LookUpInode(
 	return
 }
 
-func (fs *Goofys) removeFromCache(inode *Inode) {
-	if inode.Parent != nil {
-		inode.Parent.removeChild(inode)
-	}
-}
-
 // LOCKS_REQUIRED(fs.mu)
-func (fs *Goofys) renameInCache(from *Inode, toParent *Inode, toName string) {
-	fs.removeFromCache(from)
-
-	newFullName := toParent.getChildName(toName)
-	from.FullName = &newFullName
-	from.Name = &toName
-	from.Parent = toParent
-
-	fs.insertIntoCache(toParent, from)
-}
-
-// LOCKS_REQUIRED(fs.mu)
-func (fs *Goofys) insertIntoCache(parent *Inode, inode *Inode) {
-	parent.insertChild(inode)
-}
-
-// LOCKS_REQUIRED(fs.mu)
-func (fs *Goofys) lookupChild(parent *Inode, name string) (inode *Inode) {
-	inode = parent.findChild(name)
-	return
-}
-
-// LOCKS_REQUIRED(fs.mu)
+// LOCKS_REQUIRED(parent.mu)
 func (fs *Goofys) insertInode(parent *Inode, inode *Inode) {
 	inode.Id = fs.allocateInodeId()
-	fs.insertIntoCache(parent, inode)
+	parent.insertChildUnlocked(inode)
 	fs.inodes[inode.Id] = inode
 }
 
@@ -1036,7 +1008,9 @@ func (fs *Goofys) ForgetInode(
 
 	if stale {
 		delete(fs.inodes, op.Inode)
-		fs.removeFromCache(inode)
+		if inode.Parent != nil {
+			inode.Parent.removeChild(inode)
+		}
 	}
 
 	return
@@ -1067,10 +1041,10 @@ func (fs *Goofys) OpenDir(
 
 // LOCKS_EXCLUDED(fs.mu)
 func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
+	parent.mu.Lock()
+	defer parent.mu.Unlock()
 
-	inode := fs.lookupChild(parent, *entry.Name)
+	inode := parent.findChildUnlocked(*entry.Name)
 	if inode == nil {
 		path := parent.getChildName(*entry.Name)
 		inode := NewInode(parent, entry.Name, &path, fs.flags)
@@ -1078,8 +1052,15 @@ func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) 
 		// these are fake dir entries, we will realize the refcnt when
 		// lookup is done
 		inode.refcnt = 0
+
+		fs.mu.Lock()
+		defer fs.mu.Unlock()
+
 		fs.insertInode(parent, inode)
 	} else {
+		inode.mu.Lock()
+		defer inode.mu.Unlock()
+
 		if entry.ETag != nil {
 			inode.s3Metadata["etag"] = []byte(*entry.ETag)
 		}
@@ -1384,8 +1365,23 @@ func (fs *Goofys) Rename(
 	fs.mu.Lock()
 	parent := fs.getInodeOrDie(op.OldParent)
 	newParent := fs.getInodeOrDie(op.NewParent)
-	inode := fs.lookupChild(parent, op.OldName)
 	fs.mu.Unlock()
+
+	// XXX don't hold the lock the entire time
+	if op.OldParent == op.NewParent {
+		parent.mu.Lock()
+		defer parent.mu.Unlock()
+	} else {
+		if op.OldParent < op.NewParent {
+			parent.mu.Lock()
+			newParent.mu.Lock()
+		} else {
+			newParent.mu.Lock()
+			parent.mu.Lock()
+		}
+		defer parent.mu.Unlock()
+		defer newParent.mu.Unlock()
+	}
 
 	err = parent.Rename(fs, op.OldName, newParent, op.NewName)
 	if err != nil {
@@ -1394,15 +1390,25 @@ func (fs *Goofys) Rename(
 			// because this is a new file and we haven't
 			// flushed it yet, pretend that's ok because
 			// when we flush we will handle the rename
+			inode := parent.findChildUnlocked(op.OldName)
 			if len(inode.fileHandles) != 0 {
 				err = nil
 			}
 		}
 	}
 	if err == nil {
-		fs.mu.Lock()
-		fs.renameInCache(inode, newParent, op.NewName)
-		fs.mu.Unlock()
+		inode := parent.findChildUnlocked(op.OldName)
+		if inode != nil {
+			inode.mu.Lock()
+			defer inode.mu.Unlock()
+
+			parent.removeChildUnlocked(inode)
+			newFullName := newParent.getChildName(op.NewName)
+			inode.FullName = &newFullName
+			inode.Name = &op.NewName
+			inode.Parent = newParent
+			newParent.insertChildUnlocked(inode)
+		}
 	}
 	return
 }
