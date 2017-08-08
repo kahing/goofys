@@ -924,9 +924,12 @@ func (fs *Goofys) LookUpInode(
 	defer func() { fuseLog.Debugf("<-- LookUpInode %v %v %v", op.Parent, op.Name, err) }()
 
 	fs.mu.Lock()
-
 	parent := fs.getInodeOrDie(op.Parent)
-	inode = parent.findChild(op.Name)
+	fs.mu.Unlock()
+
+	parent.mu.Lock()
+	fs.mu.Lock()
+	inode = parent.findChildUnlocked(op.Name)
 	if inode != nil {
 		ok = true
 		inode.Ref()
@@ -948,6 +951,7 @@ func (fs *Goofys) LookUpInode(
 		ok = false
 	}
 	fs.mu.Unlock()
+	parent.mu.Unlock()
 
 	if !ok {
 		var newInode *Inode
@@ -969,10 +973,17 @@ func (fs *Goofys) LookUpInode(
 		}
 
 		if inode == nil {
-			fs.mu.Lock()
-			inode = newInode
-			fs.insertInode(parent, inode)
-			fs.mu.Unlock()
+			parent.mu.Lock()
+			// check again if it's there, could have been
+			// added by another lookup or readdir
+			inode = parent.findChildUnlocked(op.Name)
+			if inode == nil {
+				fs.mu.Lock()
+				inode = newInode
+				fs.insertInode(parent, inode)
+				fs.mu.Unlock()
+			}
+			parent.mu.Unlock()
 		} else {
 			inode.Attributes = newInode.Attributes
 			inode.AttrTime = time.Now()
@@ -1372,6 +1383,7 @@ func (fs *Goofys) Rename(
 		parent.mu.Lock()
 		defer parent.mu.Unlock()
 	} else {
+		// lock ordering to prevent deadlock
 		if op.OldParent < op.NewParent {
 			parent.mu.Lock()
 			newParent.mu.Lock()
