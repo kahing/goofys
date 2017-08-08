@@ -1425,62 +1425,100 @@ func (inode *Inode) readDirFromCache(fs *Goofys, offset fuseops.DirOffset) (en *
 	return
 }
 
+func listObjectsSlurp(fs *Goofys, prefix string) (resp *s3.ListObjectsOutput, err error) {
+	params := &s3.ListObjectsInput{
+		Bucket: &fs.bucket,
+		Prefix: &prefix,
+	}
+
+	resp, err = fs.s3.ListObjects(params)
+	if err != nil {
+		s3Log.Errorf("ListObjects %v = %v", params, err)
+		return
+	}
+
+	num := len(resp.Contents)
+	if num == 0 {
+		return
+	}
+
+	if *resp.IsTruncated {
+		// if we are done with all the slashes, then we are good
+		obj := resp.Contents[len(resp.Contents)-1]
+		baseName := (*obj.Key)[len(prefix):]
+
+		for _, c := range baseName {
+			if c <= '/' {
+				// if an entry is ex: a!b, then the next entry could be
+				// a/foo, so we are not done yet
+				resp = nil
+				break
+			}
+		}
+	}
+
+	return
+}
+
 func (dh *DirHandle) listObjects(fs *Goofys) (resp *s3.ListObjectsOutput, err error) {
 	prefix := *fs.key(*dh.inode.FullName)
 	if len(*dh.inode.FullName) != 0 {
 		prefix += "/"
 	}
 
+	errSlurpChan := make(chan error, 1)
+	slurpChan := make(chan s3.ListObjectsOutput, 1)
+	errListChan := make(chan error, 1)
+	listChan := make(chan s3.ListObjectsOutput, 1)
+
 	// try to list without delimiter to see if we have slurp up
 	// multiple directories
 	if !fs.flags.Cheap && dh.Marker == nil {
+		go func() {
+			resp, err := listObjectsSlurp(fs, prefix)
+			if err != nil {
+				errSlurpChan <- err
+			} else if resp != nil {
+				slurpChan <- *resp
+			} else {
+				errSlurpChan <- fuse.EINVAL
+			}
+		}()
+	} else {
+		errSlurpChan <- fuse.EINVAL
+	}
+
+	go func() {
 		params := &s3.ListObjectsInput{
-			Bucket: &fs.bucket,
-			Marker: dh.Marker,
-			Prefix: &prefix,
+			Bucket:    &fs.bucket,
+			Delimiter: aws.String("/"),
+			Marker:    dh.Marker,
+			Prefix:    &prefix,
 		}
 
-		resp, err = fs.s3.ListObjects(params)
+		resp, err := fs.s3.ListObjects(params)
 		if err != nil {
-			return
-		}
-
-		num := len(resp.Contents)
-		if num == 0 {
-			return
-		}
-
-		if !*resp.IsTruncated {
-			return
+			errListChan <- err
 		} else {
-			// if we are done with all the slashes, then we are good
-			obj := resp.Contents[len(resp.Contents)-1]
-			baseName := (*obj.Key)[len(prefix):]
-			afterSlash := true
-
-			for _, c := range baseName {
-				if c <= '/' {
-					afterSlash = false
-				} else {
-					// if an entry is a!b, then the next entry could be
-					// a/foo, so we are not done yet
-				}
-			}
-
-			if afterSlash {
-				return
-			}
+			listChan <- *resp
 		}
+	}()
+
+	// first see if we get anything from the slurp
+	select {
+	case resp := <-slurpChan:
+		return &resp, nil
+	case err = <-errSlurpChan:
 	}
 
-	params := &s3.ListObjectsInput{
-		Bucket:    &fs.bucket,
-		Delimiter: aws.String("/"),
-		Marker:    dh.Marker,
-		Prefix:    &prefix,
+	// if we got an error (which may mean slurp is not applicable,
+	// wait for regular list
+	select {
+	case resp := <-listChan:
+		return &resp, nil
+	case err = <-errListChan:
+		return
 	}
-
-	return fs.s3.ListObjects(params)
 }
 
 func (parent *Inode) addDotAndDotDot(fs *Goofys) {
