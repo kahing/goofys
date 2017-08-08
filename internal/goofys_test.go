@@ -1607,6 +1607,29 @@ func (s *GoofysTest) TestInodeInsert(t *C) {
 	t.Assert(len(root.Children), Equals, 0)
 }
 
+func (s *GoofysTest) TestReadDirSlurpSubtree(t *C) {
+	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+
+	lookup := fuseops.LookUpInodeOp{
+		Parent: fuseops.RootInodeID,
+		Name:   "dir2",
+	}
+	err := s.fs.LookUpInode(nil, &lookup)
+	t.Assert(err, IsNil)
+
+	s.readDirIntoCache(t, lookup.Entry.Child)
+
+	lookup.Parent = lookup.Entry.Child
+	lookup.Name = "dir3"
+	err = s.fs.LookUpInode(nil, &lookup)
+	t.Assert(err, IsNil)
+
+	// reading dir2 should cause dir2/dir3 to have cached readdir
+	s.disableS3()
+
+	s.assertEntries(t, s.fs.inodes[lookup.Entry.Child], []string{"file4"})
+}
+
 func (s *GoofysTest) TestReadDirCached(t *C) {
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute

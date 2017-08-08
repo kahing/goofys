@@ -1397,19 +1397,14 @@ func (p sortedDirents) Len() int           { return len(p) }
 func (p sortedDirents) Less(i, j int) bool { return *p[i].Name < *p[j].Name }
 func (p sortedDirents) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
-// LOCKS_REQUIRED(dh.mu)
-func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandleEntry, err error) {
-	// If the request is for offset zero, we assume that either this is the first
-	// call or rewinddir has been called. Reset state.
-	if offset == 0 {
-		dh.Entries = nil
-	}
-
-	inode := dh.inode
+func (inode *Inode) readDirFromCache(fs *Goofys, offset fuseops.DirOffset) (en *DirHandleEntry, ok bool) {
 	inode.mu.Lock()
+	defer inode.mu.Unlock()
+
 	if !expired(inode.DirTime, fs.flags.TypeCacheTTL) {
+		ok = true
+
 		if int(offset) >= len(inode.Children) {
-			inode.mu.Unlock()
 			return
 		}
 		child := inode.Children[offset]
@@ -1425,10 +1420,160 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandl
 		} else {
 			en.Type = fuseutil.DT_File
 		}
-	}
-	inode.mu.Unlock()
 
-	if en != nil {
+	}
+	return
+}
+
+func (dh *DirHandle) listObjects(fs *Goofys) (resp *s3.ListObjectsOutput, err error) {
+	prefix := *fs.key(*dh.inode.FullName)
+	if len(*dh.inode.FullName) != 0 {
+		prefix += "/"
+	}
+
+	// try to list without delimiter to see if we have slurp up
+	// multiple directories
+	if !fs.flags.Cheap && dh.Marker == nil {
+		params := &s3.ListObjectsInput{
+			Bucket: &fs.bucket,
+			Marker: dh.Marker,
+			Prefix: &prefix,
+		}
+
+		resp, err = fs.s3.ListObjects(params)
+		if err != nil {
+			return
+		}
+
+		num := len(resp.Contents)
+		if num == 0 {
+			return
+		}
+
+		if !*resp.IsTruncated {
+			return
+		} else {
+			// if we are done with all the slashes, then we are good
+			obj := resp.Contents[len(resp.Contents)-1]
+			baseName := (*obj.Key)[len(prefix):]
+			afterSlash := true
+
+			for _, c := range baseName {
+				if c <= '/' {
+					afterSlash = false
+				} else {
+					// if an entry is a!b, then the next entry could be
+					// a/foo, so we are not done yet
+				}
+			}
+
+			if afterSlash {
+				return
+			}
+		}
+	}
+
+	params := &s3.ListObjectsInput{
+		Bucket:    &fs.bucket,
+		Delimiter: aws.String("/"),
+		Marker:    dh.Marker,
+		Prefix:    &prefix,
+	}
+
+	return fs.s3.ListObjects(params)
+}
+
+func (parent *Inode) addDotAndDotDot(fs *Goofys) {
+	en := &DirHandleEntry{
+		Name:       aws.String("."),
+		Type:       fuseutil.DT_Directory,
+		Attributes: &fs.rootAttrs,
+		Offset:     1,
+	}
+	fs.insertInodeFromDirEntry(parent, en)
+	en = &DirHandleEntry{
+		Name:       aws.String(".."),
+		Type:       fuseutil.DT_Directory,
+		Attributes: &fs.rootAttrs,
+		Offset:     2,
+	}
+	fs.insertInodeFromDirEntry(parent, en)
+}
+
+func (parent *Inode) insertSubTree(fs *Goofys, path string, obj *s3.Object, dirs map[*Inode]bool) {
+	slash := strings.Index(path, "/")
+	if slash == -1 {
+		fs.insertInodeFromDirEntry(parent, objectToDirEntry(fs, obj, path, false))
+		dirs[parent] = true
+	} else {
+		dir := path[:slash]
+		path = path[slash+1:]
+
+		if len(path) == 0 {
+			fs.insertInodeFromDirEntry(parent, objectToDirEntry(fs, obj, dir, true))
+			dirInode := parent.findChild(dir)
+			dirInode.addDotAndDotDot(fs)
+
+			dirs[dirInode] = true
+		} else {
+			// ensure that the potentially implicit dir is added
+			en := &DirHandleEntry{
+				Name:       &dir,
+				Type:       fuseutil.DT_Directory,
+				Attributes: &fs.rootAttrs,
+				Offset:     1,
+			}
+			fs.insertInodeFromDirEntry(parent, en)
+
+			child := parent.findChild(dir)
+			child.addDotAndDotDot(fs)
+			dirs[child] = true
+
+			child.insertSubTree(fs, path, obj, dirs)
+		}
+	}
+}
+
+func objectToDirEntry(fs *Goofys, obj *s3.Object, name string, isDir bool) (en *DirHandleEntry) {
+	if isDir {
+		en = &DirHandleEntry{
+			Name:       &name,
+			Type:       fuseutil.DT_Directory,
+			Attributes: &fs.rootAttrs,
+		}
+	} else {
+		en = &DirHandleEntry{
+			Name: &name,
+			Type: fuseutil.DT_File,
+			Attributes: &fuseops.InodeAttributes{
+				Size:   uint64(*obj.Size),
+				Nlink:  1,
+				Mode:   fs.flags.FileMode,
+				Atime:  *obj.LastModified,
+				Mtime:  *obj.LastModified,
+				Ctime:  *obj.LastModified,
+				Crtime: *obj.LastModified,
+				Uid:    fs.flags.Uid,
+				Gid:    fs.flags.Gid,
+			},
+			ETag:         obj.ETag,
+			StorageClass: obj.StorageClass,
+		}
+	}
+
+	return
+}
+
+// LOCKS_REQUIRED(dh.mu)
+func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandleEntry, err error) {
+	// If the request is for offset zero, we assume that either this is the first
+	// call or rewinddir has been called. Reset state.
+	if offset == 0 {
+		dh.Entries = nil
+	}
+
+	en, ok := dh.inode.readDirFromCache(fs, offset)
+	if ok {
 		return
 	}
 
@@ -1465,23 +1610,10 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandl
 	}
 
 	if dh.Entries == nil {
-		prefix := *fs.key(*dh.inode.FullName)
-		if len(*dh.inode.FullName) != 0 {
-			prefix += "/"
-		}
-
-		params := &s3.ListObjectsInput{
-			Bucket:    &fs.bucket,
-			Delimiter: aws.String("/"),
-			Marker:    dh.Marker,
-			Prefix:    &prefix,
-			//MaxKeys:      aws.Int64(3),
-		}
-
 		// try not to hold the lock when we make the request
 		dh.mu.Unlock()
 
-		resp, err := fs.s3.ListObjects(params)
+		resp, err := dh.listObjects(fs)
 		if err != nil {
 			dh.mu.Lock()
 			return nil, mapAwsError(err)
@@ -1496,7 +1628,7 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandl
 			// strip trailing /
 			dirName := (*dir.Prefix)[0 : len(*dir.Prefix)-1]
 			// strip previous prefix
-			dirName = dirName[len(*params.Prefix):]
+			dirName = dirName[len(*resp.Prefix):]
 			if len(dirName) == 0 {
 				continue
 			}
@@ -1509,31 +1641,44 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandl
 			dh.Entries = append(dh.Entries, en)
 		}
 
+		dirs := make(map[*Inode]bool)
+
 		for _, obj := range resp.Contents {
-			baseName := (*obj.Key)[len(prefix):]
-			if len(baseName) == 0 {
-				// this is a directory blob
+			baseName := (*obj.Key)[len(*resp.Prefix):]
+
+			slash := strings.Index(baseName, "/")
+			if slash == -1 {
+				if len(baseName) == 0 {
+					// this is a directory blob
+					// but already handled by
+					// CommonPrefixes
+					continue
+				}
+				dh.Entries = append(dh.Entries,
+					objectToDirEntry(fs, obj, baseName, false))
+			} else {
+				dh.inode.insertSubTree(fs, baseName, obj, dirs)
+			}
+		}
+
+		for k, _ := range dirs {
+			if k == dh.inode {
+				// never seal the dir we are reading
+				// over since that will be done by the
+				// caller
 				continue
 			}
-			en = &DirHandleEntry{
-				Name: &baseName,
-				Type: fuseutil.DT_File,
-				Attributes: &fuseops.InodeAttributes{
-					Size:   uint64(*obj.Size),
-					Nlink:  1,
-					Mode:   fs.flags.FileMode,
-					Atime:  *obj.LastModified,
-					Mtime:  *obj.LastModified,
-					Ctime:  *obj.LastModified,
-					Crtime: *obj.LastModified,
-					Uid:    fs.flags.Uid,
-					Gid:    fs.flags.Gid,
-				},
-				ETag:         obj.ETag,
-				StorageClass: obj.StorageClass,
-			}
 
-			dh.Entries = append(dh.Entries, en)
+			if k.Parent == dh.inode {
+				en := &DirHandleEntry{
+					Name:       k.Name,
+					Type:       fuseutil.DT_Directory,
+					Attributes: &fs.rootAttrs,
+					Offset:     1,
+				}
+				dh.Entries = append(dh.Entries, en)
+			}
+			k.DirTime = time.Now()
 		}
 
 		sort.Sort(sortedDirents(dh.Entries))
