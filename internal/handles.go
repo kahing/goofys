@@ -1425,7 +1425,7 @@ func (inode *Inode) readDirFromCache(fs *Goofys, offset fuseops.DirOffset) (en *
 	return
 }
 
-func listObjectsSlurp(fs *Goofys, prefix string) (resp *s3.ListObjectsOutput, err error) {
+func (dh *DirHandle) listObjectsSlurp(fs *Goofys, prefix string) (resp *s3.ListObjectsOutput, err error) {
 	params := &s3.ListObjectsInput{
 		Bucket: &fs.bucket,
 		Prefix: &prefix,
@@ -1442,6 +1442,28 @@ func listObjectsSlurp(fs *Goofys, prefix string) (resp *s3.ListObjectsOutput, er
 		return
 	}
 
+	dirs := make(map[*Inode]bool)
+	for _, obj := range resp.Contents {
+		baseName := (*obj.Key)[len(prefix):]
+
+		slash := strings.Index(baseName, "/")
+		if slash != -1 {
+			dh.inode.insertSubTree(fs, baseName, obj, dirs)
+		}
+	}
+
+	for d, sealed := range dirs {
+		if d == dh.inode {
+			// never seal the current dir because that's
+			// handled at upper layer
+			continue
+		}
+
+		if sealed || !*resp.IsTruncated {
+			d.DirTime = time.Now()
+		}
+	}
+
 	if *resp.IsTruncated {
 		// if we are done with all the slashes, then we are good
 		obj := resp.Contents[len(resp.Contents)-1]
@@ -1449,8 +1471,10 @@ func listObjectsSlurp(fs *Goofys, prefix string) (resp *s3.ListObjectsOutput, er
 
 		for _, c := range baseName {
 			if c <= '/' {
-				// if an entry is ex: a!b, then the next entry could be
-				// a/foo, so we are not done yet
+				// if an entry is ex: a!b, then the
+				// next entry could be a/foo, so we
+				// are not done yet.
+
 				resp = nil
 				break
 			}
@@ -1475,7 +1499,7 @@ func (dh *DirHandle) listObjects(fs *Goofys) (resp *s3.ListObjectsOutput, err er
 	// multiple directories
 	if !fs.flags.Cheap && dh.Marker == nil {
 		go func() {
-			resp, err := listObjectsSlurp(fs, prefix)
+			resp, err := dh.listObjectsSlurp(fs, prefix)
 			if err != nil {
 				errSlurpChan <- err
 			} else if resp != nil {
@@ -1538,11 +1562,28 @@ func (parent *Inode) addDotAndDotDot(fs *Goofys) {
 	fs.insertInodeFromDirEntry(parent, en)
 }
 
+// if I had seen a/ and a/b, and now I get a/c, that means a/b is
+// done, but not a/
+func (parent *Inode) isParentOf(inode *Inode) bool {
+	return inode.Parent != nil && (parent == inode.Parent || parent.isParentOf(inode.Parent))
+}
+
+func sealPastDirs(dirs map[*Inode]bool, d *Inode) {
+	for p, _ := range dirs {
+		if p != d && !p.isParentOf(d) {
+			if !dirs[p] {
+				dirs[p] = true
+			}
+		}
+	}
+	dirs[d] = false
+}
+
 func (parent *Inode) insertSubTree(fs *Goofys, path string, obj *s3.Object, dirs map[*Inode]bool) {
 	slash := strings.Index(path, "/")
 	if slash == -1 {
 		fs.insertInodeFromDirEntry(parent, objectToDirEntry(fs, obj, path, false))
-		dirs[parent] = true
+		sealPastDirs(dirs, parent)
 	} else {
 		dir := path[:slash]
 		path = path[slash+1:]
@@ -1552,7 +1593,7 @@ func (parent *Inode) insertSubTree(fs *Goofys, path string, obj *s3.Object, dirs
 			dirInode := parent.findChild(dir)
 			dirInode.addDotAndDotDot(fs)
 
-			dirs[dirInode] = true
+			sealPastDirs(dirs, dirInode)
 		} else {
 			// ensure that the potentially implicit dir is added
 			en := &DirHandleEntry{
@@ -1565,7 +1606,7 @@ func (parent *Inode) insertSubTree(fs *Goofys, path string, obj *s3.Object, dirs
 
 			child := parent.findChild(dir)
 			child.addDotAndDotDot(fs)
-			dirs[child] = true
+			sealPastDirs(dirs, child)
 
 			child.insertSubTree(fs, path, obj, dirs)
 		}
@@ -1679,44 +1720,44 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandl
 			dh.Entries = append(dh.Entries, en)
 		}
 
-		dirs := make(map[*Inode]bool)
-
+		lastDir := ""
 		for _, obj := range resp.Contents {
 			baseName := (*obj.Key)[len(*resp.Prefix):]
 
 			slash := strings.Index(baseName, "/")
 			if slash == -1 {
 				if len(baseName) == 0 {
-					// this is a directory blob
-					// but already handled by
-					// CommonPrefixes
+					// shouldn't happen
 					continue
 				}
 				dh.Entries = append(dh.Entries,
 					objectToDirEntry(fs, obj, baseName, false))
 			} else {
-				dh.inode.insertSubTree(fs, baseName, obj, dirs)
+				// this is a slurped up object which
+				// was already cached, unless it's a
+				// directory right under this dir that
+				// we need to return
+				dirName := baseName[:slash]
+				if dirName != lastDir && lastDir != "" {
+					// make a copy so we can take the address
+					dir := lastDir
+					en := &DirHandleEntry{
+						Name:       &dir,
+						Type:       fuseutil.DT_Directory,
+						Attributes: &fs.rootAttrs,
+					}
+					dh.Entries = append(dh.Entries, en)
+				}
+				lastDir = dirName
 			}
 		}
-
-		for k, _ := range dirs {
-			if k == dh.inode {
-				// never seal the dir we are reading
-				// over since that will be done by the
-				// caller
-				continue
+		if lastDir != "" {
+			en := &DirHandleEntry{
+				Name:       &lastDir,
+				Type:       fuseutil.DT_Directory,
+				Attributes: &fs.rootAttrs,
 			}
-
-			if k.Parent == dh.inode {
-				en := &DirHandleEntry{
-					Name:       k.Name,
-					Type:       fuseutil.DT_Directory,
-					Attributes: &fs.rootAttrs,
-					Offset:     1,
-				}
-				dh.Entries = append(dh.Entries, en)
-			}
-			k.DirTime = time.Now()
+			dh.Entries = append(dh.Entries, en)
 		}
 
 		sort.Sort(sortedDirents(dh.Entries))

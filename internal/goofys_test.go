@@ -1639,3 +1639,17 @@ func (s *GoofysTest) TestReadDirCached(t *C) {
 
 	s.assertEntries(t, s.getRoot(t), []string{"dir1", "dir2", "dir4", "empty_dir", "empty_dir2", "file1", "file2", "zero"})
 }
+
+func (s *GoofysTest) TestReadDirLookUp(t *C) {
+	for i := 0; i < 10; i++ {
+		go s.readDirIntoCache(t, fuseops.RootInodeID)
+		go func() {
+			lookup := fuseops.LookUpInodeOp{
+				Parent: fuseops.RootInodeID,
+				Name:   "file1",
+			}
+			err := s.fs.LookUpInode(nil, &lookup)
+			t.Assert(err, IsNil)
+		}()
+	}
+}
