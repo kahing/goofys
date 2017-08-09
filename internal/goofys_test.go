@@ -315,13 +315,28 @@ func (s *GoofysTest) LookUpInode(t *C, name string) (in *Inode, err error) {
 		dirName := name[0:idx]
 		name = name[idx+1:]
 
-		parent, err = parent.LookUp(s.fs, dirName)
+		lookup := fuseops.LookUpInodeOp{
+			Parent: parent.Id,
+			Name:   dirName,
+		}
+
+		err = s.fs.LookUpInode(nil, &lookup)
 		if err != nil {
 			return
 		}
+		parent = s.fs.inodes[lookup.Entry.Child]
 	}
 
-	in, err = parent.LookUp(s.fs, name)
+	lookup := fuseops.LookUpInodeOp{
+		Parent: parent.Id,
+		Name:   name,
+	}
+
+	err = s.fs.LookUpInode(nil, &lookup)
+	if err != nil {
+		return
+	}
+	in = s.fs.inodes[lookup.Entry.Child]
 	return
 }
 
@@ -1571,14 +1586,20 @@ func (s *GoofysTest) TestRenameBeforeCloseFuse(t *C) {
 func (s *GoofysTest) TestInodeInsert(t *C) {
 	root := s.getRoot(t)
 
-	root.insertChild(NewInode(root, aws.String("2"), aws.String("2"), s.fs.flags))
+	in := NewInode(root, aws.String("2"), aws.String("2"), s.fs.flags)
+	in.Attributes = &fuseops.InodeAttributes{}
+	root.insertChild(in)
 	t.Assert(*root.Children[0].Name, Equals, "2")
 
-	root.insertChild(NewInode(root, aws.String("1"), aws.String("1"), s.fs.flags))
+	in = NewInode(root, aws.String("1"), aws.String("1"), s.fs.flags)
+	in.Attributes = &fuseops.InodeAttributes{}
+	root.insertChild(in)
 	t.Assert(*root.Children[0].Name, Equals, "1")
 	t.Assert(*root.Children[1].Name, Equals, "2")
 
-	root.insertChild(NewInode(root, aws.String("4"), aws.String("4"), s.fs.flags))
+	in = NewInode(root, aws.String("4"), aws.String("4"), s.fs.flags)
+	in.Attributes = &fuseops.InodeAttributes{}
+	root.insertChild(in)
 	t.Assert(*root.Children[0].Name, Equals, "1")
 	t.Assert(*root.Children[1].Name, Equals, "2")
 	t.Assert(*root.Children[2].Name, Equals, "4")
@@ -1610,30 +1631,26 @@ func (s *GoofysTest) TestInodeInsert(t *C) {
 func (s *GoofysTest) TestReadDirSlurpSubtree(t *C) {
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 
-	lookup := fuseops.LookUpInodeOp{
-		Parent: fuseops.RootInodeID,
-		Name:   "dir2",
-	}
-	err := s.fs.LookUpInode(nil, &lookup)
+	s.getRoot(t).seqOpenDirScore = 2
+	in, err := s.LookUpInode(t, "dir2")
 	t.Assert(err, IsNil)
 
-	s.readDirIntoCache(t, lookup.Entry.Child)
+	s.readDirIntoCache(t, in.Id)
 
-	lookup.Parent = lookup.Entry.Child
-	lookup.Name = "dir3"
-	err = s.fs.LookUpInode(nil, &lookup)
+	in, err = s.LookUpInode(t, "dir2/dir3")
 	t.Assert(err, IsNil)
 
 	// reading dir2 should cause dir2/dir3 to have cached readdir
 	s.disableS3()
 
-	s.assertEntries(t, s.fs.inodes[lookup.Entry.Child], []string{"file4"})
+	s.assertEntries(t, in, []string{"file4"})
 }
 
 func (s *GoofysTest) TestReadDirCached(t *C) {
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 
+	s.getRoot(t).seqOpenDirScore = 2
 	s.readDirIntoCache(t, fuseops.RootInodeID)
 	s.disableS3()
 
@@ -1641,6 +1658,7 @@ func (s *GoofysTest) TestReadDirCached(t *C) {
 }
 
 func (s *GoofysTest) TestReadDirLookUp(t *C) {
+	s.getRoot(t).seqOpenDirScore = 2
 	for i := 0; i < 10; i++ {
 		go s.readDirIntoCache(t, fuseops.RootInodeID)
 		go func() {

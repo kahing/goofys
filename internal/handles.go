@@ -47,6 +47,10 @@ type Inode struct {
 	AttrTime    time.Time
 	ImplicitDir bool
 	DirTime     time.Time
+	// these 2 refer to readdir of the Children
+	lastOpenDirIdx  int
+	lastOpenDir     *string
+	seqOpenDirScore uint32
 
 	Parent   *Inode
 	Children []*Inode
@@ -165,16 +169,34 @@ func (parent *Inode) findChild(name string) (inode *Inode) {
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
-	inode = parent.findChildUnlocked(name)
+	inode = parent.findChildUnlockedFull(name)
 	return
 }
 
-func (parent *Inode) findChildUnlocked(name string) (inode *Inode) {
+func (parent *Inode) findInodeFunc(name string, isDir bool) func(i int) bool {
+	// sort dirs first, then by name
+	return func(i int) bool {
+		if parent.Children[i].isDir() != isDir {
+			return isDir
+		}
+		return (*parent.Children[i].Name) >= name
+	}
+}
+
+func (parent *Inode) findChildUnlockedFull(name string) (inode *Inode) {
+	inode = parent.findChildUnlocked(name, false)
+	if inode == nil {
+		inode = parent.findChildUnlocked(name, true)
+	}
+	return
+}
+
+func (parent *Inode) findChildUnlocked(name string, isDir bool) (inode *Inode) {
 	l := len(parent.Children)
 	if l == 0 {
 		return
 	}
-	i := sort.Search(l, func(i int) bool { return (*parent.Children[i].Name) >= name })
+	i := sort.Search(l, parent.findInodeFunc(name, isDir))
 	if i < l {
 		// found
 		if *parent.Children[i].Name == name {
@@ -184,8 +206,34 @@ func (parent *Inode) findChildUnlocked(name string) (inode *Inode) {
 	return
 }
 
+func (parent *Inode) findChildIdxUnlocked(name string) int {
+	l := len(parent.Children)
+	if l == 0 {
+		return -1
+	}
+	i := sort.Search(l, parent.findInodeFunc(name, true))
+	if i < l {
+		// found
+		if *parent.Children[i].Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
 func (parent *Inode) removeChildUnlocked(inode *Inode) {
-	parent.removeNameUnlocked(*inode.Name)
+	l := len(parent.Children)
+	if l == 0 {
+		return
+	}
+	i := sort.Search(l, parent.findInodeFunc(*inode.Name, inode.isDir()))
+	if i >= l || *parent.Children[i].Name != *inode.Name {
+		panic(fmt.Sprintf("%v.removeName(%v) but child not found: %v",
+			*parent.FullName, *inode.Name, i))
+	}
+
+	copy(parent.Children[i:], parent.Children[i+1:])
+	parent.Children = parent.Children[:l-1]
 }
 
 func (parent *Inode) removeChild(inode *Inode) {
@@ -194,27 +242,6 @@ func (parent *Inode) removeChild(inode *Inode) {
 
 	parent.removeChildUnlocked(inode)
 	return
-}
-
-func (parent *Inode) removeName(name string) {
-	parent.mu.Lock()
-	defer parent.mu.Unlock()
-
-	parent.removeNameUnlocked(name)
-}
-
-func (parent *Inode) removeNameUnlocked(name string) {
-	l := len(parent.Children)
-	if l == 0 {
-		return
-	}
-	i := sort.Search(l, func(i int) bool { return (*parent.Children[i].Name) >= name })
-	if i >= l || *parent.Children[i].Name != name {
-		panic(fmt.Sprintf("%v.removeName(%v) but child not found: %v", *parent.FullName, name, i))
-	}
-
-	copy(parent.Children[i:], parent.Children[i+1:])
-	parent.Children = parent.Children[:l-1]
 }
 
 func (parent *Inode) insertChild(inode *Inode) {
@@ -231,7 +258,7 @@ func (parent *Inode) insertChildUnlocked(inode *Inode) {
 		return
 	}
 
-	i := sort.Search(l, func(i int) bool { return (*parent.Children[i].Name) >= (*inode.Name) })
+	i := sort.Search(l, parent.findInodeFunc(*inode.Name, inode.isDir()))
 	if i == l {
 		// not found = new value is the biggest
 		parent.Children = append(parent.Children, inode)
@@ -1386,6 +1413,54 @@ func renameObject(fs *Goofys, size int64, fromFullName string, toFullName string
 func (inode *Inode) OpenDir() (dh *DirHandle) {
 	inode.logFuse("OpenDir")
 
+	parent := inode.Parent
+	if parent != nil {
+		parent.mu.Lock()
+		defer parent.mu.Unlock()
+
+		num := len(parent.Children)
+
+		if parent.lastOpenDir == nil && num > 0 && *parent.Children[0].Name == *inode.Name {
+			parent.seqOpenDirScore += 1
+			// 2.1) if I open a/a, a/'s score is now 2
+			// ie: handle the depth first search case
+			if parent.seqOpenDirScore >= 2 {
+				fuseLog.Debugf("%v in readdir mode", *parent.FullName)
+			}
+		} else if parent.lastOpenDir != nil && parent.lastOpenDirIdx+1 < num &&
+			// we are reading the next one as expected
+			*parent.Children[parent.lastOpenDirIdx+1].Name == *inode.Name &&
+			// check that inode positions haven't moved
+			*parent.Children[parent.lastOpenDirIdx].Name == *parent.lastOpenDir {
+			// 2.2) if I open b/, root's score is now 2
+			// ie: handle the breath first search case
+			parent.seqOpenDirScore++
+			parent.lastOpenDirIdx += 1
+			if parent.seqOpenDirScore == 2 {
+				fuseLog.Debugf("%v in readdir mode", *parent.FullName)
+			}
+		} else {
+			parent.seqOpenDirScore = 0
+			parent.lastOpenDirIdx = parent.findChildIdxUnlocked(*inode.Name)
+			if parent.lastOpenDirIdx == -1 {
+				panic(fmt.Sprintf("%v is not under %v", *inode.Name, *parent.FullName))
+			}
+		}
+
+		parent.lastOpenDir = inode.Name
+		inode.mu.Lock()
+		defer inode.mu.Unlock()
+
+		if inode.lastOpenDir == nil {
+			// 1) if I open a/, root's score = 1 (a is the first dir),
+			// so make a/'s count at 1 too
+			inode.seqOpenDirScore = parent.seqOpenDirScore
+			if inode.seqOpenDirScore >= 2 {
+				fuseLog.Debugf("%v in readdir mode", *inode.FullName)
+			}
+		}
+	}
+
 	dh = NewDirHandle(inode)
 	return
 }
@@ -1513,7 +1588,8 @@ func (dh *DirHandle) listObjects(fs *Goofys, prefix string) (resp *s3.ListObject
 
 	// try to list without delimiter to see if we have slurp up
 	// multiple directories
-	if !fs.flags.Cheap && dh.Marker == nil {
+	if dh.Marker == nil &&
+		(dh.inode.Parent != nil && dh.inode.Parent.seqOpenDirScore >= 2) {
 		go func() {
 			resp, err := dh.listObjectsSlurp(fs, prefix)
 			if err != nil {
@@ -1528,7 +1604,7 @@ func (dh *DirHandle) listObjects(fs *Goofys, prefix string) (resp *s3.ListObject
 		errSlurpChan <- fuse.EINVAL
 	}
 
-	go func() {
+	listObjectsFlat := func() {
 		params := &s3.ListObjectsInput{
 			Bucket:    &fs.bucket,
 			Delimiter: aws.String("/"),
@@ -1542,13 +1618,22 @@ func (dh *DirHandle) listObjects(fs *Goofys, prefix string) (resp *s3.ListObject
 		} else {
 			listChan <- *resp
 		}
-	}()
+	}
+
+	if !fs.flags.Cheap {
+		// invoke the fallback in parallel if desired
+		listObjectsFlat()
+	}
 
 	// first see if we get anything from the slurp
 	select {
 	case resp := <-slurpChan:
 		return &resp, nil
 	case err = <-errSlurpChan:
+	}
+
+	if fs.flags.Cheap {
+		listObjectsFlat()
 	}
 
 	// if we got an error (which may mean slurp is not applicable,

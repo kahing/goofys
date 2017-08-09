@@ -929,7 +929,7 @@ func (fs *Goofys) LookUpInode(
 
 	parent.mu.Lock()
 	fs.mu.Lock()
-	inode = parent.findChildUnlocked(op.Name)
+	inode = parent.findChildUnlockedFull(op.Name)
 	if inode != nil {
 		ok = true
 		inode.Ref()
@@ -976,7 +976,7 @@ func (fs *Goofys) LookUpInode(
 			parent.mu.Lock()
 			// check again if it's there, could have been
 			// added by another lookup or readdir
-			inode = parent.findChildUnlocked(op.Name)
+			inode = parent.findChildUnlockedFull(op.Name)
 			if inode == nil {
 				fs.mu.Lock()
 				inode = newInode
@@ -1055,7 +1055,7 @@ func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) 
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
-	inode = parent.findChildUnlocked(*entry.Name)
+	inode = parent.findChildUnlocked(*entry.Name, entry.Type == fuseutil.DT_Directory)
 	if inode == nil {
 		path := parent.getChildName(*entry.Name)
 		inode = NewInode(parent, entry.Name, &path, fs.flags)
@@ -1403,14 +1403,14 @@ func (fs *Goofys) Rename(
 			// because this is a new file and we haven't
 			// flushed it yet, pretend that's ok because
 			// when we flush we will handle the rename
-			inode := parent.findChildUnlocked(op.OldName)
+			inode := parent.findChildUnlocked(op.OldName, false)
 			if len(inode.fileHandles) != 0 {
 				err = nil
 			}
 		}
 	}
 	if err == nil {
-		inode := parent.findChildUnlocked(op.OldName)
+		inode := parent.findChildUnlockedFull(op.OldName)
 		if inode != nil {
 			inode.mu.Lock()
 			defer inode.mu.Unlock()
