@@ -1051,14 +1051,14 @@ func (fs *Goofys) OpenDir(
 }
 
 // LOCKS_EXCLUDED(fs.mu)
-func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) {
+func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) (inode *Inode) {
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
-	inode := parent.findChildUnlocked(*entry.Name)
+	inode = parent.findChildUnlocked(*entry.Name)
 	if inode == nil {
 		path := parent.getChildName(*entry.Name)
-		inode := NewInode(parent, entry.Name, &path, fs.flags)
+		inode = NewInode(parent, entry.Name, &path, fs.flags)
 		inode.Attributes = entry.Attributes
 		// these are fake dir entries, we will realize the refcnt when
 		// lookup is done
@@ -1085,6 +1085,7 @@ func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) 
 		inode.Attributes.Crtime = entry.Attributes.Crtime
 		inode.AttrTime = time.Now()
 	}
+	return
 }
 
 func makeDirEntry(en *DirHandleEntry) fuseutil.Dirent {

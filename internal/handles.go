@@ -1426,9 +1426,22 @@ func (inode *Inode) readDirFromCache(fs *Goofys, offset fuseops.DirOffset) (en *
 }
 
 func (dh *DirHandle) listObjectsSlurp(fs *Goofys, prefix string) (resp *s3.ListObjectsOutput, err error) {
+	var marker *string
+	reqPrefix := prefix
+	inode := dh.inode
+	if dh.inode.Parent != nil {
+		inode = dh.inode.Parent
+		reqPrefix = *fs.key(*inode.FullName)
+		if len(*inode.FullName) != 0 {
+			reqPrefix += "/"
+		}
+		marker = fs.key(*dh.inode.FullName + "/")
+	}
+
 	params := &s3.ListObjectsInput{
 		Bucket: &fs.bucket,
-		Prefix: &prefix,
+		Prefix: &reqPrefix,
+		Marker: marker,
 	}
 
 	resp, err = fs.s3.ListObjects(params)
@@ -1444,11 +1457,11 @@ func (dh *DirHandle) listObjectsSlurp(fs *Goofys, prefix string) (resp *s3.ListO
 
 	dirs := make(map[*Inode]bool)
 	for _, obj := range resp.Contents {
-		baseName := (*obj.Key)[len(prefix):]
+		baseName := (*obj.Key)[len(reqPrefix):]
 
 		slash := strings.Index(baseName, "/")
 		if slash != -1 {
-			dh.inode.insertSubTree(fs, baseName, obj, dirs)
+			inode.insertSubTree(fs, baseName, obj, dirs)
 		}
 	}
 
@@ -1465,31 +1478,34 @@ func (dh *DirHandle) listObjectsSlurp(fs *Goofys, prefix string) (resp *s3.ListO
 	}
 
 	if *resp.IsTruncated {
-		// if we are done with all the slashes, then we are good
 		obj := resp.Contents[len(resp.Contents)-1]
-		baseName := (*obj.Key)[len(prefix):]
+		// if we are done listing prefix, we are good
+		if strings.HasPrefix(*obj.Key, prefix) {
+			// if we are done with all the slashes, then we are good
+			baseName := (*obj.Key)[len(prefix):]
 
-		for _, c := range baseName {
-			if c <= '/' {
-				// if an entry is ex: a!b, then the
-				// next entry could be a/foo, so we
-				// are not done yet.
-
-				resp = nil
-				break
+			for _, c := range baseName {
+				if c <= '/' {
+					// if an entry is ex: a!b, then the
+					// next entry could be a/foo, so we
+					// are not done yet.
+					resp = nil
+					break
+				}
 			}
 		}
+	}
+
+	// we only return this response if we are totally done with listing this dir
+	if resp != nil {
+		resp.IsTruncated = aws.Bool(false)
+		resp.NextMarker = nil
 	}
 
 	return
 }
 
-func (dh *DirHandle) listObjects(fs *Goofys) (resp *s3.ListObjectsOutput, err error) {
-	prefix := *fs.key(*dh.inode.FullName)
-	if len(*dh.inode.FullName) != 0 {
-		prefix += "/"
-	}
-
+func (dh *DirHandle) listObjects(fs *Goofys, prefix string) (resp *s3.ListObjectsOutput, err error) {
 	errSlurpChan := make(chan error, 1)
 	slurpChan := make(chan s3.ListObjectsOutput, 1)
 	errListChan := make(chan error, 1)
@@ -1569,13 +1585,12 @@ func (parent *Inode) isParentOf(inode *Inode) bool {
 }
 
 func sealPastDirs(dirs map[*Inode]bool, d *Inode) {
-	for p, _ := range dirs {
-		if p != d && !p.isParentOf(d) {
-			if !dirs[p] {
-				dirs[p] = true
-			}
+	for p, sealed := range dirs {
+		if p != d && !sealed && !p.isParentOf(d) {
+			dirs[p] = true
 		}
 	}
+	// I just read something in d, obviously it's not done yet
 	dirs[d] = false
 }
 
@@ -1589,11 +1604,10 @@ func (parent *Inode) insertSubTree(fs *Goofys, path string, obj *s3.Object, dirs
 		path = path[slash+1:]
 
 		if len(path) == 0 {
-			fs.insertInodeFromDirEntry(parent, objectToDirEntry(fs, obj, dir, true))
-			dirInode := parent.findChild(dir)
-			dirInode.addDotAndDotDot(fs)
+			inode := fs.insertInodeFromDirEntry(parent, objectToDirEntry(fs, obj, dir, true))
+			inode.addDotAndDotDot(fs)
 
-			sealPastDirs(dirs, dirInode)
+			sealPastDirs(dirs, inode)
 		} else {
 			// ensure that the potentially implicit dir is added
 			en := &DirHandleEntry{
@@ -1602,13 +1616,13 @@ func (parent *Inode) insertSubTree(fs *Goofys, path string, obj *s3.Object, dirs
 				Attributes: &fs.rootAttrs,
 				Offset:     1,
 			}
-			fs.insertInodeFromDirEntry(parent, en)
+			inode := fs.insertInodeFromDirEntry(parent, en)
+			// mark this dir but don't seal anything else
+			// until we get to the leaf
+			dirs[inode] = false
 
-			child := parent.findChild(dir)
-			child.addDotAndDotDot(fs)
-			sealPastDirs(dirs, child)
-
-			child.insertSubTree(fs, path, obj, dirs)
+			inode.addDotAndDotDot(fs)
+			inode.insertSubTree(fs, path, obj, dirs)
 		}
 	}
 }
@@ -1692,7 +1706,12 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandl
 		// try not to hold the lock when we make the request
 		dh.mu.Unlock()
 
-		resp, err := dh.listObjects(fs)
+		prefix := *fs.key(*dh.inode.FullName)
+		if len(*dh.inode.FullName) != 0 {
+			prefix += "/"
+		}
+
+		resp, err := dh.listObjects(fs, prefix)
 		if err != nil {
 			dh.mu.Lock()
 			return nil, mapAwsError(err)
@@ -1703,6 +1722,7 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandl
 
 		dh.Entries = make([]*DirHandleEntry, 0, len(resp.CommonPrefixes)+len(resp.Contents))
 
+		// this is only returned for non-slurped responses
 		for _, dir := range resp.CommonPrefixes {
 			// strip trailing /
 			dirName := (*dir.Prefix)[0 : len(*dir.Prefix)-1]
@@ -1722,7 +1742,12 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandl
 
 		lastDir := ""
 		for _, obj := range resp.Contents {
-			baseName := (*obj.Key)[len(*resp.Prefix):]
+			if !strings.HasPrefix(*obj.Key, prefix) {
+				// other slurped objects that we cached
+				continue
+			}
+
+			baseName := (*obj.Key)[len(prefix):]
 
 			slash := strings.Index(baseName, "/")
 			if slash == -1 {
