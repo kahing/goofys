@@ -10,6 +10,10 @@ if [ "$TRAVIS" != "false" ]; then
     iter=1
 fi
 
+if [ "$FAST" != "false" ]; then
+    iter=1
+fi
+
 set -o errexit
 set -o nounset
 
