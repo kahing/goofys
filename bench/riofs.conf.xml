@@ -27,7 +27,7 @@
 <s3>
     <!-- S3 endpoint, can be set to bucket's region to avoid initial redirect
          See http://docs.aws.amazon.com/general/latest/gr/rande.html#s3_region for options. -->
-    <endpoint type="string">http://s3.amazonaws.com</endpoint>
+    <endpoint type="string">http://s3-us-west-2.amazonaws.com/</endpoint>
 
     <!-- The maximum number of keys returned in the response body. -->
     <keys_per_request type="uint">1000</keys_per_request>
