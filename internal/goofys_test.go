@@ -1022,6 +1022,13 @@ func (s *GoofysTest) TestBenchIO(t *C) {
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "md5")
 }
 
+func (s *GoofysTest) TestBenchFindTree(t *C) {
+	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "find")
+}
+
 func (s *GoofysTest) TestChmod(t *C) {
 	root := s.getRoot(t)
 

@@ -1414,7 +1414,7 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 	inode.logFuse("OpenDir")
 
 	parent := inode.Parent
-	if parent != nil {
+	if parent != nil && inode.flags.TypeCacheTTL != 0 {
 		parent.mu.Lock()
 		defer parent.mu.Unlock()
 
@@ -1589,6 +1589,7 @@ func (dh *DirHandle) listObjects(fs *Goofys, prefix string) (resp *s3.ListObject
 	// try to list without delimiter to see if we have slurp up
 	// multiple directories
 	if dh.Marker == nil &&
+		fs.flags.TypeCacheTTL != 0 &&
 		(dh.inode.Parent != nil && dh.inode.Parent.seqOpenDirScore >= 2) {
 		go func() {
 			resp, err := dh.listObjectsSlurp(fs, prefix)

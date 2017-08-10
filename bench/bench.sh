@@ -112,6 +112,33 @@ function rm_files {
     done
 }
 
+function find_files {
+    numfiles=$(find | wc -l)
+    # find returns "." so add 1 to 1000
+    if [ "$numfiles" != 1001 ]; then
+        echo "$numfiles != 1001"
+        rm_tree
+        exit 1
+    fi
+}
+
+function create_tree_parallel {
+    for i in $(seq 1001 1100); do
+        mkdir $i
+        (for j in $(seq 1 9); do
+            touch $i/$j & true
+         done
+         wait) & true
+    done
+    wait
+}
+
+function rm_tree {
+    for i in $(seq 1001 1100); do
+        rm -Rf $i
+    done
+}
+
 function create_files_parallel {
     if [ "$TRAVIS" != "false" ]; then
         # in travis we use s3proxy with LocalBlobStore which can race with
@@ -215,6 +242,14 @@ fi
 
 if [ "$t" = "ls_rm" ]; then
     rm_files 1000
+fi
+
+if [ "$t" = "" -o "$t" = "find" ]; then
+    create_tree_parallel
+    for i in $(seq 1 $iter); do
+        run_test find_files
+    done
+    rm_tree
 fi
 
 # for https://github.com/kahing/goofys/issues/64
