@@ -39,11 +39,13 @@ $cmd >& mount.log &
 PID=$!
 
 function cleanup {
-    popd >/dev/null
-    if [ "$TRAVIS" != "false" ]; then
-        rmdir $prefix
-    else
-        rmdir $prefix >& /dev/null || true # riofs doesn't support rmdir
+    if [ $MOUNTED == 1 ]; then
+        popd >/dev/null
+        if [ "$TRAVIS" != "false" ]; then
+            rmdir $prefix
+        else
+            rmdir $prefix >& /dev/null || true # riofs doesn't support rmdir
+        fi
     fi
 
     if [ "$PID" != "" ]; then
@@ -76,7 +78,7 @@ if [ "$TRAVIS" == "false" ]; then
         sleep 1
     done
     if ! grep -q $mnt /proc/mounts; then
-        echo "$mnt not mounted"
+        echo "$mnt not mounted by $cmd"
         cat mount.log
         exit 1
     fi
