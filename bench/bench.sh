@@ -137,7 +137,7 @@ function find_files {
 }
 
 function create_tree_parallel {
-    for i in $(seq 1 9); do
+    (for i in $(seq 1 9); do
         mkdir $i
         (for j in $(seq 1 9); do
             mkdir $i/$j
@@ -149,7 +149,7 @@ function create_tree_parallel {
          done
          wait) & true
     done
-    wait
+    wait)
 }
 
 function rm_tree {
