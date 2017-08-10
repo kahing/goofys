@@ -284,6 +284,7 @@ fi
 
 if [ "$t" = "" -o "$t" = "find" ]; then
     create_tree_parallel
+    sleep 10
     for i in $(seq 1 $iter); do
         run_test find_files
     done
