@@ -139,15 +139,13 @@ function find_files {
 function create_tree_parallel {
     (for i in $(seq 1 9); do
         mkdir $i
-        (for j in $(seq 1 9); do
+        for j in $(seq 1 9); do
             mkdir $i/$j
 
-            (for k in $(seq 1 9); do
+            for k in $(seq 1 9); do
                  touch $i/$j/$k & true
              done
-             wait) & true
          done
-         wait) & true
     done
     wait)
 }
