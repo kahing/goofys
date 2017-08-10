@@ -72,7 +72,7 @@ function cleanup_err {
 trap cleanup EXIT
 trap cleanup_err ERR
 
-if [ "$TRAVIS" == "false" ]; then
+if [ "$TRAVIS" == "false" -a "$cmd" != "cat" ]; then
     for i in $(seq 1 5); do
         (grep -q $mnt /proc/mounts && break) || true
         sleep 1
