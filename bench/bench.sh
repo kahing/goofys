@@ -123,27 +123,31 @@ function rm_files {
 
 function find_files {
     numfiles=$(find | wc -l)
-    # find returns "." so add 1 to 1000
-    if [ "$numfiles" != 1001 ]; then
-        echo "$numfiles != 1001"
+
+    if [ "$numfiles" != 820 ]; then
+        echo "$numfiles != 820"
         rm_tree
         exit 1
     fi
 }
 
 function create_tree_parallel {
-    for i in $(seq 1001 1100); do
+    for i in $(seq 1 9); do
         mkdir $i
         (for j in $(seq 1 9); do
-            touch $i/$j & true
-         done
-         wait) & true
+            mkdir $i/$j
+
+            (for k in $(seq 1 9); do
+                 touch $i/$j/$k & true
+             done
+             wait) & true
+         done) & true
     done
     wait
 }
 
 function rm_tree {
-    for i in $(seq 1001 1100); do
+    for i in $(seq 1 9); do
         if [ "$TRAVIS" != "false" ]; then
             rm -Rf $i
         else
