@@ -33,6 +33,8 @@ fi
 
 prefix=$mnt/test_dir
 
+MOUNTED=0
+
 $cmd >& mount.log &
 PID=$!
 
@@ -52,8 +54,10 @@ function cleanup {
 
 function cleanup_err {
     err=$?
-    popd >&/dev/null || true
-    rmdir $prefix >&/dev/null || true
+    if [ $MOUNTED == 1 ]; then
+        popd >&/dev/null || true
+        rmdir $prefix >&/dev/null || true
+    fi
 
     if [ "$PID" != "" ]; then
         kill $PID >& /dev/null || true
@@ -76,7 +80,12 @@ if [ "$TRAVIS" == "false" ]; then
         cat mount.log
         exit 1
     fi
+    MOUNTED=1
+else
+    # in travis we mount things externally so we know we are mounted
+    MOUNTED=1
 fi
+
 mkdir -p "$prefix"
 pushd "$prefix" >/dev/null
 
