@@ -38,8 +38,8 @@ make install
 popd
 rm -Rf riofs
 
-apt-get purge automake autotools-dev g++ libcurl4-gnutls-dev libfuse-dev \
+apt-get purge -y automake autotools-dev g++ libcurl4-gnutls-dev libfuse-dev \
         libssl-dev libxml2-dev make pkg-config \
-        # riofs dependencies \
         build-essential gcc make automake autoconf libtool pkg-config intltool \
         libglib2.0-dev libfuse-dev libxml2-dev libevent-dev libssl-dev
+apt-get autoremove -y --purge
