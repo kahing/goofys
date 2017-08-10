@@ -2,6 +2,7 @@
 
 : ${TRAVIS:="false"}
 : ${FAST:="false"}
+: ${test:=""}
 
 iter=10
 
@@ -290,4 +291,9 @@ if [ "$t" = "disable" -o "$t" = "issue64" ]; then
         rm -f file$i & true
     done
     wait)
+fi
+
+if [ "$test" = "" ]; then
+    echo "No test was run: $t"
+    exit 1
 fi

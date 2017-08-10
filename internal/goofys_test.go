@@ -1019,7 +1019,7 @@ func (s *GoofysTest) TestBenchCreateParallel(t *C) {
 func (s *GoofysTest) TestBenchIO(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
-	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "md5")
+	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "io")
 }
 
 func (s *GoofysTest) TestBenchFindTree(t *C) {
