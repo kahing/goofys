@@ -67,12 +67,18 @@ done
 
 $dir/bench.sh cat bench-mnt $t |& tee $dir/bench.local
 
-rmdir bench-mnt
-
 $dir/bench_format.py <(paste $dir/bench.goofys $dir/bench.s3fs $dir/bench.riofs) > $dir/bench.data
 
 gnuplot $dir/bench_graph.gnuplot && convert -rotate 90 $dir/bench.png $dir/bench.png
 
+$GOOFYS &
+PID=$!
+
+sleep 5
+
 for f in $dir/bench.goofys $dir/bench.s3fs $dir/bench.riofs $dir/bench.data $dir/bench.png; do
-    aws s3 cp $f s3://$BUCKET/
+    cp $f bench-mnt/
 done
+
+kill $PID
+rmdir bench-mnt

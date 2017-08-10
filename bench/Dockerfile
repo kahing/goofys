@@ -1,13 +1,14 @@
 FROM ubuntu:16.04
 RUN apt-get update && \
-    # s3fs dependencies \
-    apt-get -y install automake autotools-dev fuse g++ git libcurl4-gnutls-dev libfuse-dev \
+    apt-get -y install --no-install-recommends \
+            # s3fs dependencies \
+            automake autotools-dev fuse g++ git libcurl4-gnutls-dev libfuse-dev \
             libssl-dev libxml2-dev make pkg-config \
             # riofs dependencies \
             build-essential gcc make automake autoconf libtool pkg-config intltool \
             libglib2.0-dev libfuse-dev libxml2-dev libevent-dev libssl-dev \
             # for running goofys benchmark \
-            python-pip gnuplot imagemagick awscli \
+            python-pip gnuplot-nox imagemagick \
             # finally, clean up to make image smaller \
             && apt-get clean
 # goofys graph generation
