@@ -35,7 +35,7 @@ prefix=$mnt/test_dir
 
 MOUNTED=0
 
-$cmd >& mount.log &
+$cmd >& mount.log.$$ &
 PID=$!
 
 function cleanup {
@@ -79,7 +79,7 @@ if [ "$TRAVIS" == "false" -a "$cmd" != "cat" ]; then
     done
     if ! grep -q $mnt /proc/mounts; then
         echo "$mnt not mounted by $cmd"
-        cat mount.log
+        cat mount.log.$$
         exit 1
     fi
     MOUNTED=1
@@ -89,6 +89,7 @@ else
 fi
 
 mkdir -p "$prefix"
+prefix=$(mktemp -d "$prefix/XXXXXX")
 pushd "$prefix" >/dev/null
 
 SUDO=
