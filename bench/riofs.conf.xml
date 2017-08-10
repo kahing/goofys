@@ -75,10 +75,10 @@
     <file_mode type="int">-1</file_mode>
 
     <!-- time to keep directory cache (seconds) -->
-    <dir_cache_max_time type="uint">300</dir_cache_max_time>
+    <dir_cache_max_time type="uint">1</dir_cache_max_time>
 
     <!-- time to keep file attributes cache (seconds) -->
-    <file_cache_max_time type="uint">10</file_cache_max_time>
+    <file_cache_max_time type="uint">1</file_cache_max_time>
 
     <!-- set True to enable calculating MD5 sum of file content, increases CPU load -->
     <md5_enabled type="boolean">False</md5_enabled>

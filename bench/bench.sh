@@ -72,9 +72,14 @@ fi
 mkdir -p "$prefix"
 pushd "$prefix" >/dev/null
 
+SUDO=
+if [ $(id -u) != 0 ]; then
+    SUDO=sudo
+fi
+
 function drop_cache {
     if [ "$TRAVIS" == "false" ]; then
-        (echo 3 | sudo tee /proc/sys/vm/drop_caches) > /dev/null
+        (echo 3 | $SUDO tee /proc/sys/vm/drop_caches) > /dev/null
     fi
 }
 
@@ -141,7 +146,8 @@ function create_tree_parallel {
                  touch $i/$j/$k & true
              done
              wait) & true
-         done) & true
+         done
+         wait) & true
     done
     wait
 }
@@ -243,6 +249,7 @@ fi
 
 if [ "$t" = "ls_create" ]; then
     create_files_parallel 1000
+    test=dummy
     sleep 10
 fi
 
@@ -252,6 +259,7 @@ fi
 
 if [ "$t" = "ls_rm" ]; then
     rm_files 1000
+    test=dummy
 fi
 
 if [ "$t" = "" -o "$t" = "find" ]; then

@@ -4,6 +4,8 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+: ${BUCKET:="goofys"}
+
 if [ $# = 1 ]; then
     t=$1
 else
@@ -11,12 +13,19 @@ else
 fi
 
 dir=$(dirname $0)
-source ~/.passwd-riofs
+
 mkdir bench-mnt
 
-S3FS="s3fs -f goofys bench-mnt"
-RIOFS="riofs -f -c $dir/riofs.conf.xml goofys bench-mnt"
-GOOFYS="goofys -f --endpoint http://s3-us-west-2.amazonaws.com/ goofys bench-mnt"
+S3FS="s3fs -f -ostat_cache_expire=1 $BUCKET bench-mnt"
+RIOFS="riofs -f -c $dir/riofs.conf.xml $BUCKET bench-mnt"
+GOOFYS="goofys -f --stat-cache-ttl 1s --type-cache-ttl 1s --endpoint http://s3-us-west-2.amazonaws.com/ $BUCKET bench-mnt"
+LOCAL="cat"
+
+if [ ! -f ~/.passwd-riofs ]; then
+    echo "RioFS password file ~/.passwd-riofs missing"
+    exit 1;
+fi
+source ~/.passwd-riofs
 
 for fs in s3fs riofs goofys; do
     case $fs in
@@ -29,10 +38,13 @@ for fs in s3fs riofs goofys; do
         goofys)
             FS=$GOOFYS
             ;;
+        cat)
+            FS=$LOCAL
+            ;;
     esac
 
     if [ "$t" = "" ]; then
-        rm bench.$fs
+        rm bench.$fs 2>/dev/null || true
 
         for tt in create create_parallel io; do
             $dir/bench.sh "$FS" bench-mnt $tt |& tee -a bench.$fs
@@ -46,6 +58,7 @@ for fs in s3fs riofs goofys; do
         done
 
         $dir/bench.sh "$FS" bench-mnt ls_rm
+        $dir/bench.sh "$FS" bench-mnt find
 
     else
         $dir/bench.sh "$FS" bench-mnt $t |& tee bench.$fs

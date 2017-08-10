@@ -61,7 +61,7 @@ Got more questions? Check out [questions other people asked](https://github.com/
 
 # Benchmark
 
-Using `--stat-cache-ttl 0 --type-cache-ttl 0` for goofys
+Using `--stat-cache-ttl 1s --type-cache-ttl 1s` for goofys
 `-ostat_cache_expire=1` for s3fs to simulate cold runs. Detail for the
 benchmark can be found in
 [bench.sh](https://github.com/kahing/goofys/blob/master/bench/bench.sh). [Raw data](https://github.com/kahing/goofys/blob/master/bench/)
