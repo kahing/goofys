@@ -808,6 +808,10 @@ func (fs *Goofys) LookUpInodeMaybeDir(parent *Inode, name string, fullName strin
 	checking := 3
 	var checkErr [3]error
 
+	if fs.s3 == nil {
+		panic("s3 disabled")
+	}
+
 	go fs.LookUpInodeNotDir(fullName, objectChan, errObjectChan)
 	if !fs.flags.Cheap {
 		go fs.LookUpInodeNotDir(fullName+"/", dirBlobChan, errDirBlobChan)
