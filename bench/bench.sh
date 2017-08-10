@@ -136,8 +136,13 @@ function create_files {
 }
 
 function ls_files {
+    get_howmany $@
     # people usually use ls in the terminal when color is on
-    ls --color=always > /dev/null
+    numfiles=$(ls -1 --color=always | wc -l)
+    if [ "$numfiles" != "$howmany" ]; then
+        echo "$numfiles != $howmany"
+        false
+    fi
 }
 
 function rm_files {
@@ -262,7 +267,7 @@ fi
 if [ "$t" = "" -o "$t" = "ls" ]; then
     create_files_parallel 1000
     for i in $(seq 1 $iter); do
-        run_test ls_files
+        run_test ls_files 1000
     done
     rm_files 1000
 fi
@@ -274,7 +279,7 @@ if [ "$t" = "ls_create" ]; then
 fi
 
 if [ "$t" = "ls_ls" ]; then
-    run_test ls_files
+    run_test ls_files 1000
 fi
 
 if [ "$t" = "ls_rm" ]; then
