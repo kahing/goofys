@@ -67,7 +67,15 @@ trap cleanup EXIT
 trap cleanup_err ERR
 
 if [ "$TRAVIS" == "false" ]; then
-    sleep 5
+    for i in $(seq 1 5); do
+        (grep -q $mnt /proc/mounts && break) || true
+        sleep 1
+    done
+    if ! grep -q $mnt /proc/mounts; then
+        echo "$mnt not mounted"
+        cat mount.log
+        exit 1
+    fi
 fi
 mkdir -p "$prefix"
 pushd "$prefix" >/dev/null

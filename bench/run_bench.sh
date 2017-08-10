@@ -47,25 +47,25 @@ for fs in s3fs riofs goofys; do
 
     if [ "$t" = "" ]; then
         for tt in create create_parallel io; do
-            $dir/bench.sh "$FS" bench-mnt $tt |& tee -a bench.$fs
+            $dir/bench.sh "$FS" bench-mnt $tt |& tee -a $dir/bench.$fs
         done
 
         $dir/bench.sh "$FS"  bench-mnt ls_create
 
         for i in $(seq 1 10); do
             rm -Rf /tmp/riofs
-            $dir/bench.sh "$FS" bench-mnt ls_ls |& tee -a bench.$fs
+            $dir/bench.sh "$FS" bench-mnt ls_ls |& tee -a $dir/bench.$fs
         done
 
         $dir/bench.sh "$FS" bench-mnt ls_rm
-        $dir/bench.sh "$FS" bench-mnt find
+        $dir/bench.sh "$FS" bench-mnt find |& tee -a $dir/bench.$fs
 
     else
-        $dir/bench.sh "$FS" bench-mnt $t |& tee bench.$fs
+        $dir/bench.sh "$FS" bench-mnt $t |& tee $dir/bench.$fs
     fi
 done
 
-$dir/bench.sh cat bench-mnt $t |& tee bench.local
+$dir/bench.sh cat bench-mnt $t |& tee $dir/bench.local
 
 rmdir bench-mnt
 
