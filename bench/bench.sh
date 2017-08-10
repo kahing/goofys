@@ -108,6 +108,8 @@ function run_test {
     test=$1
     drop_cache
     sleep 1
+    # make sure riofs cache got cleared
+    rm -Rf /tmp/riofs-cache 2>/dev/null || true
     echo -n "$test "
     time $test
 }

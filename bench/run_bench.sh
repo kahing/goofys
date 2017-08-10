@@ -34,6 +34,7 @@ for fs in s3fs riofs goofys; do
             ;;
         riofs)
             FS=$RIOFS
+            mkdir -p /tmp/riofs-cache
             ;;
         goofys)
             FS=$GOOFYS
