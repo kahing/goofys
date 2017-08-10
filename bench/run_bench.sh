@@ -59,7 +59,9 @@ for fs in s3fs riofs goofys; do
         done
 
         $dir/bench.sh "$FS" bench-mnt ls_rm
-        $dir/bench.sh "$FS" bench-mnt find |& tee -a $dir/bench.$fs
+
+        $dir/bench.sh "$FS" bench-mnt find_create |& tee -a $dir/bench.$fs
+        $dir/bench.sh "$FS" bench-mnt find_find |& tee -a $dir/bench.$fs
 
     else
         $dir/bench.sh "$FS" bench-mnt $t |& tee $dir/bench.$fs
