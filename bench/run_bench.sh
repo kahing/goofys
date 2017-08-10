@@ -16,7 +16,7 @@ dir=$(dirname $0)
 
 mkdir bench-mnt
 
-S3FS="s3fs -f -ostat_cache_expire=1 $BUCKET bench-mnt"
+S3FS="s3fs -f -ostat_cache_expire=1 -oiam_role=auto $BUCKET bench-mnt"
 RIOFS="riofs -f -c $dir/riofs.conf.xml $BUCKET bench-mnt"
 GOOFYS="goofys -f --stat-cache-ttl 1s --type-cache-ttl 1s --endpoint http://s3-us-west-2.amazonaws.com/ $BUCKET bench-mnt"
 LOCAL="cat"
