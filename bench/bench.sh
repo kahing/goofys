@@ -144,13 +144,6 @@ function rm_tree {
 }
 
 function create_files_parallel {
-    if [ "$TRAVIS" != "false" ]; then
-        # in travis we use s3proxy with LocalBlobStore which can race with
-        # parallel create files
-        create_files
-        return
-    fi
-
     get_howmany $@
 
     (for i in $(seq 1 $howmany); do
