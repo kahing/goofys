@@ -65,7 +65,7 @@ Using `--stat-cache-ttl 1s --type-cache-ttl 1s` for goofys
 `-ostat_cache_expire=1` for s3fs to simulate cold runs. Detail for the
 benchmark can be found in
 [bench.sh](https://github.com/kahing/goofys/blob/master/bench/bench.sh). [Raw data](https://github.com/kahing/goofys/blob/master/bench/)
-is available as well. Test was run on an EC2 hi1.4xlarge in us-west-2a
+is available as well. Test was run on an EC2 m4.16xlarge in us-west-2a
 connecting to a bucket in us-west-2. Units are seconds.
 
 ![Benchmark result](/bench/bench.png?raw=true "Benchmark")
@@ -75,7 +75,7 @@ connecting to a bucket in us-west-2. Units are seconds.
 To run the benchmark, do:
 
 ```
-sudo docker run --privileged -v  ~/.passwd-riofs:/root/.passwd-riofs goofys-bench
+sudo docker run -e BUCKET=$TESTBUCKET --rm --privileged --net=host -v  ~/.passwd-riofs:/root/.passwd-riofs kahing/goofys-bench
 ```
 
 # License

@@ -26,7 +26,6 @@ RUN cd riofs && ./autogen.sh && ./configure && make -j4 && make install
 ADD . /root/go/src/github.com/kahing/goofys
 ENV PATH=$PATH:/root/go/bin
 WORKDIR /root/go/src/github.com/kahing/goofys
-RUN ls /root/go/src/github.com/kahing/goofys
 RUN go get . && go install
 
 ENTRYPOINT /root/go/src/github.com/kahing/goofys/bench/run_bench.sh
