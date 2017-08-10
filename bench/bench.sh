@@ -38,7 +38,11 @@ PID=$!
 
 function cleanup {
     popd >/dev/null
-    rmdir $prefix >& /dev/null || true # riofs doesn't support rmdir
+    if [ "$TRAVIS" != "false" ]; then
+        rmdir $prefix
+    else
+        rmdir $prefix >& /dev/null || true # riofs doesn't support rmdir
+    fi
 
     if [ "$PID" != "" ]; then
         kill $PID >& /dev/null || true
@@ -140,7 +144,11 @@ function create_tree_parallel {
 
 function rm_tree {
     for i in $(seq 1001 1100); do
-        rm -Rf $i
+        if [ "$TRAVIS" != "false" ]; then
+            rm -Rf $i
+        else
+            rm -Rf $i >& /dev/null || true # riofs doesn't support rmdir
+        fi
     done
 }
 
