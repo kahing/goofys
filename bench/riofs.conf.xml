@@ -87,10 +87,10 @@
     <cache_enabled type="boolean">False</cache_enabled>
 
     <!-- directory for storing cache objects -->
-    <cache_dir type="string">/dev/null</cache_dir>
+    <cache_dir type="string">/tmp</cache_dir>
 
     <!-- maximum size of cache directory (1Gb) -->
-    <cache_dir_max_size type="uint">1</cache_dir_max_size>
+    <cache_dir_max_size type="uint">0</cache_dir_max_size>
 
     <!-- maximum time of cached object, 10 min -->
     <cache_object_ttl type="uint">0</cache_object_ttl>
