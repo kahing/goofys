@@ -4,7 +4,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-: ${BUCKET:="goofys"}
+: ${BUCKET:="goofys-bench"}
 
 if [ $# = 1 ]; then
     t=$1
@@ -72,3 +72,7 @@ rmdir bench-mnt
 $dir/bench_format.py <(paste $dir/bench.goofys $dir/bench.s3fs $dir/bench.riofs) > $dir/bench.data
 
 gnuplot $dir/bench_graph.gnuplot && convert -rotate 90 $dir/bench.png $dir/bench.png
+
+for f in $dir/bench.goofys $dir/bench.s3fs $dir/bench.riofs $dir/bench.data $dir/bench.png; do
+    aws s3 cp $f s3://$bucket/
+done

@@ -7,7 +7,7 @@ RUN apt-get update && \
             build-essential gcc make automake autoconf libtool pkg-config intltool \
             libglib2.0-dev libfuse-dev libxml2-dev libevent-dev libssl-dev \
             # for running goofys benchmark \
-            python-pip gnuplot imagemagick
+            python-pip gnuplot imagemagick awscli
 # goofys graph generation
 RUN pip install uncertainties numpy
 

@@ -72,6 +72,12 @@ connecting to a bucket in us-west-2. Units are seconds.
 
 (†) riofs does not wait for HTTP response before returning from `release()`, so the create files benchmarks do not measure the right thing for it
 
+To run the benchmark, do:
+
+```
+sudo docker run --privileged -v  ~/.passwd-riofs:/root/.passwd-riofs goofys-bench
+```
+
 # License
 
 Copyright (C) 2015 - 2017 Ka-Hing Cheung
