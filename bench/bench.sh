@@ -304,7 +304,11 @@ if [ "$t" = "" -o "$t" = "find_find" ]; then
     for i in $(seq 1 $iter); do
         run_test find_files
     done
+fi
+
+if [ "$t" = "" -o "$t" = "find_rm" ]; then
     rm_tree
+    test=dummy
 fi
 
 # for https://github.com/kahing/goofys/issues/64

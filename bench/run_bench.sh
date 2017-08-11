@@ -67,6 +67,7 @@ for fs in s3fs riofs goofys; do
         if [ "$t" = "find" ]; then
             $dir/bench.sh "$GOOFYS" bench-mnt find_create |& tee -a $dir/bench.$fs
             $dir/bench.sh "$FS" bench-mnt find_find |& tee -a $dir/bench.$fs
+            $dir/bench.sh "$GOOFYS" bench-mnt find_rm |& tee -a $dir/bench.$fs
         else
             $dir/bench.sh "$FS" bench-mnt $t |& tee $dir/bench.$fs
         fi
