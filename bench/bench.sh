@@ -109,7 +109,11 @@ function run_test {
     drop_cache
     sleep 1
     # make sure riofs cache got cleared
-    rm -Rf /tmp/riofs-cache 2>/dev/null || true
+    if [ -d /tmp/riofs-cache ]; then
+        cache=$(ls -1 /tmp/riofs-cache)
+        rm -Rf /tmp/riofs-cache 2>/dev/null || true
+        mkdir -p /tmp/riofs-cache/$cache
+    fi
     echo -n "$test "
     if [ $# -gt 1 ]; then
         time $test $2
