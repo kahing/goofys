@@ -111,7 +111,11 @@ function run_test {
     # make sure riofs cache got cleared
     rm -Rf /tmp/riofs-cache 2>/dev/null || true
     echo -n "$test "
-    time $test
+    if [ $# -gt 1 ]; then
+        time $test $2
+    else
+        time $test
+    fi
 }
 
 function get_howmany {
