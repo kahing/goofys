@@ -302,19 +302,19 @@ if [ "$t" = "" -o "$t" = "find" ]; then
     rm_tree
 fi
 
-if [ "$t" = "" -o "$t" = "find_create" ]; then
+if [ "$t" = "find_create" ]; then
     create_tree_parallel
     test=dummy
     sleep 10
 fi
 
-if [ "$t" = "" -o "$t" = "find_find" ]; then
+if [ "$t" = "find_find" ]; then
     for i in $(seq 1 $iter); do
         run_test find_files
     done
 fi
 
-if [ "$t" = "" -o "$t" = "cleanup" ]; then
+if [ "$t" = "cleanup" ]; then
     rm -Rf *
     test=dummy
 fi
