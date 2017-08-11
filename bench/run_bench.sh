@@ -51,7 +51,7 @@ for fs in s3fs riofs goofys; do
             ;;
     esac
 
-    rm bench.$fs 2>/dev/null || true
+    rm $dir/bench.$fs 2>/dev/null || true
 
     if [ "$t" = "" ]; then
         for tt in create create_parallel io; do
