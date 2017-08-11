@@ -51,20 +51,25 @@ for fs in s3fs riofs goofys; do
             $dir/bench.sh "$FS" bench-mnt $tt |& tee -a $dir/bench.$fs
         done
 
-        $dir/bench.sh "$FS"  bench-mnt ls_create
+        $dir/bench.sh "$GOOFYS"  bench-mnt ls_create
 
         for i in $(seq 1 10); do
-            rm -Rf /tmp/riofs
             $dir/bench.sh "$FS" bench-mnt ls_ls |& tee -a $dir/bench.$fs
         done
 
-        $dir/bench.sh "$FS" bench-mnt ls_rm
+        $dir/bench.sh "$GOOFYS" bench-mnt ls_rm
 
-        $dir/bench.sh "$FS" bench-mnt find_create |& tee -a $dir/bench.$fs
+        # riofs lies when they create files
+        $dir/bench.sh "$GOOFYS" bench-mnt find_create |& tee -a $dir/bench.$fs
         $dir/bench.sh "$FS" bench-mnt find_find |& tee -a $dir/bench.$fs
 
     else
-        $dir/bench.sh "$FS" bench-mnt $t |& tee $dir/bench.$fs
+        if [ "$t" = "find" ]; then
+            $dir/bench.sh "$GOOFYS" bench-mnt find_create |& tee -a $dir/bench.$fs
+            $dir/bench.sh "$FS" bench-mnt find_find |& tee -a $dir/bench.$fs
+        else
+            $dir/bench.sh "$FS" bench-mnt $t |& tee $dir/bench.$fs
+        fi
     fi
 done
 
