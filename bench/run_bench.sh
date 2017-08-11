@@ -80,7 +80,7 @@ $dir/bench_format.py <(paste $dir/bench.goofys $dir/bench.s3fs $dir/bench.riofs)
 
 gnuplot $dir/bench_graph.gnuplot && convert -rotate 90 $dir/bench.png $dir/bench.png
 
-$GOOFYS &
+$GOOFYS >/dev/null &
 PID=$!
 
 sleep 5
@@ -90,4 +90,5 @@ for f in $dir/bench.goofys $dir/bench.s3fs $dir/bench.riofs $dir/bench.data $dir
 done
 
 kill $PID
+sleep 1
 rmdir bench-mnt
