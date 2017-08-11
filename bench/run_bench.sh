@@ -5,6 +5,7 @@ set -o nounset
 set -o pipefail
 
 : ${BUCKET:="goofys-bench"}
+: ${FAST:="false"}
 
 if [ $# = 1 ]; then
     t=$1
@@ -26,6 +27,12 @@ if [ ! -f ~/.passwd-riofs ]; then
     exit 1;
 fi
 source ~/.passwd-riofs
+
+iter=10
+if [ "$FAST" != "false" ]; then
+    iter=1
+fi
+
 
 for fs in s3fs riofs goofys; do
     case $fs in
@@ -54,7 +61,7 @@ for fs in s3fs riofs goofys; do
 
         $dir/bench.sh "$GOOFYS"  bench-mnt ls_create
 
-        for i in $(seq 1 10); do
+        for i in $(seq 1 $iter); do
             $dir/bench.sh "$FS" bench-mnt ls_ls |& tee -a $dir/bench.$fs
         done
 
