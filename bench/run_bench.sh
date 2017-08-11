@@ -49,6 +49,7 @@ for fs in s3fs riofs goofys; do
     if [ "$t" = "" ]; then
         for tt in create create_parallel io; do
             $dir/bench.sh "$FS" bench-mnt $tt |& tee -a $dir/bench.$fs
+            $dir/bench.sh "$GOOFYS" bench-mnt cleanup |& tee -a $dir/bench.$fs
         done
 
         $dir/bench.sh "$GOOFYS"  bench-mnt ls_create
@@ -62,13 +63,13 @@ for fs in s3fs riofs goofys; do
         # riofs lies when they create files
         $dir/bench.sh "$GOOFYS" bench-mnt find_create |& tee -a $dir/bench.$fs
         $dir/bench.sh "$FS" bench-mnt find_find |& tee -a $dir/bench.$fs
-        $dir/bench.sh "$GOOFYS" bench-mnt find_rm |& tee -a $dir/bench.$fs
+        $dir/bench.sh "$GOOFYS" bench-mnt cleanup |& tee -a $dir/bench.$fs
 
     else
         if [ "$t" = "find" ]; then
             $dir/bench.sh "$GOOFYS" bench-mnt find_create |& tee -a $dir/bench.$fs
             $dir/bench.sh "$FS" bench-mnt find_find |& tee -a $dir/bench.$fs
-            $dir/bench.sh "$GOOFYS" bench-mnt find_rm |& tee -a $dir/bench.$fs
+            $dir/bench.sh "$GOOFYS" bench-mnt cleanup |& tee -a $dir/bench.$fs
         else
             $dir/bench.sh "$FS" bench-mnt $t |& tee $dir/bench.$fs
         fi

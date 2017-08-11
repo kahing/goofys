@@ -306,8 +306,8 @@ if [ "$t" = "" -o "$t" = "find_find" ]; then
     done
 fi
 
-if [ "$t" = "" -o "$t" = "find_rm" ]; then
-    rm_tree
+if [ "$t" = "" -o "$t" = "cleanup" ]; then
+    rm -Rf *
     test=dummy
 fi
 
