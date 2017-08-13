@@ -29,7 +29,7 @@ $ brew install goofys
 
 * Or build from source:
 
-```
+```ShellSession
 $ export GOPATH=$HOME/work
 $ go get github.com/kahing/goofys
 $ go install github.com/kahing/goofys
@@ -74,7 +74,7 @@ connecting to a bucket in us-west-2. Units are seconds.
 
 To run the benchmark, do:
 
-```
+```ShellSession
 $ cat > ~/.passwd-riofs
 export AWS_ACCESS_KEY_ID=AKID1234567890
 export AWS_SECRET_ACCESS_KEY=MY-SECRET-KEY
