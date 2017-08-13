@@ -75,7 +75,11 @@ connecting to a bucket in us-west-2. Units are seconds.
 To run the benchmark, do:
 
 ```
-sudo docker run -e BUCKET=$TESTBUCKET --rm --privileged --net=host -v  ~/.passwd-riofs:/root/.passwd-riofs kahing/goofys-bench
+$ cat > ~/.passwd-riofs
+export AWS_ACCESS_KEY_ID=AKID1234567890
+export AWS_SECRET_ACCESS_KEY=MY-SECRET-KEY
+$ sudo docker run -e BUCKET=$TESTBUCKET --rm --privileged --net=host -v  ~/.passwd-riofs:/root/.passwd-riofs kahing/goofys-bench
+# result will be written to $TESTBUCKET
 ```
 
 # License
