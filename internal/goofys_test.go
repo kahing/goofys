@@ -1219,6 +1219,7 @@ func (s *GoofysTest) anonymous(t *C) {
 func (s *GoofysTest) disableS3() *s3.S3 {
 	s3 := s.fs.s3
 	s.fs.s3 = nil
+	time.Sleep(1 * time.Second) // wait for any background goroutines to finish
 	return s3
 }
 
