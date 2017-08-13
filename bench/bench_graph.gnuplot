@@ -37,7 +37,7 @@ set bmargin at screen 0.4
 
 set origin 0.0,0.1
 set size 0.5,0.8
-set xrange [-1:4.8]
+set xrange [-1:5.8]
 
 plot 'bench/bench.data' using 2:3:4 title " ", \
      '' using 5:6:7 title " ", \
@@ -52,7 +52,7 @@ set lmargin
 
 set origin 0.45,0.1
 set size 0.3,0.8
-set xrange [4.5:6.8]
+set xrange [5.5:7.8]
 
 plot 'bench/bench.data' using 2:3:4 title " ", \
      '' using 5:6:7 title " ", \
@@ -61,7 +61,7 @@ plot 'bench/bench.data' using 2:3:4 title " ", \
 
 set origin 0.7,0.1
 set size 0.2,0.8
-set xrange [6.5:7.7]
+set xrange [7.5:8.7]
 set yrange [0:1.1]
 
 plot 'bench/bench.data' using 2:3:4 title " ", \

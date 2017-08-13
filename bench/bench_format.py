@@ -9,11 +9,11 @@ def filter_outliers(numbers, mean, std):
 
 op_str = {
     'create_files' : 'Create 100 files',
-    'rm_files' : 'Unlink 100 files',
     'create_files_parallel' : 'Create 100 files (parallel)',
+    'rm_files' : 'Unlink 100 files',
     'rm_files_parallel' : 'Unlink 100 files (parallel)',
     'ls_files' : 'ls with 1000 files',
-    'find_files' : "`find' in a nested directory tree with ~1000 files",
+    'find_files' : "`find' with 1000 dirs/files",
     'write_md5' : 'Write 1GB',
     'read_first_byte' : 'Time to 1st byte',
     'read_md5' : 'Read 1GB',
@@ -21,8 +21,8 @@ op_str = {
 
 outputOrder = [
     'create_files',
-    'rm_files',
     'create_files_parallel',
+    'rm_files',
     'rm_files_parallel',
     'ls_files',
     'find_files',
