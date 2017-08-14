@@ -62,6 +62,9 @@ TUNING OPTIONS:
    {{end}}
 AWS S3 OPTIONS:
    {{range category .Flags "aws"}}{{.}}
+   {{end}}
+MISC OPTIONS:
+   {{range category .Flags "misc"}}{{.}}
    {{end}}{{end}}{{if .Copyright }}
 COPYRIGHT:
    {{.Copyright}}
@@ -238,6 +241,10 @@ func NewApp() (app *cli.App) {
 
 	for _, f := range []string{"cheap", "no-implicit-dir", "stat-cache-ttl", "type-cache-ttl"} {
 		flagCategories[f] = "tuning"
+	}
+
+	for _, f := range []string{"help, h", "debug_fuse", "debug_s3", "version, v", "f"} {
+		flagCategories[f] = "misc"
 	}
 
 	cli.HelpPrinter = func(w io.Writer, templ string, data interface{}) {
