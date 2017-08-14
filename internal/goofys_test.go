@@ -939,7 +939,7 @@ func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs .
 	if isTravis() {
 		logger := NewLogger("test")
 		lvl := logrus.InfoLevel
-		logger.Formatter.(*logHandle).lvl = &lvl
+		logger.Formatter.(*LogHandle).Lvl = &lvl
 		w := logger.Writer()
 
 		cmd.Stdout = w

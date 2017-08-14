@@ -58,7 +58,7 @@ type Inode struct {
 	userMetadata map[string][]byte
 	s3Metadata   map[string][]byte
 
-	log *logHandle
+	log *LogHandle
 
 	mu          sync.Mutex // everything below is protected by mu
 	fileHandles map[*FileHandle]bool

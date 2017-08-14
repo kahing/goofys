@@ -16,8 +16,10 @@
 package internal
 
 import (
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"text/tabwriter"
 	"text/template"
@@ -97,6 +99,14 @@ func NewApp() (app *cli.App) {
 			cli.StringSliceFlag{
 				Name:  "o",
 				Usage: "Additional system-specific mount options. Be careful!",
+			},
+
+			cli.StringFlag{
+				Name: "cache",
+				Usage: "Directory to use for data cache. " +
+					"Requires catfs and `-o allow_other'. " +
+					"Can also pass in other catfs options " +
+					"(ex: --cache \"--free:10%:$HOME/cache\") (default: off)",
 			},
 
 			cli.IntFlag{
@@ -259,6 +269,7 @@ func NewApp() (app *cli.App) {
 type FlagStorage struct {
 	// File system
 	MountOptions map[string]string
+	Cache        []string
 	DirMode      os.FileMode
 	FileMode     os.FileMode
 	Uid          uint32
@@ -344,6 +355,49 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		DebugFuse:  c.Bool("debug_fuse"),
 		DebugS3:    c.Bool("debug_s3"),
 		Foreground: c.Bool("f"),
+	}
+
+	if c.IsSet("cache") {
+		cache := c.String("cache")
+		cacheArgs := strings.Split(c.String("cache"), ":")
+		cacheDir := cacheArgs[len(cacheArgs)-1]
+
+		fi, err := os.Stat(cacheDir)
+		if err != nil || !fi.IsDir() {
+			io.WriteString(cli.ErrWriter,
+				fmt.Sprintf("Invalid value \"%v\" for --cache: not a directory\n\n",
+					cacheDir))
+			return nil
+		}
+
+		cacheArgs = append(cacheArgs, "")
+		cacheArgs[len(cacheArgs)-1] = cacheDir
+		cacheArgs[len(cacheArgs)-2] = c.Args()[1]
+
+		cacheArgs = append(cacheArgs, "", "", "")
+		copy(cacheArgs[3:], cacheArgs[0:])
+		cacheArgs[0] = "--test"
+		cacheArgs[1] = "-o"
+		cacheArgs[2] = "nonempty"
+		cacheArgs = append(cacheArgs, c.Args()[1])
+
+		catfs := exec.Command("catfs", cacheArgs...)
+		_, err = catfs.Output()
+		if err != nil {
+			if ee, ok := err.(*exec.Error); ok {
+				io.WriteString(cli.ErrWriter,
+					fmt.Sprintf("--cache requires catfs (%v) but %v\n\n",
+						"http://github.com/kahing/catfs",
+						ee.Error()))
+			} else if ee, ok := err.(*exec.ExitError); ok {
+				io.WriteString(cli.ErrWriter,
+					fmt.Sprintf("Invalid value \"%v\" for --cache: %v\n\n",
+						cache, string(ee.Stderr)))
+			}
+			return nil
+		}
+
+		flags.Cache = cacheArgs[1:]
 	}
 
 	// KMS implies SSE

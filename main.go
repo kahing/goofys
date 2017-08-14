@@ -20,10 +20,12 @@ import (
 
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"golang.org/x/net/context"
 
@@ -147,6 +149,40 @@ func mount(
 		return
 	}
 
+	if len(flags.Cache) != 0 {
+		log.Infof("Starting catfs %v", flags.Cache)
+		catfs := exec.Command("catfs", flags.Cache...)
+		lvl := logrus.ErrorLevel
+		catfsLog := GetLogger("catfs")
+		catfsLog.Formatter.(*LogHandle).Lvl = &lvl
+		catfs.Stderr = catfsLog.Writer()
+		err = catfs.Start()
+		if err != nil {
+			err = fmt.Errorf("Failed to start catfs: %v", err)
+
+			// sleep a bit otherwise can't unmount right away
+			time.Sleep(time.Second)
+			err2 := fuse.Unmount(mountPoint)
+			if err2 != nil {
+				err = fmt.Errorf("%v. Failed to unmount: %v", err, err2)
+			}
+		}
+
+		go func() {
+			err := catfs.Wait()
+			if err != nil {
+				log.Errorf("catfs exited: %v", err)
+			}
+			err2 := fuse.Unmount(mountPoint)
+			if err2 != nil {
+				log.Errorf("Failed to unmount: %v", err2)
+			}
+			if err != nil {
+				os.Exit(1)
+			}
+		}()
+	}
+
 	return
 }
 
@@ -195,6 +231,11 @@ func main() {
 		bucketName := c.Args()[0]
 		mountPoint := c.Args()[1]
 		flags = PopulateFlags(c)
+		if flags == nil {
+			cli.ShowAppHelp(c)
+			err = fmt.Errorf("invalid arguments")
+			return
+		}
 
 		massagePath()
 
@@ -271,5 +312,6 @@ func main() {
 		if flags != nil && !flags.Foreground && child != nil {
 			log.Fatalln("Unable to mount file system, see syslog for details")
 		}
+		os.Exit(1)
 	}
 }

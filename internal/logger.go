@@ -27,7 +27,7 @@ import (
 )
 
 var mu sync.Mutex
-var loggers = make(map[string]*logHandle)
+var loggers = make(map[string]*LogHandle)
 
 var log = GetLogger("main")
 var fuseLog = GetLogger("fuse")
@@ -48,19 +48,19 @@ func InitLoggers(logToSyslog bool) {
 	}
 }
 
-type logHandle struct {
+type LogHandle struct {
 	logrus.Logger
 
 	name string
-	lvl  *logrus.Level
+	Lvl  *logrus.Level
 }
 
-func (l *logHandle) Format(e *logrus.Entry) ([]byte, error) {
+func (l *LogHandle) Format(e *logrus.Entry) ([]byte, error) {
 	// Mon Jan 2 15:04:05 -0700 MST 2006
 	timestamp := ""
 	lvl := e.Level
-	if l.lvl != nil {
-		lvl = *l.lvl
+	if l.Lvl != nil {
+		lvl = *l.Lvl
 	}
 
 	if syslogHook == nil {
@@ -84,12 +84,12 @@ func (l *logHandle) Format(e *logrus.Entry) ([]byte, error) {
 }
 
 // for aws.Logger
-func (l *logHandle) Log(args ...interface{}) {
+func (l *LogHandle) Log(args ...interface{}) {
 	l.Debugln(args...)
 }
 
-func NewLogger(name string) *logHandle {
-	l := &logHandle{name: name}
+func NewLogger(name string) *LogHandle {
+	l := &LogHandle{name: name}
 	l.Out = os.Stderr
 	l.Formatter = l
 	l.Level = logrus.InfoLevel
@@ -100,7 +100,7 @@ func NewLogger(name string) *logHandle {
 	return l
 }
 
-func GetLogger(name string) *logHandle {
+func GetLogger(name string) *LogHandle {
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -113,12 +113,12 @@ func GetLogger(name string) *logHandle {
 	}
 }
 
-func GetStdLogger(l *logHandle, lvl logrus.Level) *glog.Logger {
+func GetStdLogger(l *LogHandle, lvl logrus.Level) *glog.Logger {
 	mu.Lock()
 	defer mu.Unlock()
 
 	w := l.Writer()
-	l.Formatter.(*logHandle).lvl = &lvl
+	l.Formatter.(*LogHandle).Lvl = &lvl
 	l.Level = lvl
 	return glog.New(w, "", 0)
 }
