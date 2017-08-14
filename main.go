@@ -101,7 +101,6 @@ func kill(pid int, s os.Signal) (err error) {
 func mount(
 	ctx context.Context,
 	bucketName string,
-	mountPoint string,
 	flags *FlagStorage) (mfs *fuse.MountedFileSystem, err error) {
 
 	awsConfig := &aws.Config{
@@ -143,7 +142,7 @@ func mount(
 		mountCfg.DebugLogger = GetStdLogger(fuseLog, logrus.DebugLevel)
 	}
 
-	mfs, err = fuse.Mount(mountPoint, server, mountCfg)
+	mfs, err = fuse.Mount(flags.MountPoint, server, mountCfg)
 	if err != nil {
 		err = fmt.Errorf("Mount: %v", err)
 		return
@@ -162,7 +161,7 @@ func mount(
 
 			// sleep a bit otherwise can't unmount right away
 			time.Sleep(time.Second)
-			err2 := fuse.Unmount(mountPoint)
+			err2 := fuse.Unmount(flags.MountPoint)
 			if err2 != nil {
 				err = fmt.Errorf("%v. Failed to unmount: %v", err, err2)
 			}
@@ -170,13 +169,23 @@ func mount(
 
 		go func() {
 			err := catfs.Wait()
-			if err != nil {
-				log.Errorf("catfs exited: %v", err)
-			}
-			err2 := fuse.Unmount(mountPoint)
+			log.Errorf("catfs exited: %v", err)
+
+			// sleep a bit in case catfs terminates right after startup
+			time.Sleep(time.Second)
+
+			err2 := fuse.Unmount(flags.MountPointArg)
 			if err2 != nil {
 				log.Errorf("Failed to unmount: %v", err2)
 			}
+
+			if flags.MountPointArg != flags.MountPoint {
+				err2 := fuse.Unmount(flags.MountPoint)
+				if err2 != nil {
+					log.Errorf("Failed to unmount: %v", err2)
+				}
+			}
+
 			if err != nil {
 				os.Exit(1)
 			}
@@ -229,13 +238,13 @@ func main() {
 
 		// Populate and parse flags.
 		bucketName := c.Args()[0]
-		mountPoint := c.Args()[1]
 		flags = PopulateFlags(c)
 		if flags == nil {
 			cli.ShowAppHelp(c)
 			err = fmt.Errorf("invalid arguments")
 			return
 		}
+		defer flags.Cleanup()
 
 		massagePath()
 
@@ -278,7 +287,6 @@ func main() {
 		mfs, err = mount(
 			context.Background(),
 			bucketName,
-			mountPoint,
 			flags)
 
 		if err != nil {
@@ -293,7 +301,7 @@ func main() {
 			}
 			log.Println("File system has been successfully mounted.")
 			// Let the user unmount with Ctrl-C (SIGINT).
-			registerSIGINTHandler(mfs.Dir())
+			registerSIGINTHandler(flags.MountPointArg)
 
 			// Wait for the file system to be unmounted.
 			err = mfs.Join(context.Background())

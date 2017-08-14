@@ -18,6 +18,7 @@ package internal
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"strings"
@@ -268,12 +269,16 @@ func NewApp() (app *cli.App) {
 
 type FlagStorage struct {
 	// File system
-	MountOptions map[string]string
-	Cache        []string
-	DirMode      os.FileMode
-	FileMode     os.FileMode
-	Uid          uint32
-	Gid          uint32
+	MountOptions      map[string]string
+	MountPoint        string
+	MountPointArg     string
+	MountPointCreated string
+
+	Cache    []string
+	DirMode  os.FileMode
+	FileMode os.FileMode
+	Uid      uint32
+	Gid      uint32
 
 	// S3
 	Endpoint       string
@@ -322,6 +327,15 @@ func parseOptions(m map[string]string, s string) {
 	return
 }
 
+func (flags *FlagStorage) Cleanup() {
+	if flags.MountPointCreated != flags.MountPointArg {
+		err := os.Remove(flags.MountPointCreated)
+		if err != nil {
+			log.Errorf("rmdir %v = %v", flags.MountPointCreated, err)
+		}
+	}
+}
+
 // Add the flags accepted by run to the supplied flag set, returning the
 // variables into which the flags will parse.
 func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
@@ -357,6 +371,19 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		Foreground: c.Bool("f"),
 	}
 
+	// Handle the repeated "-o" flag.
+	for _, o := range c.StringSlice("o") {
+		parseOptions(flags.MountOptions, o)
+	}
+
+	flags.MountPointArg = c.Args()[1]
+	flags.MountPoint = flags.MountPointArg
+	defer func() {
+		if flags == nil {
+			flags.Cleanup()
+		}
+	}()
+
 	if c.IsSet("cache") {
 		cache := c.String("cache")
 		cacheArgs := strings.Split(c.String("cache"), ":")
@@ -370,16 +397,26 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 			return nil
 		}
 
+		if _, ok := flags.MountOptions["allow_other"]; !ok {
+			flags.MountPointCreated, err = ioutil.TempDir("", ".goofys-mnt")
+			if err != nil {
+				io.WriteString(cli.ErrWriter,
+					fmt.Sprintf("Unable to create temp dir: %v", err))
+				return nil
+			}
+			flags.MountPoint = flags.MountPointCreated
+		}
+
 		cacheArgs = append(cacheArgs, "")
 		cacheArgs[len(cacheArgs)-1] = cacheDir
-		cacheArgs[len(cacheArgs)-2] = c.Args()[1]
+		cacheArgs[len(cacheArgs)-2] = flags.MountPoint
 
 		cacheArgs = append(cacheArgs, "", "", "")
 		copy(cacheArgs[3:], cacheArgs[0:])
 		cacheArgs[0] = "--test"
 		cacheArgs[1] = "-o"
 		cacheArgs[2] = "nonempty"
-		cacheArgs = append(cacheArgs, c.Args()[1])
+		cacheArgs = append(cacheArgs, flags.MountPointArg)
 
 		catfs := exec.Command("catfs", cacheArgs...)
 		_, err = catfs.Output()
@@ -405,10 +442,6 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		flags.UseSSE = true
 	}
 
-	// Handle the repeated "-o" flag.
-	for _, o := range c.StringSlice("o") {
-		parseOptions(flags.MountOptions, o)
-	}
 	return
 }
 
