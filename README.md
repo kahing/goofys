@@ -72,6 +72,7 @@ connecting to a bucket in us-west-2. Units are seconds.
 
 (†) riofs does not wait for HTTP response before returning from `release()`, so the create files benchmarks do not measure the right thing for it
 
+<a name="runbenchmark"></a>
 To run the benchmark, do:
 
 ```ShellSession
