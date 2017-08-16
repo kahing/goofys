@@ -328,7 +328,7 @@ func parseOptions(m map[string]string, s string) {
 }
 
 func (flags *FlagStorage) Cleanup() {
-	if flags.MountPointCreated != flags.MountPointArg {
+	if flags.MountPointCreated != "" && flags.MountPointCreated != flags.MountPointArg {
 		err := os.Remove(flags.MountPointCreated)
 		if err != nil {
 			log.Errorf("rmdir %v = %v", flags.MountPointCreated, err)
