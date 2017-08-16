@@ -1662,7 +1662,25 @@ func (s *GoofysTest) TestReadDirCached(t *C) {
 	s.readDirIntoCache(t, fuseops.RootInodeID)
 	s.disableS3()
 
-	s.assertEntries(t, s.getRoot(t), []string{"dir1", "dir2", "dir4", "empty_dir", "empty_dir2", "file1", "file2", "zero"})
+	dh := s.getRoot(t).OpenDir()
+
+	entries := s.readDirFully(t, dh)
+	dirs := make([]string, 0)
+	files := make([]string, 0)
+	noMoreDir := false
+
+	for _, en := range entries {
+		if en.Type == fuseutil.DT_Directory {
+			t.Assert(noMoreDir, Equals, false)
+			dirs = append(dirs, *en.Name)
+		} else {
+			files = append(files, *en.Name)
+			noMoreDir = true
+		}
+	}
+
+	t.Assert(dirs, DeepEquals, []string{"dir1", "dir2", "dir4", "empty_dir", "empty_dir2"})
+	t.Assert(files, DeepEquals, []string{"file1", "file2", "zero"})
 }
 
 func (s *GoofysTest) TestReadDirLookUp(t *C) {
