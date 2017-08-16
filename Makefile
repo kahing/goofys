@@ -9,3 +9,6 @@ get-deps: s3proxy.jar
 
 build:
 	go build -ldflags "-X main.Version=`git rev-parse HEAD`"
+
+install:
+	go install -ldflags "-X main.Version=`git rev-parse HEAD`"
