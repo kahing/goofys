@@ -1490,7 +1490,7 @@ func (inode *Inode) readDirFromCache(fs *Goofys, offset fuseops.DirOffset) (en *
 			Offset:     offset + 1,
 			Attributes: child.Attributes,
 		}
-		if inode.isDir() {
+		if child.isDir() {
 			en.Type = fuseutil.DT_Directory
 		} else {
 			en.Type = fuseutil.DT_File
