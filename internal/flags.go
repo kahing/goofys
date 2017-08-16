@@ -412,13 +412,18 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		cacheArgs = append(cacheArgs, "")
 		cacheArgs[len(cacheArgs)-1] = cacheDir
 		cacheArgs[len(cacheArgs)-2] = flags.MountPoint
-
-		cacheArgs = append(cacheArgs, "", "", "")
-		copy(cacheArgs[3:], cacheArgs[0:])
-		cacheArgs[0] = "--test"
-		cacheArgs[1] = "-o"
-		cacheArgs[2] = "nonempty"
 		cacheArgs = append(cacheArgs, flags.MountPointArg)
+
+		cacheArgs = append(cacheArgs, "")
+		copy(cacheArgs[1:], cacheArgs[0:])
+		cacheArgs[0] = "--test"
+
+		if flags.MountPointArg == flags.MountPoint {
+			cacheArgs = append(cacheArgs, "", "")
+			copy(cacheArgs[3:], cacheArgs[1:])
+			cacheArgs[1] = "-o"
+			cacheArgs[2] = "nonempty"
+		}
 
 		catfs := exec.Command("catfs", cacheArgs...)
 		_, err = catfs.Output()
