@@ -46,7 +46,7 @@ import (
 
 var log = GetLogger("main")
 
-func registerSIGINTHandler(mountPoint string) {
+func registerSIGINTHandler(flags *FlagStorage) {
 	// Register for SIGINT.
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
@@ -55,14 +55,20 @@ func registerSIGINTHandler(mountPoint string) {
 	go func() {
 		for {
 			s := <-signalChan
-			log.Infof("Received %v, attempting to unmount...", s)
+			if len(flags.Cache) == 0 {
+				log.Infof("Received %v, attempting to unmount...", s)
 
-			err := fuse.Unmount(mountPoint)
-			if err != nil {
-				log.Errorf("Failed to unmount in response to %v: %v", s, err)
+				err := tryUnmount(flags.MountPoint)
+				if err != nil {
+					log.Errorf("Failed to unmount in response to %v: %v", s, err)
+				} else {
+					log.Printf("Successfully unmounted %v in response to %v",
+						flags.MountPoint, s)
+					return
+				}
 			} else {
-				log.Printf("Successfully unmounted %v in response to %v", s, mountPoint)
-				return
+				log.Infof("Received %v", s)
+				// wait for catfs to die and cleanup
 			}
 		}
 	}()
@@ -92,6 +98,18 @@ func kill(pid int, s os.Signal) (err error) {
 	err = p.Signal(s)
 	if err != nil {
 		return err
+	}
+	return
+}
+
+func tryUnmount(mountPoint string) (err error) {
+	for i := 0; i < 20; i++ {
+		err = fuse.Unmount(mountPoint)
+		if err != nil {
+			time.Sleep(time.Second)
+		} else {
+			break
+		}
 	}
 	return
 }
@@ -161,7 +179,7 @@ func mount(
 
 			// sleep a bit otherwise can't unmount right away
 			time.Sleep(time.Second)
-			err2 := fuse.Unmount(flags.MountPoint)
+			err2 := tryUnmount(flags.MountPoint)
 			if err2 != nil {
 				err = fmt.Errorf("%v. Failed to unmount: %v", err, err2)
 			}
@@ -171,16 +189,18 @@ func mount(
 			err := catfs.Wait()
 			log.Errorf("catfs exited: %v", err)
 
-			// sleep a bit in case catfs terminates right after startup
-			time.Sleep(time.Second)
-
-			err2 := fuse.Unmount(flags.MountPointArg)
-			if err2 != nil {
-				log.Errorf("Failed to unmount: %v", err2)
+			if err != nil {
+				// if catfs terminated cleanly, it
+				// should have unmounted this,
+				// otherwise we will do it ourselves
+				err2 := tryUnmount(flags.MountPointArg)
+				if err2 != nil {
+					log.Errorf("Failed to unmount: %v", err2)
+				}
 			}
 
 			if flags.MountPointArg != flags.MountPoint {
-				err2 := fuse.Unmount(flags.MountPoint)
+				err2 := tryUnmount(flags.MountPoint)
 				if err2 != nil {
 					log.Errorf("Failed to unmount: %v", err2)
 				}
@@ -244,7 +264,10 @@ func main() {
 			err = fmt.Errorf("invalid arguments")
 			return
 		}
-		defer flags.Cleanup()
+		defer func() {
+			time.Sleep(time.Second)
+			flags.Cleanup()
+		}()
 
 		massagePath()
 
@@ -300,8 +323,10 @@ func main() {
 				kill(os.Getppid(), syscall.SIGUSR1)
 			}
 			log.Println("File system has been successfully mounted.")
-			// Let the user unmount with Ctrl-C (SIGINT).
-			registerSIGINTHandler(flags.MountPointArg)
+			// Let the user unmount with Ctrl-C
+			// (SIGINT). But if cache is on, catfs will
+			// receive the signal and we would detect that exiting
+			registerSIGINTHandler(flags)
 
 			// Wait for the file system to be unmounted.
 			err = mfs.Join(context.Background())

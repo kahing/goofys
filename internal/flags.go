@@ -338,8 +338,8 @@ func (flags *FlagStorage) Cleanup() {
 
 // Add the flags accepted by run to the supplied flag set, returning the
 // variables into which the flags will parse.
-func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
-	flags = &FlagStorage{
+func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
+	flags := &FlagStorage{
 		// File system
 		MountOptions: make(map[string]string),
 		DirMode:      os.FileMode(c.Int("dir-mode")),
@@ -378,8 +378,10 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 
 	flags.MountPointArg = c.Args()[1]
 	flags.MountPoint = flags.MountPointArg
+	var err error
+
 	defer func() {
-		if flags == nil {
+		if err != nil {
 			flags.Cleanup()
 		}
 	}()
@@ -442,7 +444,7 @@ func PopulateFlags(c *cli.Context) (flags *FlagStorage) {
 		flags.UseSSE = true
 	}
 
-	return
+	return flags
 }
 
 func MassageMountFlags(args []string) (ret []string) {
