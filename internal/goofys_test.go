@@ -26,6 +26,7 @@ import (
 	"os/exec"
 	"os/user"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1356,7 +1357,8 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 
 	names, err := file1.ListXattr(s.fs)
 	t.Assert(err, IsNil)
-	t.Assert(names, DeepEquals, []string{"s3.etag", "user.name"})
+	sort.Strings(names)
+	t.Assert(names, DeepEquals, []string{"s3.etag", "s3.storage-class", "user.name"})
 
 	_, err = file1.GetXattr(s.fs, "user.foobar")
 	t.Assert(xattr.IsNotExist(err), Equals, true)
@@ -1398,9 +1400,8 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 
 	names, err = emptyDir2.ListXattr(s.fs)
 	t.Assert(err, IsNil)
-	// https://github.com/andrewgaul/s3proxy/issues/234 means that
-	// s3proxy may or may not return the storage class
-	t.Assert(len(names) == 2 || len(names) == 3, Equals, true)
+	sort.Strings(names)
+	t.Assert(names, DeepEquals, []string{"s3.etag", "s3.storage-class", "user.name"})
 
 	emptyDir, err := s.LookUpInode(t, "empty_dir")
 	t.Assert(err, IsNil)

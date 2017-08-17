@@ -492,6 +492,8 @@ func (inode *Inode) fillXattrFromHead(resp *s3.HeadObjectOutput) {
 	}
 	if resp.StorageClass != nil {
 		inode.s3Metadata["storage-class"] = []byte(*resp.StorageClass)
+	} else {
+		inode.s3Metadata["storage-class"] = []byte("STANDARD")
 	}
 
 	for k, v := range resp.Metadata {
