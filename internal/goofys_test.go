@@ -279,7 +279,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		Uid:          uint32(uid),
 		Gid:          uint32(gid),
 	}
-	s.fs = NewGoofys(bucket, s.awsConfig, flags)
+	s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
 	t.Assert(s.fs, NotNil)
 }
 
@@ -1226,17 +1226,17 @@ func (s *GoofysTest) TestPutMimeType(t *C) {
 }
 
 func (s *GoofysTest) TestBucketPrefixSlash(t *C) {
-	s.fs = NewGoofys(s.fs.bucket+":dir2", s.awsConfig, s.fs.flags)
+	s.fs = NewGoofys(context.Background(), s.fs.bucket+":dir2", s.awsConfig, s.fs.flags)
 	t.Assert(s.fs.prefix, Equals, "dir2/")
 
-	s.fs = NewGoofys(s.fs.bucket+":dir2///", s.awsConfig, s.fs.flags)
+	s.fs = NewGoofys(context.Background(), s.fs.bucket+":dir2///", s.awsConfig, s.fs.flags)
 	t.Assert(s.fs.prefix, Equals, "dir2/")
 }
 
 func (s *GoofysTest) TestFuseWithPrefix(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
-	s.fs = NewGoofys(s.fs.bucket+":testprefix", s.awsConfig, s.fs.flags)
+	s.fs = NewGoofys(context.Background(), s.fs.bucket+":testprefix", s.awsConfig, s.fs.flags)
 
 	s.runFuseTest(t, mountPoint, true, "../test/fuse-test.sh", mountPoint)
 }
@@ -1285,7 +1285,7 @@ func (s *GoofysTest) anonymous(t *C) {
 
 	bucket := s.setupDefaultEnv(t, true)
 
-	s.fs = NewGoofys(bucket, s.awsConfig, s.fs.flags)
+	s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, s.fs.flags)
 	t.Assert(s.fs, NotNil)
 
 	// should have auto-detected within NewGoofys, but doing this here to ensure

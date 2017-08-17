@@ -103,7 +103,7 @@ type Goofys struct {
 
 var s3Log = GetLogger("s3")
 
-func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys {
+func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys {
 	// Set up the basic struct.
 	fs := &Goofys{
 		bucket: bucket,

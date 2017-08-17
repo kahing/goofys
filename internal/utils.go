@@ -16,7 +16,10 @@ package internal
 
 import (
 	"fmt"
+	"time"
 	"unicode"
+
+	"github.com/jacobsa/fuse"
 )
 
 func MaxInt(a, b int) int {
@@ -85,4 +88,16 @@ func Dup(value []byte) []byte {
 	ret := make([]byte, len(value))
 	copy(ret, value)
 	return ret
+}
+
+func TryUnmount(mountPoint string) (err error) {
+	for i := 0; i < 20; i++ {
+		err = fuse.Unmount(mountPoint)
+		if err != nil {
+			time.Sleep(time.Second)
+		} else {
+			break
+		}
+	}
+	return
 }

@@ -16,11 +16,11 @@
 package main
 
 import (
+	goofys "github.com/kahing/goofys/api"
 	. "github.com/kahing/goofys/internal"
 
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
 	"strings"
 	"sync"
@@ -29,17 +29,10 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-
 	"github.com/codegangsta/cli"
-
 	"github.com/jacobsa/fuse"
-	"github.com/jacobsa/fuse/fuseutil"
-
+	"github.com/jinzhu/copier"
 	"github.com/kardianos/osext"
-
-	"github.com/sirupsen/logrus"
 
 	daemon "github.com/sevlyar/go-daemon"
 )
@@ -58,7 +51,7 @@ func registerSIGINTHandler(flags *FlagStorage) {
 			if len(flags.Cache) == 0 {
 				log.Infof("Received %v, attempting to unmount...", s)
 
-				err := tryUnmount(flags.MountPoint)
+				err := TryUnmount(flags.MountPoint)
 				if err != nil {
 					log.Errorf("Failed to unmount in response to %v: %v", s, err)
 				} else {
@@ -102,18 +95,6 @@ func kill(pid int, s os.Signal) (err error) {
 	return
 }
 
-func tryUnmount(mountPoint string) (err error) {
-	for i := 0; i < 20; i++ {
-		err = fuse.Unmount(mountPoint)
-		if err != nil {
-			time.Sleep(time.Second)
-		} else {
-			break
-		}
-	}
-	return
-}
-
 // Mount the file system based on the supplied arguments, returning a
 // fuse.MountedFileSystem that can be joined to wait for unmounting.
 func mount(
@@ -121,104 +102,13 @@ func mount(
 	bucketName string,
 	flags *FlagStorage) (mfs *fuse.MountedFileSystem, err error) {
 
-	awsConfig := &aws.Config{
-		Region: &flags.Region,
-		Logger: GetLogger("s3"),
-		//LogLevel: aws.LogLevel(aws.LogDebug),
-	}
+	// XXX really silly copy here! in goofys.Mount we will copy it
+	// back to FlagStorage. But I don't see a easier way to expose
+	// Config in the api package
+	var config goofys.Config
+	copier.Copy(&config, *flags)
 
-	if len(flags.Profile) > 0 {
-		awsConfig.Credentials = credentials.NewSharedCredentials("", flags.Profile)
-	}
-
-	if len(flags.Endpoint) > 0 {
-		awsConfig.Endpoint = &flags.Endpoint
-	}
-
-	awsConfig.S3ForcePathStyle = aws.Bool(true)
-
-	goofys := NewGoofys(bucketName, awsConfig, flags)
-	if goofys == nil {
-		err = fmt.Errorf("Mount: initialization failed")
-		return
-	}
-	server := fuseutil.NewFileSystemServer(goofys)
-
-	fuseLog := GetLogger("fuse")
-
-	// Mount the file system.
-	mountCfg := &fuse.MountConfig{
-		FSName:                  bucketName,
-		Options:                 flags.MountOptions,
-		ErrorLogger:             GetStdLogger(NewLogger("fuse"), logrus.ErrorLevel),
-		DisableWritebackCaching: true,
-	}
-
-	if flags.DebugFuse {
-		fuseLog.Level = logrus.DebugLevel
-		log.Level = logrus.DebugLevel
-		mountCfg.DebugLogger = GetStdLogger(fuseLog, logrus.DebugLevel)
-	}
-
-	mfs, err = fuse.Mount(flags.MountPoint, server, mountCfg)
-	if err != nil {
-		err = fmt.Errorf("Mount: %v", err)
-		return
-	}
-
-	if len(flags.Cache) != 0 {
-		log.Infof("Starting catfs %v", flags.Cache)
-		catfs := exec.Command("catfs", flags.Cache...)
-		lvl := logrus.InfoLevel
-		if flags.DebugFuse {
-			lvl = logrus.DebugLevel
-			catfs.Env = append(catfs.Env, "RUST_LOG=debug")
-		} else {
-			catfs.Env = append(catfs.Env, "RUST_LOG=info")
-		}
-		catfsLog := GetLogger("catfs")
-		catfsLog.Formatter.(*LogHandle).Lvl = &lvl
-		catfs.Stderr = catfsLog.Writer()
-		err = catfs.Start()
-		if err != nil {
-			err = fmt.Errorf("Failed to start catfs: %v", err)
-
-			// sleep a bit otherwise can't unmount right away
-			time.Sleep(time.Second)
-			err2 := tryUnmount(flags.MountPoint)
-			if err2 != nil {
-				err = fmt.Errorf("%v. Failed to unmount: %v", err, err2)
-			}
-		}
-
-		go func() {
-			err := catfs.Wait()
-			log.Errorf("catfs exited: %v", err)
-
-			if err != nil {
-				// if catfs terminated cleanly, it
-				// should have unmounted this,
-				// otherwise we will do it ourselves
-				err2 := tryUnmount(flags.MountPointArg)
-				if err2 != nil {
-					log.Errorf("Failed to unmount: %v", err2)
-				}
-			}
-
-			if flags.MountPointArg != flags.MountPoint {
-				err2 := tryUnmount(flags.MountPoint)
-				if err2 != nil {
-					log.Errorf("Failed to unmount: %v", err2)
-				}
-			}
-
-			if err != nil {
-				os.Exit(1)
-			}
-		}()
-	}
-
-	return
+	return goofys.Mount(ctx, bucketName, &config)
 }
 
 func massagePath() {

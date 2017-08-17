@@ -17,6 +17,8 @@ package internal
 import (
 	. "gopkg.in/check.v1"
 
+	"golang.org/x/net/context"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -65,7 +67,7 @@ func (s *MinioTest) SetUpTest(t *C) {
 		Gid:          uint32(gid),
 	}
 
-	s.fs = NewGoofys(bucket, s.fs.awsConfig, flags)
+	s.fs = NewGoofys(context.Background(), bucket, s.fs.awsConfig, flags)
 	t.Assert(s.fs, NotNil)
 }
 
