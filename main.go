@@ -224,7 +224,7 @@ func massagePath() {
 
 	// mount -a seems to run goofys without PATH
 	// usually fusermount is in /bin
-	os.Setenv("PATH", "/bin")
+	os.Setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
 }
 
 func massageArg0() {
@@ -239,6 +239,8 @@ var Version string
 
 func main() {
 	VersionHash = Version
+
+	massagePath()
 
 	app := NewApp()
 
@@ -268,8 +270,6 @@ func main() {
 			time.Sleep(time.Second)
 			flags.Cleanup()
 		}()
-
-		massagePath()
 
 		if !flags.Foreground {
 			var wg sync.WaitGroup

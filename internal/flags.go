@@ -390,6 +390,7 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		cache := c.String("cache")
 		cacheArgs := strings.Split(c.String("cache"), ":")
 		cacheDir := cacheArgs[len(cacheArgs)-1]
+		cacheArgs = cacheArgs[:len(cacheArgs)-1]
 
 		fi, err := os.Stat(cacheDir)
 		if err != nil || !fi.IsDir() {
@@ -409,21 +410,16 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 			flags.MountPoint = flags.MountPointCreated
 		}
 
-		cacheArgs = append(cacheArgs, "")
-		cacheArgs[len(cacheArgs)-1] = cacheDir
-		cacheArgs[len(cacheArgs)-2] = flags.MountPoint
-		cacheArgs = append(cacheArgs, flags.MountPointArg)
-
-		cacheArgs = append(cacheArgs, "")
-		copy(cacheArgs[1:], cacheArgs[0:])
-		cacheArgs[0] = "--test"
+		cacheArgs = append(cacheArgs, "--test")
 
 		if flags.MountPointArg == flags.MountPoint {
-			cacheArgs = append(cacheArgs, "", "")
-			copy(cacheArgs[3:], cacheArgs[1:])
-			cacheArgs[1] = "-o"
-			cacheArgs[2] = "nonempty"
+			cacheArgs = append(cacheArgs, "-ononempty")
 		}
+
+		cacheArgs = append(cacheArgs, "--")
+		cacheArgs = append(cacheArgs, flags.MountPoint)
+		cacheArgs = append(cacheArgs, cacheDir)
+		cacheArgs = append(cacheArgs, flags.MountPointArg)
 
 		catfs := exec.Command("catfs", cacheArgs...)
 		_, err = catfs.Output()
