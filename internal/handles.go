@@ -506,8 +506,7 @@ func (inode *Inode) fillXattrFromHead(resp *s3.HeadObjectOutput) {
 
 // LOCKS_REQUIRED(inode.mu)
 func (inode *Inode) fillXattr(fs *Goofys) (err error) {
-	if !inode.ImplicitDir &&
-		(len(inode.s3Metadata) == 0 && inode.userMetadata == nil) {
+	if !inode.ImplicitDir && inode.userMetadata == nil {
 
 		fullName := *inode.FullName
 		if inode.isDir() {
@@ -537,11 +536,6 @@ func (inode *Inode) fillXattr(fs *Goofys) (err error) {
 func (inode *Inode) getXattrMap(fs *Goofys, name string, userOnly bool) (
 	meta map[string][]byte, newName string, err error) {
 
-	err = inode.fillXattr(fs)
-	if err != nil {
-		return nil, "", err
-	}
-
 	if strings.HasPrefix(name, "s3.") {
 		if userOnly {
 			return nil, "", syscall.EACCES
@@ -550,6 +544,11 @@ func (inode *Inode) getXattrMap(fs *Goofys, name string, userOnly bool) (
 		newName = name[3:]
 		meta = inode.s3Metadata
 	} else if strings.HasPrefix(name, "user.") {
+		err = inode.fillXattr(fs)
+		if err != nil {
+			return nil, "", err
+		}
+
 		newName = name[5:]
 		meta = inode.userMetadata
 	} else {

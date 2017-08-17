@@ -857,6 +857,17 @@ func (fs *Goofys) LookUpInodeMaybeDir(parent *Inode, name string, fullName strin
 				inode = NewInode(parent, &name, &fullName, fs.flags)
 				inode.Attributes = &fs.rootAttrs
 				inode.KnownSize = &inode.Attributes.Size
+				if len(resp.Contents) != 0 && *resp.Contents[0].Key == name+"/" {
+					// it's actually a dir blob
+					entry := resp.Contents[0]
+					if entry.ETag != nil {
+						inode.s3Metadata["etag"] = []byte(*entry.ETag)
+					}
+					if entry.StorageClass != nil {
+						inode.s3Metadata["storage-class"] = []byte(*entry.StorageClass)
+					}
+
+				}
 				// if cheap is not on, the dir blob
 				// could exist but this returned first
 				if fs.flags.Cheap {
@@ -1064,6 +1075,12 @@ func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) 
 		path := parent.getChildName(*entry.Name)
 		inode = NewInode(parent, entry.Name, &path, fs.flags)
 		inode.Attributes = entry.Attributes
+		if entry.ETag != nil {
+			inode.s3Metadata["etag"] = []byte(*entry.ETag)
+		}
+		if entry.StorageClass != nil {
+			inode.s3Metadata["storage-class"] = []byte(*entry.StorageClass)
+		}
 		// these are fake dir entries, we will realize the refcnt when
 		// lookup is done
 		inode.refcnt = 0

@@ -1398,7 +1398,9 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 
 	names, err = emptyDir2.ListXattr(s.fs)
 	t.Assert(err, IsNil)
-	t.Assert(names, DeepEquals, []string{"s3.etag", "user.name"})
+	// https://github.com/andrewgaul/s3proxy/issues/234 means that
+	// s3proxy may or may not return the storage class
+	t.Assert(len(names) == 2 || len(names) == 3, Equals, true)
 
 	emptyDir, err := s.LookUpInode(t, "empty_dir")
 	t.Assert(err, IsNil)
@@ -1432,6 +1434,20 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 		t.Assert(err, IsNil)
 		t.Assert(string(value), Equals, "STANDARD_IA")
 	}
+}
+
+func (s *GoofysTest) TestXAttrGetCached(t *C) {
+	s.fs.flags.StatCacheTTL = 1 * time.Minute
+	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+	s.readDirIntoCache(t, fuseops.RootInodeID)
+	s.disableS3()
+
+	in, err := s.LookUpInode(t, "file1")
+	t.Assert(err, IsNil)
+	t.Assert(in.userMetadata, IsNil)
+
+	_, err = in.GetXattr(s.fs, "s3.etag")
+	t.Assert(err, IsNil)
 }
 
 func (s *GoofysTest) TestXAttrCopied(t *C) {
