@@ -1182,7 +1182,7 @@ func (fs *Goofys) ReleaseDirHandle(
 	dh := fs.dirHandles[op.Handle]
 	dh.CloseDir()
 
-	fuseLog.Debugln("ReleaseDirHandle", *dh.inode.FullName)
+	fuseLog.Debugln("ReleaseDirHandle", *dh.inode.FullName())
 
 	delete(fs.dirHandles, op.Handle)
 
@@ -1264,7 +1264,7 @@ func (fs *Goofys) ReleaseFileHandle(
 	fh := fs.fileHandles[op.Handle]
 	fh.Release()
 
-	fuseLog.Debugln("ReleaseFileHandle", *fh.inode.FullName)
+	fuseLog.Debugln("ReleaseFileHandle", *fh.inode.FullName())
 
 	delete(fs.fileHandles, op.Handle)
 
@@ -1437,8 +1437,6 @@ func (fs *Goofys) Rename(
 			defer inode.mu.Unlock()
 
 			parent.removeChildUnlocked(inode)
-			newFullName := newParent.getChildName(op.NewName)
-			inode.FullName = &newFullName
 			inode.Name = &op.NewName
 			inode.Parent = newParent
 			newParent.insertChildUnlocked(inode)

@@ -39,7 +39,6 @@ import (
 type Inode struct {
 	Id          fuseops.InodeID
 	Name        *string
-	FullName    *string
 	flags       *FlagStorage
 	Attributes  *fuseops.InodeAttributes
 	KnownSize   *uint64
@@ -71,7 +70,6 @@ type Inode struct {
 func NewInode(parent *Inode, name *string, fullName *string, flags *FlagStorage) (inode *Inode) {
 	inode = &Inode{
 		Name:        name,
-		FullName:    fullName,
 		flags:       flags,
 		AttrTime:    time.Now(),
 		Parent:      parent,
@@ -157,12 +155,21 @@ func NewFileHandle(in *Inode) *FileHandle {
 	return fh
 }
 
+func (inode *Inode) FullName() *string {
+	if inode.Parent == nil {
+		return inode.Name
+	} else {
+		s := inode.Parent.getChildName(*inode.Name)
+		return &s
+	}
+}
+
 func (inode *Inode) logFuse(op string, args ...interface{}) {
-	fuseLog.Debugln(op, inode.Id, *inode.FullName, args)
+	fuseLog.Debugln(op, inode.Id, inode.FullName(), args)
 }
 
 func (inode *Inode) errFuse(op string, args ...interface{}) {
-	fuseLog.Errorln(op, inode.Id, *inode.FullName, args)
+	fuseLog.Errorln(op, inode.Id, inode.FullName(), args)
 }
 
 func (parent *Inode) findChild(name string) (inode *Inode) {
@@ -229,7 +236,7 @@ func (parent *Inode) removeChildUnlocked(inode *Inode) {
 	i := sort.Search(l, parent.findInodeFunc(*inode.Name, inode.isDir()))
 	if i >= l || *parent.Children[i].Name != *inode.Name {
 		panic(fmt.Sprintf("%v.removeName(%v) but child not found: %v",
-			*parent.FullName, *inode.Name, i))
+			*parent.FullName(), *inode.Name, i))
 	}
 
 	copy(parent.Children[i:], parent.Children[i+1:])
@@ -288,7 +295,7 @@ func (parent *Inode) getChildName(name string) string {
 	if parent.Id == fuseops.RootInodeID {
 		return name
 	} else {
-		return fmt.Sprintf("%v/%v", *parent.FullName, name)
+		return fmt.Sprintf("%v/%v", *parent.FullName(), name)
 	}
 }
 
@@ -510,7 +517,7 @@ func (inode *Inode) fillXattrFromHead(resp *s3.HeadObjectOutput) {
 func (inode *Inode) fillXattr(fs *Goofys) (err error) {
 	if !inode.ImplicitDir && inode.userMetadata == nil {
 
-		fullName := *inode.FullName
+		fullName := *inode.FullName()
 		if inode.isDir() {
 			fullName += "/"
 		}
@@ -579,7 +586,7 @@ func convertMetadata(meta map[string][]byte) (metadata map[string]*string) {
 // LOCKS_REQUIRED(inode.mu)
 func (inode *Inode) updateXattr(fs *Goofys) (err error) {
 	err = fs.copyObjectMaybeMultipart(int64(inode.Attributes.Size),
-		*inode.FullName, *inode.FullName,
+		*inode.FullName(), *inode.FullName(),
 		aws.String(string(inode.s3Metadata["etag"])), convertMetadata(inode.userMetadata))
 	return
 }
@@ -699,13 +706,13 @@ func (fh *FileHandle) initMPU(fs *Goofys) {
 		fh.mpuWG.Done()
 	}()
 
-	fh.mpuKey = fh.inode.FullName
+	fh.mpuKey = fh.inode.FullName()
 
 	params := &s3.CreateMultipartUploadInput{
 		Bucket:       &fs.bucket,
 		Key:          fs.key(*fh.mpuKey),
 		StorageClass: &fs.flags.StorageClass,
-		ContentType:  fs.getMimeType(*fh.inode.FullName),
+		ContentType:  fs.getMimeType(*fh.inode.FullName()),
 	}
 
 	if fs.flags.UseSSE {
@@ -749,7 +756,7 @@ func (fh *FileHandle) mpuPartNoSpawn(fs *Goofys, buf *MBuf, part int) (err error
 
 	params := &s3.UploadPartInput{
 		Bucket:     &fs.bucket,
-		Key:        fs.key(*fh.inode.FullName),
+		Key:        fs.key(*fh.inode.FullName()),
 		PartNumber: aws.Int64(int64(part)),
 		UploadId:   fh.mpuId,
 		Body:       buf,
@@ -896,7 +903,7 @@ func (b S3ReadBuffer) Init(fs *Goofys, fh *FileHandle, offset uint64, size uint3
 	b.buf = Buffer{}.Init(mbuf, func() (io.ReadCloser, error) {
 		params := &s3.GetObjectInput{
 			Bucket: &fs.bucket,
-			Key:    fs.key(*fh.inode.FullName),
+			Key:    fs.key(*fh.inode.FullName()),
 		}
 
 		bytes := fmt.Sprintf("bytes=%v-%v", offset, offset+uint64(size)-1)
@@ -1157,7 +1164,7 @@ func (fh *FileHandle) readFromStream(fs *Goofys, offset int64, buf []byte) (byte
 	if fh.reader == nil {
 		params := &s3.GetObjectInput{
 			Bucket: &fs.bucket,
-			Key:    fs.key(*fh.inode.FullName),
+			Key:    fs.key(*fh.inode.FullName()),
 		}
 
 		if offset != 0 {
@@ -1201,10 +1208,10 @@ func (fh *FileHandle) flushSmallFile(fs *Goofys) (err error) {
 
 	params := &s3.PutObjectInput{
 		Bucket:       &fs.bucket,
-		Key:          fs.key(*fh.inode.FullName),
+		Key:          fs.key(*fh.inode.FullName()),
 		Body:         buf,
 		StorageClass: &fs.flags.StorageClass,
-		ContentType:  fs.getMimeType(*fh.inode.FullName),
+		ContentType:  fs.getMimeType(*fh.inode.FullName()),
 	}
 
 	if fs.flags.UseSSE {
@@ -1259,7 +1266,7 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 				go func() {
 					params := &s3.AbortMultipartUploadInput{
 						Bucket:   &fs.bucket,
-						Key:      fs.key(*fh.inode.FullName),
+						Key:      fs.key(*fh.inode.FullName()),
 						UploadId: fh.mpuId,
 					}
 
@@ -1336,9 +1343,9 @@ func (fh *FileHandle) FlushFile(fs *Goofys) (err error) {
 	s3Log.Debug(resp)
 	fh.mpuId = nil
 
-	if *fh.mpuKey != *fh.inode.FullName {
+	if *fh.mpuKey != *fh.inode.FullName() {
 		// the file was renamed
-		err = renameObject(fs, fh.nextWriteOffset, *fh.mpuKey, *fh.inode.FullName)
+		err = renameObject(fs, fh.nextWriteOffset, *fh.mpuKey, *fh.inode.FullName())
 	}
 
 	return
@@ -1426,7 +1433,7 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 			// 2.1) if I open a/a, a/'s score is now 2
 			// ie: handle the depth first search case
 			if parent.seqOpenDirScore >= 2 {
-				fuseLog.Debugf("%v in readdir mode", *parent.FullName)
+				fuseLog.Debugf("%v in readdir mode", *parent.FullName())
 			}
 		} else if parent.lastOpenDir != nil && parent.lastOpenDirIdx+1 < num &&
 			// we are reading the next one as expected
@@ -1438,13 +1445,13 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 			parent.seqOpenDirScore++
 			parent.lastOpenDirIdx += 1
 			if parent.seqOpenDirScore == 2 {
-				fuseLog.Debugf("%v in readdir mode", *parent.FullName)
+				fuseLog.Debugf("%v in readdir mode", *parent.FullName())
 			}
 		} else {
 			parent.seqOpenDirScore = 0
 			parent.lastOpenDirIdx = parent.findChildIdxUnlocked(*inode.Name)
 			if parent.lastOpenDirIdx == -1 {
-				panic(fmt.Sprintf("%v is not under %v", *inode.Name, *parent.FullName))
+				panic(fmt.Sprintf("%v is not under %v", *inode.Name, *parent.FullName()))
 			}
 		}
 
@@ -1457,7 +1464,7 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 			// so make a/'s count at 1 too
 			inode.seqOpenDirScore = parent.seqOpenDirScore
 			if inode.seqOpenDirScore >= 2 {
-				fuseLog.Debugf("%v in readdir mode", *inode.FullName)
+				fuseLog.Debugf("%v in readdir mode", *inode.FullName())
 			}
 		}
 	}
@@ -1507,11 +1514,11 @@ func (dh *DirHandle) listObjectsSlurp(fs *Goofys, prefix string) (resp *s3.ListO
 	inode := dh.inode
 	if dh.inode.Parent != nil {
 		inode = dh.inode.Parent
-		reqPrefix = *fs.key(*inode.FullName)
-		if len(*inode.FullName) != 0 {
+		reqPrefix = *fs.key(*inode.FullName())
+		if len(*inode.FullName()) != 0 {
 			reqPrefix += "/"
 		}
-		marker = fs.key(*dh.inode.FullName + "/")
+		marker = fs.key(*dh.inode.FullName() + "/")
 	}
 
 	params := &s3.ListObjectsInput{
@@ -1793,8 +1800,8 @@ func (dh *DirHandle) ReadDir(fs *Goofys, offset fuseops.DirOffset) (en *DirHandl
 		// try not to hold the lock when we make the request
 		dh.mu.Unlock()
 
-		prefix := *fs.key(*dh.inode.FullName)
-		if len(*dh.inode.FullName) != 0 {
+		prefix := *fs.key(*dh.inode.FullName())
+		if len(*dh.inode.FullName()) != 0 {
 			prefix += "/"
 		}
 

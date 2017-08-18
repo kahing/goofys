@@ -720,7 +720,7 @@ func (s *GoofysTest) TestMkDir(t *C) {
 	dirName := "new_dir"
 	inode, err := s.getRoot(t).MkDir(s.fs, dirName)
 	t.Assert(err, IsNil)
-	t.Assert(*inode.FullName, Equals, dirName)
+	t.Assert(*inode.FullName(), Equals, dirName)
 
 	_, err = s.LookUpInode(t, dirName)
 	t.Assert(err, IsNil)
