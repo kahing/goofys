@@ -1612,18 +1612,18 @@ func (s *GoofysTest) TestInodeInsert(t *C) {
 	root := s.getRoot(t)
 
 	in := NewInode(root, aws.String("2"), aws.String("2"), s.fs.flags)
-	in.Attributes = &fuseops.InodeAttributes{}
+	in.Attributes = &InodeAttributes{}
 	root.insertChild(in)
 	t.Assert(*root.Children[0].Name, Equals, "2")
 
 	in = NewInode(root, aws.String("1"), aws.String("1"), s.fs.flags)
-	in.Attributes = &fuseops.InodeAttributes{}
+	in.Attributes = &InodeAttributes{}
 	root.insertChild(in)
 	t.Assert(*root.Children[0].Name, Equals, "1")
 	t.Assert(*root.Children[1].Name, Equals, "2")
 
 	in = NewInode(root, aws.String("4"), aws.String("4"), s.fs.flags)
-	in.Attributes = &fuseops.InodeAttributes{}
+	in.Attributes = &InodeAttributes{}
 	root.insertChild(in)
 	t.Assert(*root.Children[0].Name, Equals, "1")
 	t.Assert(*root.Children[1].Name, Equals, "2")

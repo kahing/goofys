@@ -34,11 +34,17 @@ import (
 	"github.com/jacobsa/fuse/fuseutil"
 )
 
+type InodeAttributes struct {
+	Size  uint64
+	Mtime time.Time
+	IsDir bool
+}
+
 type Inode struct {
 	Id          fuseops.InodeID
 	Name        *string
 	flags       *FlagStorage
-	Attributes  *fuseops.InodeAttributes
+	Attributes  *InodeAttributes
 	KnownSize   *uint64
 	Invalid     bool
 	ImplicitDir bool
@@ -85,17 +91,19 @@ type DirHandleEntry struct {
 	Type   fuseutil.DirentType
 	Offset fuseops.DirOffset
 
-	Attributes   *fuseops.InodeAttributes // XXX use a smaller struct
+	Attributes   *InodeAttributes
 	ETag         *string
 	StorageClass *string
 }
 
+/*
 func (entry DirHandleEntry) Init(name *string, t fuseutil.DirentType, attr *fuseops.InodeAttributes) *DirHandleEntry {
 	entry.Name = name
 	entry.Attributes = attr
 	entry.Type = t
 	return &entry
 }
+*/
 
 type DirHandle struct {
 	inode *Inode
@@ -156,6 +164,27 @@ func (inode *Inode) FullName() *string {
 		s := inode.Parent.getChildName(*inode.Name)
 		return &s
 	}
+}
+
+func (inode *Inode) InflateAttributes() (attr fuseops.InodeAttributes) {
+	attr = fuseops.InodeAttributes{
+		Size:   inode.Attributes.Size,
+		Atime:  inode.Attributes.Mtime,
+		Mtime:  inode.Attributes.Mtime,
+		Ctime:  inode.Attributes.Mtime,
+		Crtime: inode.Attributes.Mtime,
+		Uid:    inode.flags.Uid,
+		Gid:    inode.flags.Gid,
+	}
+
+	if inode.isDir() {
+		attr.Nlink = 2
+		attr.Mode = inode.flags.DirMode | os.ModeDir
+	} else {
+		attr.Nlink = 1
+		attr.Mode = inode.flags.FileMode
+	}
+	return
 }
 
 func (inode *Inode) logFuse(op string, args ...interface{}) {
@@ -350,16 +379,10 @@ func (parent *Inode) Create(
 
 	now := time.Now()
 	inode = NewInode(parent, &name, &fullName, parent.flags)
-	inode.Attributes = &fuseops.InodeAttributes{
-		Size:   0,
-		Nlink:  1,
-		Mode:   fs.flags.FileMode,
-		Atime:  now,
-		Mtime:  now,
-		Ctime:  now,
-		Crtime: now,
-		Uid:    fs.flags.Uid,
-		Gid:    fs.flags.Gid,
+	inode.Attributes = &InodeAttributes{
+		Size:  0,
+		Mtime: now,
+		IsDir: false,
 	}
 
 	fh = NewFileHandle(inode)
@@ -477,11 +500,12 @@ func (inode *Inode) GetAttributes(fs *Goofys) (*fuseops.InodeAttributes, error) 
 	if inode.Invalid {
 		return nil, fuse.ENOENT
 	}
-	return inode.Attributes, nil
+	attr := inode.InflateAttributes()
+	return &attr, nil
 }
 
 func (inode *Inode) isDir() bool {
-	return inode.Attributes.Mode&os.ModeDir != 0
+	return inode.Attributes.IsDir
 }
 
 // LOCKS_REQUIRED(inode.mu)
@@ -1726,16 +1750,10 @@ func objectToDirEntry(fs *Goofys, obj *s3.Object, name string, isDir bool) (en *
 		en = &DirHandleEntry{
 			Name: &name,
 			Type: fuseutil.DT_File,
-			Attributes: &fuseops.InodeAttributes{
-				Size:   uint64(*obj.Size),
-				Nlink:  1,
-				Mode:   fs.flags.FileMode,
-				Atime:  *obj.LastModified,
-				Mtime:  *obj.LastModified,
-				Ctime:  *obj.LastModified,
-				Crtime: *obj.LastModified,
-				Uid:    fs.flags.Uid,
-				Gid:    fs.flags.Gid,
+			Attributes: &InodeAttributes{
+				Size:  uint64(*obj.Size),
+				Mtime: *obj.LastModified,
+				IsDir: false,
 			},
 			ETag:         obj.ETag,
 			StorageClass: obj.StorageClass,

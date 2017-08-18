@@ -20,7 +20,6 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -67,7 +66,7 @@ type Goofys struct {
 	s3        *s3.S3
 	v2Signer  bool
 	sseType   string
-	rootAttrs fuseops.InodeAttributes
+	rootAttrs InodeAttributes
 
 	bufferPool *BufferPool
 
@@ -185,16 +184,10 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 	}
 
 	now := time.Now()
-	fs.rootAttrs = fuseops.InodeAttributes{
-		Size:   4096,
-		Nlink:  2,
-		Mode:   flags.DirMode | os.ModeDir,
-		Atime:  now,
-		Mtime:  now,
-		Ctime:  now,
-		Crtime: now,
-		Uid:    fs.flags.Uid,
-		Gid:    fs.flags.Gid,
+	fs.rootAttrs = InodeAttributes{
+		Size:  4096,
+		Mtime: now,
+		IsDir: true,
 	}
 
 	fs.bufferPool = BufferPool{}.Init()
@@ -828,16 +821,10 @@ func (fs *Goofys) LookUpInodeMaybeDir(parent *Inode, name string, fullName strin
 			err = nil
 			// XXX/TODO if both object and object/ exists, return dir
 			inode = NewInode(parent, &name, &fullName, fs.flags)
-			inode.Attributes = &fuseops.InodeAttributes{
-				Size:   uint64(aws.Int64Value(resp.ContentLength)),
-				Nlink:  1,
-				Mode:   fs.flags.FileMode,
-				Atime:  *resp.LastModified,
-				Mtime:  *resp.LastModified,
-				Ctime:  *resp.LastModified,
-				Crtime: *resp.LastModified,
-				Uid:    fs.flags.Uid,
-				Gid:    fs.flags.Gid,
+			inode.Attributes = &InodeAttributes{
+				Size:  uint64(aws.Int64Value(resp.ContentLength)),
+				Mtime: *resp.LastModified,
+				IsDir: false,
 			}
 
 			// don't want to point to the attribute because that
@@ -1006,7 +993,7 @@ func (fs *Goofys) LookUpInode(
 	}
 
 	op.Entry.Child = inode.Id
-	op.Entry.Attributes = *inode.Attributes
+	op.Entry.Attributes = inode.InflateAttributes()
 	op.Entry.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
 	op.Entry.EntryExpiration = time.Now().Add(fs.flags.TypeCacheTTL)
 
@@ -1100,10 +1087,7 @@ func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) 
 			inode.s3Metadata["storage-class"] = []byte(*entry.StorageClass)
 		}
 		inode.KnownSize = &entry.Attributes.Size
-		inode.Attributes.Atime = entry.Attributes.Atime
 		inode.Attributes.Mtime = entry.Attributes.Mtime
-		inode.Attributes.Ctime = entry.Attributes.Ctime
-		inode.Attributes.Crtime = entry.Attributes.Crtime
 		inode.AttrTime = time.Now()
 	}
 	return
@@ -1289,7 +1273,7 @@ func (fs *Goofys) CreateFile(
 	fs.insertInode(parent, inode)
 
 	op.Entry.Child = inode.Id
-	op.Entry.Attributes = *inode.Attributes
+	op.Entry.Attributes = inode.InflateAttributes()
 	op.Entry.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
 	op.Entry.EntryExpiration = time.Now().Add(fs.flags.TypeCacheTTL)
 
@@ -1326,7 +1310,7 @@ func (fs *Goofys) MkDir(
 	fs.insertInode(parent, inode)
 
 	op.Entry.Child = inode.Id
-	op.Entry.Attributes = *inode.Attributes
+	op.Entry.Attributes = inode.InflateAttributes()
 	op.Entry.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
 	op.Entry.EntryExpiration = time.Now().Add(fs.flags.TypeCacheTTL)
 
