@@ -938,7 +938,7 @@ func (fs *Goofys) LookUpInode(
 
 		if expired(inode.AttrTime, fs.flags.StatCacheTTL) {
 			ok = false
-			if len(inode.fileHandles) != 0 {
+			if inode.fileHandles != 0 {
 				// we have an open file handle, object
 				// in S3 may not represent the true
 				// state of the file anyway, so just
@@ -1409,7 +1409,7 @@ func (fs *Goofys) Rename(
 			// flushed it yet, pretend that's ok because
 			// when we flush we will handle the rename
 			inode := parent.findChildUnlocked(op.OldName, false)
-			if len(inode.fileHandles) != 0 {
+			if inode.fileHandles != 0 {
 				err = nil
 			}
 		}

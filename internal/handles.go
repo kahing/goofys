@@ -64,7 +64,7 @@ type Inode struct {
 	userMetadata map[string][]byte
 	s3Metadata   map[string][]byte
 
-	fileHandles map[*FileHandle]bool
+	fileHandles uint32
 
 	// the refcnt is an exception, it's protected by the global lock
 	// Goofys.mu
@@ -73,13 +73,12 @@ type Inode struct {
 
 func NewInode(parent *Inode, name *string, fullName *string, flags *FlagStorage) (inode *Inode) {
 	inode = &Inode{
-		Name:        name,
-		flags:       flags,
-		AttrTime:    time.Now(),
-		Parent:      parent,
-		s3Metadata:  make(map[string][]byte),
-		fileHandles: make(map[*FileHandle]bool),
-		refcnt:      1,
+		Name:       name,
+		flags:      flags,
+		AttrTime:   time.Now(),
+		Parent:     parent,
+		s3Metadata: make(map[string][]byte),
+		refcnt:     1,
 	}
 
 	return
@@ -389,7 +388,7 @@ func (parent *Inode) Create(
 	fh.poolHandle = fs.bufferPool
 	fh.buf = MBuf{}.Init(fh.poolHandle, 0, true)
 	fh.dirty = true
-	inode.fileHandles[fh] = true
+	inode.fileHandles = 1
 
 	return
 }
@@ -708,7 +707,7 @@ func (inode *Inode) OpenFile(fs *Goofys) *FileHandle {
 	defer inode.mu.Unlock()
 
 	fh := NewFileHandle(inode)
-	inode.fileHandles[fh] = true
+	inode.fileHandles += 1
 	return fh
 }
 
@@ -1164,7 +1163,11 @@ func (fh *FileHandle) Release() {
 	fh.inode.mu.Lock()
 	defer fh.inode.mu.Unlock()
 
-	delete(fh.inode.fileHandles, fh)
+	if fh.inode.fileHandles == 0 {
+		panic(fh.inode.fileHandles)
+	}
+
+	fh.inode.fileHandles -= 1
 }
 
 func (fh *FileHandle) readFromStream(fs *Goofys, offset int64, buf []byte) (bytesRead int, err error) {
