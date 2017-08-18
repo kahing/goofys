@@ -37,7 +37,6 @@ import (
 type InodeAttributes struct {
 	Size  uint64
 	Mtime time.Time
-	IsDir bool
 }
 
 type Inode struct {
@@ -46,18 +45,13 @@ type Inode struct {
 	flags      *FlagStorage
 	Attributes *InodeAttributes
 	KnownSize  *uint64
-	DirTime    time.Time
 	AttrTime   time.Time
 
 	mu sync.Mutex // everything below is protected by mu
 
-	Parent   *Inode
-	Children []*Inode
+	Parent *Inode
 
-	// these 2 refer to readdir of the Children
-	lastOpenDir     *string
-	lastOpenDirIdx  int
-	seqOpenDirScore uint8
+	dir *DirInodeData
 
 	Invalid     bool
 	ImplicitDir bool
@@ -85,6 +79,16 @@ func NewInode(parent *Inode, name *string, fullName *string, flags *FlagStorage)
 	return
 }
 
+type DirInodeData struct {
+	// these 2 refer to readdir of the Children
+	lastOpenDir     *string
+	lastOpenDirIdx  int
+	seqOpenDirScore uint8
+	DirTime         time.Time
+
+	Children []*Inode
+}
+
 type DirHandleEntry struct {
 	Name   *string
 	Inode  fuseops.InodeID
@@ -95,15 +99,6 @@ type DirHandleEntry struct {
 	ETag         *string
 	StorageClass *string
 }
-
-/*
-func (entry DirHandleEntry) Init(name *string, t fuseutil.DirentType, attr *fuseops.InodeAttributes) *DirHandleEntry {
-	entry.Name = name
-	entry.Attributes = attr
-	entry.Type = t
-	return &entry
-}
-*/
 
 type DirHandle struct {
 	inode *Inode
@@ -177,7 +172,7 @@ func (inode *Inode) InflateAttributes() (attr fuseops.InodeAttributes) {
 		Gid:    inode.flags.Gid,
 	}
 
-	if inode.isDir() {
+	if inode.dir != nil {
 		attr.Nlink = 2
 		attr.Mode = inode.flags.DirMode | os.ModeDir
 	} else {
@@ -195,6 +190,12 @@ func (inode *Inode) errFuse(op string, args ...interface{}) {
 	fuseLog.Errorln(op, inode.Id, inode.FullName(), args)
 }
 
+func (inode *Inode) ToDir(fs *Goofys) {
+	inode.Attributes = &fs.rootAttrs
+	inode.dir = &DirInodeData{}
+	inode.KnownSize = &fs.rootAttrs.Size
+}
+
 func (parent *Inode) findChild(name string) (inode *Inode) {
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
@@ -206,10 +207,10 @@ func (parent *Inode) findChild(name string) (inode *Inode) {
 func (parent *Inode) findInodeFunc(name string, isDir bool) func(i int) bool {
 	// sort dirs first, then by name
 	return func(i int) bool {
-		if parent.Children[i].isDir() != isDir {
+		if parent.dir.Children[i].isDir() != isDir {
 			return isDir
 		}
-		return (*parent.Children[i].Name) >= name
+		return (*parent.dir.Children[i].Name) >= name
 	}
 }
 
@@ -222,29 +223,29 @@ func (parent *Inode) findChildUnlockedFull(name string) (inode *Inode) {
 }
 
 func (parent *Inode) findChildUnlocked(name string, isDir bool) (inode *Inode) {
-	l := len(parent.Children)
+	l := len(parent.dir.Children)
 	if l == 0 {
 		return
 	}
 	i := sort.Search(l, parent.findInodeFunc(name, isDir))
 	if i < l {
 		// found
-		if *parent.Children[i].Name == name {
-			inode = parent.Children[i]
+		if *parent.dir.Children[i].Name == name {
+			inode = parent.dir.Children[i]
 		}
 	}
 	return
 }
 
 func (parent *Inode) findChildIdxUnlocked(name string) int {
-	l := len(parent.Children)
+	l := len(parent.dir.Children)
 	if l == 0 {
 		return -1
 	}
 	i := sort.Search(l, parent.findInodeFunc(name, true))
 	if i < l {
 		// found
-		if *parent.Children[i].Name == name {
+		if *parent.dir.Children[i].Name == name {
 			return i
 		}
 	}
@@ -252,18 +253,18 @@ func (parent *Inode) findChildIdxUnlocked(name string) int {
 }
 
 func (parent *Inode) removeChildUnlocked(inode *Inode) {
-	l := len(parent.Children)
+	l := len(parent.dir.Children)
 	if l == 0 {
 		return
 	}
 	i := sort.Search(l, parent.findInodeFunc(*inode.Name, inode.isDir()))
-	if i >= l || *parent.Children[i].Name != *inode.Name {
+	if i >= l || *parent.dir.Children[i].Name != *inode.Name {
 		panic(fmt.Sprintf("%v.removeName(%v) but child not found: %v",
 			*parent.FullName(), *inode.Name, i))
 	}
 
-	copy(parent.Children[i:], parent.Children[i+1:])
-	parent.Children = parent.Children[:l-1]
+	copy(parent.dir.Children[i:], parent.dir.Children[i+1:])
+	parent.dir.Children = parent.dir.Children[:l-1]
 }
 
 func (parent *Inode) removeChild(inode *Inode) {
@@ -282,24 +283,24 @@ func (parent *Inode) insertChild(inode *Inode) {
 }
 
 func (parent *Inode) insertChildUnlocked(inode *Inode) {
-	l := len(parent.Children)
+	l := len(parent.dir.Children)
 	if l == 0 {
-		parent.Children = []*Inode{inode}
+		parent.dir.Children = []*Inode{inode}
 		return
 	}
 
 	i := sort.Search(l, parent.findInodeFunc(*inode.Name, inode.isDir()))
 	if i == l {
 		// not found = new value is the biggest
-		parent.Children = append(parent.Children, inode)
+		parent.dir.Children = append(parent.dir.Children, inode)
 	} else {
-		if *parent.Children[i].Name == *inode.Name {
+		if *parent.dir.Children[i].Name == *inode.Name {
 			panic(fmt.Sprintf("double insert of %v", parent.getChildName(*inode.Name)))
 		}
 
-		parent.Children = append(parent.Children, nil)
-		copy(parent.Children[i+1:], parent.Children[i:])
-		parent.Children[i] = inode
+		parent.dir.Children = append(parent.dir.Children, nil)
+		copy(parent.dir.Children[i+1:], parent.dir.Children[i:])
+		parent.dir.Children[i] = inode
 	}
 }
 
@@ -382,7 +383,6 @@ func (parent *Inode) Create(
 	inode.Attributes = &InodeAttributes{
 		Size:  0,
 		Mtime: now,
-		IsDir: false,
 	}
 
 	fh = NewFileHandle(inode)
@@ -425,8 +425,7 @@ func (parent *Inode) MkDir(
 	defer parent.mu.Unlock()
 
 	inode = NewInode(parent, &name, &fullName, parent.flags)
-	inode.Attributes = &fs.rootAttrs
-	inode.KnownSize = &inode.Attributes.Size
+	inode.ToDir(fs)
 
 	return
 }
@@ -505,7 +504,7 @@ func (inode *Inode) GetAttributes(fs *Goofys) (*fuseops.InodeAttributes, error) 
 }
 
 func (inode *Inode) isDir() bool {
-	return inode.Attributes.IsDir
+	return inode.dir != nil
 }
 
 // LOCKS_REQUIRED(inode.mu)
@@ -1448,48 +1447,48 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 		parent.mu.Lock()
 		defer parent.mu.Unlock()
 
-		num := len(parent.Children)
+		num := len(parent.dir.Children)
 
-		if parent.lastOpenDir == nil && num > 0 && *parent.Children[0].Name == *inode.Name {
-			if parent.seqOpenDirScore < 255 {
-				parent.seqOpenDirScore += 1
+		if parent.dir.lastOpenDir == nil && num > 0 && *parent.dir.Children[0].Name == *inode.Name {
+			if parent.dir.seqOpenDirScore < 255 {
+				parent.dir.seqOpenDirScore += 1
 			}
 			// 2.1) if I open a/a, a/'s score is now 2
 			// ie: handle the depth first search case
-			if parent.seqOpenDirScore >= 2 {
+			if parent.dir.seqOpenDirScore >= 2 {
 				fuseLog.Debugf("%v in readdir mode", *parent.FullName())
 			}
-		} else if parent.lastOpenDir != nil && parent.lastOpenDirIdx+1 < num &&
+		} else if parent.dir.lastOpenDir != nil && parent.dir.lastOpenDirIdx+1 < num &&
 			// we are reading the next one as expected
-			*parent.Children[parent.lastOpenDirIdx+1].Name == *inode.Name &&
+			*parent.dir.Children[parent.dir.lastOpenDirIdx+1].Name == *inode.Name &&
 			// check that inode positions haven't moved
-			*parent.Children[parent.lastOpenDirIdx].Name == *parent.lastOpenDir {
+			*parent.dir.Children[parent.dir.lastOpenDirIdx].Name == *parent.dir.lastOpenDir {
 			// 2.2) if I open b/, root's score is now 2
 			// ie: handle the breath first search case
-			if parent.seqOpenDirScore < 255 {
-				parent.seqOpenDirScore++
+			if parent.dir.seqOpenDirScore < 255 {
+				parent.dir.seqOpenDirScore++
 			}
-			parent.lastOpenDirIdx += 1
-			if parent.seqOpenDirScore == 2 {
+			parent.dir.lastOpenDirIdx += 1
+			if parent.dir.seqOpenDirScore == 2 {
 				fuseLog.Debugf("%v in readdir mode", *parent.FullName())
 			}
 		} else {
-			parent.seqOpenDirScore = 0
-			parent.lastOpenDirIdx = parent.findChildIdxUnlocked(*inode.Name)
-			if parent.lastOpenDirIdx == -1 {
+			parent.dir.seqOpenDirScore = 0
+			parent.dir.lastOpenDirIdx = parent.findChildIdxUnlocked(*inode.Name)
+			if parent.dir.lastOpenDirIdx == -1 {
 				panic(fmt.Sprintf("%v is not under %v", *inode.Name, *parent.FullName()))
 			}
 		}
 
-		parent.lastOpenDir = inode.Name
+		parent.dir.lastOpenDir = inode.Name
 		inode.mu.Lock()
 		defer inode.mu.Unlock()
 
-		if inode.lastOpenDir == nil {
+		if inode.dir.lastOpenDir == nil {
 			// 1) if I open a/, root's score = 1 (a is the first dir),
 			// so make a/'s count at 1 too
-			inode.seqOpenDirScore = parent.seqOpenDirScore
-			if inode.seqOpenDirScore >= 2 {
+			inode.dir.seqOpenDirScore = parent.dir.seqOpenDirScore
+			if inode.dir.seqOpenDirScore >= 2 {
 				fuseLog.Debugf("%v in readdir mode", *inode.FullName())
 			}
 		}
@@ -1510,13 +1509,13 @@ func (inode *Inode) readDirFromCache(fs *Goofys, offset fuseops.DirOffset) (en *
 	inode.mu.Lock()
 	defer inode.mu.Unlock()
 
-	if !expired(inode.DirTime, fs.flags.TypeCacheTTL) {
+	if !expired(inode.dir.DirTime, fs.flags.TypeCacheTTL) {
 		ok = true
 
-		if int(offset) >= len(inode.Children) {
+		if int(offset) >= len(inode.dir.Children) {
 			return
 		}
-		child := inode.Children[offset]
+		child := inode.dir.Children[offset]
 
 		en = &DirHandleEntry{
 			Name:       child.Name,
@@ -1582,7 +1581,7 @@ func (dh *DirHandle) listObjectsSlurp(fs *Goofys, prefix string) (resp *s3.ListO
 		}
 
 		if sealed || !*resp.IsTruncated {
-			d.DirTime = time.Now()
+			d.dir.DirTime = time.Now()
 		}
 	}
 
@@ -1624,7 +1623,7 @@ func (dh *DirHandle) listObjects(fs *Goofys, prefix string) (resp *s3.ListObject
 	// multiple directories
 	if dh.Marker == nil &&
 		fs.flags.TypeCacheTTL != 0 &&
-		(dh.inode.Parent != nil && dh.inode.Parent.seqOpenDirScore >= 2) {
+		(dh.inode.Parent != nil && dh.inode.Parent.dir.seqOpenDirScore >= 2) {
 		go func() {
 			resp, err := dh.listObjectsSlurp(fs, prefix)
 			if err != nil {
@@ -1761,7 +1760,6 @@ func objectToDirEntry(fs *Goofys, obj *s3.Object, name string, isDir bool) (en *
 			Attributes: &InodeAttributes{
 				Size:  uint64(*obj.Size),
 				Mtime: *obj.LastModified,
-				IsDir: false,
 			},
 			ETag:         obj.ETag,
 			StorageClass: obj.StorageClass,

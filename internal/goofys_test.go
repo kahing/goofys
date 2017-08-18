@@ -1614,20 +1614,20 @@ func (s *GoofysTest) TestInodeInsert(t *C) {
 	in := NewInode(root, aws.String("2"), aws.String("2"), s.fs.flags)
 	in.Attributes = &InodeAttributes{}
 	root.insertChild(in)
-	t.Assert(*root.Children[0].Name, Equals, "2")
+	t.Assert(*root.dir.Children[0].Name, Equals, "2")
 
 	in = NewInode(root, aws.String("1"), aws.String("1"), s.fs.flags)
 	in.Attributes = &InodeAttributes{}
 	root.insertChild(in)
-	t.Assert(*root.Children[0].Name, Equals, "1")
-	t.Assert(*root.Children[1].Name, Equals, "2")
+	t.Assert(*root.dir.Children[0].Name, Equals, "1")
+	t.Assert(*root.dir.Children[1].Name, Equals, "2")
 
 	in = NewInode(root, aws.String("4"), aws.String("4"), s.fs.flags)
 	in.Attributes = &InodeAttributes{}
 	root.insertChild(in)
-	t.Assert(*root.Children[0].Name, Equals, "1")
-	t.Assert(*root.Children[1].Name, Equals, "2")
-	t.Assert(*root.Children[2].Name, Equals, "4")
+	t.Assert(*root.dir.Children[0].Name, Equals, "1")
+	t.Assert(*root.dir.Children[1].Name, Equals, "2")
+	t.Assert(*root.dir.Children[2].Name, Equals, "4")
 
 	inode := root.findChild("1")
 	t.Assert(inode, NotNil)
@@ -1647,16 +1647,16 @@ func (s *GoofysTest) TestInodeInsert(t *C) {
 	inode = root.findChild("3")
 	t.Assert(inode, IsNil)
 
-	root.removeChild(root.Children[1])
-	root.removeChild(root.Children[0])
-	root.removeChild(root.Children[0])
-	t.Assert(len(root.Children), Equals, 0)
+	root.removeChild(root.dir.Children[1])
+	root.removeChild(root.dir.Children[0])
+	root.removeChild(root.dir.Children[0])
+	t.Assert(len(root.dir.Children), Equals, 0)
 }
 
 func (s *GoofysTest) TestReadDirSlurpSubtree(t *C) {
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 
-	s.getRoot(t).seqOpenDirScore = 2
+	s.getRoot(t).dir.seqOpenDirScore = 2
 	in, err := s.LookUpInode(t, "dir2")
 	t.Assert(err, IsNil)
 
@@ -1675,7 +1675,7 @@ func (s *GoofysTest) TestReadDirCached(t *C) {
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 
-	s.getRoot(t).seqOpenDirScore = 2
+	s.getRoot(t).dir.seqOpenDirScore = 2
 	s.readDirIntoCache(t, fuseops.RootInodeID)
 	s.disableS3()
 
@@ -1701,7 +1701,7 @@ func (s *GoofysTest) TestReadDirCached(t *C) {
 }
 
 func (s *GoofysTest) TestReadDirLookUp(t *C) {
-	s.getRoot(t).seqOpenDirScore = 2
+	s.getRoot(t).dir.seqOpenDirScore = 2
 	for i := 0; i < 10; i++ {
 		go s.readDirIntoCache(t, fuseops.RootInodeID)
 		go func() {

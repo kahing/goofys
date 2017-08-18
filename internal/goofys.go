@@ -187,7 +187,6 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 	fs.rootAttrs = InodeAttributes{
 		Size:  4096,
 		Mtime: now,
-		IsDir: true,
 	}
 
 	fs.bufferPool = BufferPool{}.Init()
@@ -196,8 +195,7 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 	fs.inodes = make(map[fuseops.InodeID]*Inode)
 	root := NewInode(nil, aws.String(""), aws.String(""), flags)
 	root.Id = fuseops.RootInodeID
-	root.Attributes = &fs.rootAttrs
-	root.KnownSize = &fs.rootAttrs.Size
+	root.ToDir(fs)
 
 	fs.inodes[fuseops.RootInodeID] = root
 
@@ -824,7 +822,6 @@ func (fs *Goofys) LookUpInodeMaybeDir(parent *Inode, name string, fullName strin
 			inode.Attributes = &InodeAttributes{
 				Size:  uint64(aws.Int64Value(resp.ContentLength)),
 				Mtime: *resp.LastModified,
-				IsDir: false,
 			}
 
 			// don't want to point to the attribute because that
@@ -842,8 +839,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(parent *Inode, name string, fullName strin
 			err = nil
 			if len(resp.CommonPrefixes) != 0 || len(resp.Contents) != 0 {
 				inode = NewInode(parent, &name, &fullName, fs.flags)
-				inode.Attributes = &fs.rootAttrs
-				inode.KnownSize = &inode.Attributes.Size
+				inode.ToDir(fs)
 				if len(resp.Contents) != 0 && *resp.Contents[0].Key == name+"/" {
 					// it's actually a dir blob
 					entry := resp.Contents[0]
@@ -872,8 +868,7 @@ func (fs *Goofys) LookUpInodeMaybeDir(parent *Inode, name string, fullName strin
 		case resp := <-dirBlobChan:
 			err = nil
 			inode = NewInode(parent, &name, &fullName, fs.flags)
-			inode.Attributes = &fs.rootAttrs
-			inode.KnownSize = &inode.Attributes.Size
+			inode.ToDir(fs)
 			inode.fillXattrFromHead(&resp)
 			return
 		case err = <-errDirBlobChan:
@@ -1061,7 +1056,11 @@ func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) 
 	if inode == nil {
 		path := parent.getChildName(*entry.Name)
 		inode = NewInode(parent, entry.Name, &path, fs.flags)
-		inode.Attributes = entry.Attributes
+		if entry.Type == fuseutil.DT_Directory {
+			inode.ToDir(fs)
+		} else {
+			inode.Attributes = entry.Attributes
+		}
 		if entry.ETag != nil {
 			inode.s3Metadata["etag"] = []byte(*entry.ETag)
 		}
@@ -1133,7 +1132,7 @@ func (fs *Goofys) ReadDir(
 			// we've reached the end, if this was read
 			// from S3 then update the cache time
 			if readFromS3 {
-				inode.DirTime = time.Now()
+				inode.dir.DirTime = time.Now()
 			}
 			break
 		}
