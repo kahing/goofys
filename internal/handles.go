@@ -41,21 +41,23 @@ type Inode struct {
 	Attributes  *fuseops.InodeAttributes
 	KnownSize   *uint64
 	Invalid     bool
-	AttrTime    time.Time
 	ImplicitDir bool
 	DirTime     time.Time
+	AttrTime    time.Time
+
+	mu sync.Mutex // everything below is protected by mu
+
+	Parent   *Inode
+	Children []*Inode
+
 	// these 2 refer to readdir of the Children
 	lastOpenDirIdx  int
 	lastOpenDir     *string
 	seqOpenDirScore uint32
 
-	Parent   *Inode
-	Children []*Inode
-
 	userMetadata map[string][]byte
 	s3Metadata   map[string][]byte
 
-	mu          sync.Mutex // everything below is protected by mu
 	fileHandles map[*FileHandle]bool
 
 	// the refcnt is an exception, it's protected by the global lock
