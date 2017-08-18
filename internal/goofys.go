@@ -193,9 +193,9 @@ func NewGoofys(bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys
 
 	fs.nextInodeID = fuseops.RootInodeID + 1
 	fs.inodes = make(map[fuseops.InodeID]*Inode)
-	root := NewInode(nil, aws.String(""), aws.String(""), flags)
+	root := NewInode(fs, nil, aws.String(""), aws.String(""))
 	root.Id = fuseops.RootInodeID
-	root.ToDir(fs)
+	root.ToDir()
 
 	fs.inodes[fuseops.RootInodeID] = root
 
@@ -434,7 +434,7 @@ func (fs *Goofys) GetInodeAttributes(
 	inode := fs.getInodeOrDie(op.Inode)
 	fs.mu.Unlock()
 
-	attr, err := inode.GetAttributes(fs)
+	attr, err := inode.GetAttributes()
 	if err == nil {
 		op.Attributes = *attr
 		op.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
@@ -449,7 +449,7 @@ func (fs *Goofys) GetXattr(ctx context.Context,
 	inode := fs.getInodeOrDie(op.Inode)
 	fs.mu.Unlock()
 
-	value, err := inode.GetXattr(fs, op.Name)
+	value, err := inode.GetXattr(op.Name)
 	if err != nil {
 		return
 	}
@@ -470,7 +470,7 @@ func (fs *Goofys) ListXattr(ctx context.Context,
 	inode := fs.getInodeOrDie(op.Inode)
 	fs.mu.Unlock()
 
-	xattrs, err := inode.ListXattr(fs)
+	xattrs, err := inode.ListXattr()
 
 	ncopied := 0
 
@@ -500,7 +500,7 @@ func (fs *Goofys) RemoveXattr(ctx context.Context,
 	inode := fs.getInodeOrDie(op.Inode)
 	fs.mu.Unlock()
 
-	err = inode.RemoveXattr(fs, op.Name)
+	err = inode.RemoveXattr(op.Name)
 
 	return
 }
@@ -511,7 +511,7 @@ func (fs *Goofys) SetXattr(ctx context.Context,
 	inode := fs.getInodeOrDie(op.Inode)
 	fs.mu.Unlock()
 
-	err = inode.SetXattr(fs, op.Name, op.Value, op.Flags)
+	err = inode.SetXattr(op.Name, op.Value, op.Flags)
 	return
 }
 
@@ -559,168 +559,6 @@ func (fs *Goofys) key(name string) *string {
 	return &name
 }
 
-func (fs *Goofys) LookUpInodeNotDir(name string, c chan s3.HeadObjectOutput, errc chan error) {
-	params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: fs.key(name)}
-	resp, err := fs.s3.HeadObject(params)
-	if err != nil {
-		errc <- mapAwsError(err)
-		return
-	}
-
-	s3Log.Debug(resp)
-	c <- *resp
-}
-
-func (fs *Goofys) LookUpInodeDir(name string, c chan s3.ListObjectsOutput, errc chan error) {
-	params := &s3.ListObjectsInput{
-		Bucket:    &fs.bucket,
-		Delimiter: aws.String("/"),
-		MaxKeys:   aws.Int64(1),
-		Prefix:    fs.key(name + "/"),
-	}
-
-	resp, err := fs.s3.ListObjects(params)
-	if err != nil {
-		errc <- mapAwsError(err)
-		return
-	}
-
-	s3Log.Debug(resp)
-	c <- *resp
-}
-
-func (fs *Goofys) mpuCopyPart(from string, to string, mpuId string, bytes string, part int64,
-	wg *sync.WaitGroup, srcEtag *string, etag **string, errout *error) {
-
-	defer func() {
-		wg.Done()
-	}()
-
-	// XXX use CopySourceIfUnmodifiedSince to ensure that
-	// we are copying from the same object
-	params := &s3.UploadPartCopyInput{
-		Bucket:            &fs.bucket,
-		Key:               fs.key(to),
-		CopySource:        aws.String(pathEscape(from)),
-		UploadId:          &mpuId,
-		CopySourceRange:   &bytes,
-		CopySourceIfMatch: srcEtag,
-		PartNumber:        &part,
-	}
-
-	s3Log.Debug(params)
-
-	resp, err := fs.s3.UploadPartCopy(params)
-	if err != nil {
-		s3Log.Errorf("UploadPartCopy %v = %v", params, err)
-		*errout = mapAwsError(err)
-		return
-	}
-
-	*etag = resp.CopyPartResult.ETag
-	return
-}
-
-func sizeToParts(size int64) int {
-	const PART_SIZE = 5 * 1024 * 1024 * 1024
-
-	nParts := int(size / PART_SIZE)
-	if size%PART_SIZE != 0 {
-		nParts++
-	}
-	return nParts
-}
-
-func (fs *Goofys) mpuCopyParts(size int64, from string, to string, mpuId string,
-	wg *sync.WaitGroup, srcEtag *string, etags []*string, err *error) {
-
-	const PART_SIZE = 5 * 1024 * 1024 * 1024
-
-	rangeFrom := int64(0)
-	rangeTo := int64(0)
-
-	for i := int64(1); rangeTo < size; i++ {
-		rangeFrom = rangeTo
-		rangeTo = i * PART_SIZE
-		if rangeTo > size {
-			rangeTo = size
-		}
-		bytes := fmt.Sprintf("bytes=%v-%v", rangeFrom, rangeTo-1)
-
-		wg.Add(1)
-		go fs.mpuCopyPart(from, to, mpuId, bytes, i, wg, srcEtag, &etags[i-1], err)
-	}
-}
-
-func (fs *Goofys) copyObjectMultipart(size int64, from string, to string, mpuId string,
-	srcEtag *string, metadata map[string]*string) (err error) {
-	var wg sync.WaitGroup
-	nParts := sizeToParts(size)
-	etags := make([]*string, nParts)
-
-	if mpuId == "" {
-		params := &s3.CreateMultipartUploadInput{
-			Bucket:       &fs.bucket,
-			Key:          fs.key(to),
-			StorageClass: &fs.flags.StorageClass,
-			ContentType:  fs.getMimeType(to),
-			Metadata:     metadata,
-		}
-
-		if fs.flags.UseSSE {
-			params.ServerSideEncryption = &fs.sseType
-			if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
-				params.SSEKMSKeyId = &fs.flags.KMSKeyID
-			}
-		}
-
-		if fs.flags.ACL != "" {
-			params.ACL = &fs.flags.ACL
-		}
-
-		resp, err := fs.s3.CreateMultipartUpload(params)
-		if err != nil {
-			return mapAwsError(err)
-		}
-
-		mpuId = *resp.UploadId
-	}
-
-	fs.mpuCopyParts(size, from, to, mpuId, &wg, srcEtag, etags, &err)
-	wg.Wait()
-
-	if err != nil {
-		return
-	} else {
-		parts := make([]*s3.CompletedPart, nParts)
-		for i := 0; i < nParts; i++ {
-			parts[i] = &s3.CompletedPart{
-				ETag:       etags[i],
-				PartNumber: aws.Int64(int64(i + 1)),
-			}
-		}
-
-		params := &s3.CompleteMultipartUploadInput{
-			Bucket:   &fs.bucket,
-			Key:      fs.key(to),
-			UploadId: &mpuId,
-			MultipartUpload: &s3.CompletedMultipartUpload{
-				Parts: parts,
-			},
-		}
-
-		s3Log.Debug(params)
-
-		_, err := fs.s3.CompleteMultipartUpload(params)
-		if err != nil {
-			s3Log.Errorf("Complete MPU %v = %v", params, err)
-			return mapAwsError(err)
-		}
-	}
-
-	return
-}
-
 // note that this is NOT the same as url.PathEscape in golang 1.8,
 // as this preserves / and url.PathEscape converts / to %2F
 func pathEscape(path string) string {
@@ -728,184 +566,10 @@ func pathEscape(path string) string {
 	return u.EscapedPath()
 }
 
-func (fs *Goofys) copyObjectMaybeMultipart(size int64, from string, to string, srcEtag *string, metadata map[string]*string) (err error) {
-
-	if size == -1 || srcEtag == nil || metadata == nil {
-		params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: fs.key(from)}
-		resp, err := fs.s3.HeadObject(params)
-		if err != nil {
-			return mapAwsError(err)
-		}
-
-		size = *resp.ContentLength
-		metadata = resp.Metadata
-		srcEtag = resp.ETag
-	}
-
-	from = fs.bucket + "/" + *fs.key(from)
-
-	if size > 5*1024*1024*1024 {
-		return fs.copyObjectMultipart(size, from, to, "", srcEtag, metadata)
-	}
-
-	params := &s3.CopyObjectInput{
-		Bucket:            &fs.bucket,
-		CopySource:        aws.String(pathEscape(from)),
-		Key:               fs.key(to),
-		StorageClass:      &fs.flags.StorageClass,
-		ContentType:       fs.getMimeType(to),
-		Metadata:          metadata,
-		MetadataDirective: aws.String(s3.MetadataDirectiveReplace),
-	}
-
-	s3Log.Debug(params)
-
-	if fs.flags.UseSSE {
-		params.ServerSideEncryption = &fs.sseType
-		if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
-			params.SSEKMSKeyId = &fs.flags.KMSKeyID
-		}
-	}
-
-	if fs.flags.ACL != "" {
-		params.ACL = &fs.flags.ACL
-	}
-
-	resp, err := fs.s3.CopyObject(params)
-	if err != nil {
-		s3Log.Errorf("CopyObject %v = %v", params, err)
-		err = mapAwsError(err)
-	}
-	s3Log.Debug(resp)
-
-	return
-}
-
 func (fs *Goofys) allocateInodeId() (id fuseops.InodeID) {
 	id = fs.nextInodeID
 	fs.nextInodeID++
 	return
-}
-
-// returned inode has nil Id
-func (fs *Goofys) LookUpInodeMaybeDir(parent *Inode, name string, fullName string) (inode *Inode, err error) {
-	errObjectChan := make(chan error, 1)
-	objectChan := make(chan s3.HeadObjectOutput, 1)
-	errDirBlobChan := make(chan error, 1)
-	dirBlobChan := make(chan s3.HeadObjectOutput, 1)
-	var errDirChan chan error
-	var dirChan chan s3.ListObjectsOutput
-
-	checking := 3
-	var checkErr [3]error
-
-	if fs.s3 == nil {
-		panic("s3 disabled")
-	}
-
-	go fs.LookUpInodeNotDir(fullName, objectChan, errObjectChan)
-	if !fs.flags.Cheap {
-		go fs.LookUpInodeNotDir(fullName+"/", dirBlobChan, errDirBlobChan)
-		if !fs.flags.ExplicitDir {
-			errDirChan = make(chan error, 1)
-			dirChan = make(chan s3.ListObjectsOutput, 1)
-			go fs.LookUpInodeDir(fullName, dirChan, errDirChan)
-		}
-	}
-
-	for {
-		select {
-		case resp := <-objectChan:
-			err = nil
-			// XXX/TODO if both object and object/ exists, return dir
-			inode = NewInode(parent, &name, &fullName, fs.flags)
-			inode.Attributes = &InodeAttributes{
-				Size:  uint64(aws.Int64Value(resp.ContentLength)),
-				Mtime: *resp.LastModified,
-			}
-
-			// don't want to point to the attribute because that
-			// can get updated
-			size := inode.Attributes.Size
-			inode.KnownSize = &size
-
-			inode.fillXattrFromHead(&resp)
-			return
-		case err = <-errObjectChan:
-			checking--
-			checkErr[0] = err
-			s3Log.Debugf("HEAD %v = %v", fullName, err)
-		case resp := <-dirChan:
-			err = nil
-			if len(resp.CommonPrefixes) != 0 || len(resp.Contents) != 0 {
-				inode = NewInode(parent, &name, &fullName, fs.flags)
-				inode.ToDir(fs)
-				if len(resp.Contents) != 0 && *resp.Contents[0].Key == name+"/" {
-					// it's actually a dir blob
-					entry := resp.Contents[0]
-					if entry.ETag != nil {
-						inode.s3Metadata["etag"] = []byte(*entry.ETag)
-					}
-					if entry.StorageClass != nil {
-						inode.s3Metadata["storage-class"] = []byte(*entry.StorageClass)
-					}
-
-				}
-				// if cheap is not on, the dir blob
-				// could exist but this returned first
-				if fs.flags.Cheap {
-					inode.ImplicitDir = true
-				}
-				return
-			} else {
-				checkErr[2] = fuse.ENOENT
-				checking--
-			}
-		case err = <-errDirChan:
-			checking--
-			checkErr[2] = err
-			s3Log.Debugf("LIST %v/ = %v", fullName, err)
-		case resp := <-dirBlobChan:
-			err = nil
-			inode = NewInode(parent, &name, &fullName, fs.flags)
-			inode.ToDir(fs)
-			inode.fillXattrFromHead(&resp)
-			return
-		case err = <-errDirBlobChan:
-			checking--
-			checkErr[1] = err
-			s3Log.Debugf("HEAD %v/ = %v", fullName, err)
-		}
-
-		switch checking {
-		case 2:
-			if fs.flags.Cheap {
-				go fs.LookUpInodeNotDir(fullName+"/", dirBlobChan, errDirBlobChan)
-			}
-		case 1:
-			if fs.flags.ExplicitDir {
-				checkErr[2] = fuse.ENOENT
-				goto doneCase
-			} else if fs.flags.Cheap {
-				errDirChan = make(chan error, 1)
-				dirChan = make(chan s3.ListObjectsOutput, 1)
-				go fs.LookUpInodeDir(fullName, dirChan, errDirChan)
-			}
-			break
-		doneCase:
-			fallthrough
-		case 0:
-			for _, e := range checkErr {
-				if e != fuse.ENOENT {
-					err = e
-					return
-				}
-			}
-
-			err = fuse.ENOENT
-			return
-		}
-	}
 }
 
 func expired(cache time.Time, ttl time.Duration) bool {
@@ -953,7 +617,7 @@ func (fs *Goofys) LookUpInode(
 	if !ok {
 		var newInode *Inode
 
-		newInode, err = parent.LookUp(fs, op.Name)
+		newInode, err = parent.LookUp(op.Name)
 		if err != nil {
 			if inode != nil {
 				// just kidding! pretend we didn't up the ref
@@ -1055,9 +719,9 @@ func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) 
 	inode = parent.findChildUnlocked(*entry.Name, entry.Type == fuseutil.DT_Directory)
 	if inode == nil {
 		path := parent.getChildName(*entry.Name)
-		inode = NewInode(parent, entry.Name, &path, fs.flags)
+		inode = NewInode(fs, parent, entry.Name, &path)
 		if entry.Type == fuseutil.DT_Directory {
-			inode.ToDir(fs)
+			inode.ToDir()
 		} else {
 			inode.Attributes = entry.Attributes
 		}
@@ -1124,7 +788,7 @@ func (fs *Goofys) ReadDir(
 	readFromS3 := false
 
 	for i := op.Offset; ; i++ {
-		e, err := dh.ReadDir(fs, i)
+		e, err := dh.ReadDir(i)
 		if err != nil {
 			return err
 		}
@@ -1179,7 +843,7 @@ func (fs *Goofys) OpenFile(
 	in := fs.getInodeOrDie(op.Inode)
 	fs.mu.Unlock()
 
-	fh := in.OpenFile(fs)
+	fh := in.OpenFile()
 
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -1203,7 +867,7 @@ func (fs *Goofys) ReadFile(
 	fh := fs.fileHandles[op.Handle]
 	fs.mu.Unlock()
 
-	op.BytesRead, err = fh.ReadFile(fs, op.Offset, op.Dst)
+	op.BytesRead, err = fh.ReadFile(op.Offset, op.Dst)
 
 	return
 }
@@ -1225,7 +889,7 @@ func (fs *Goofys) FlushFile(
 	fh := fs.fileHandles[op.Handle]
 	fs.mu.Unlock()
 
-	err = fh.FlushFile(fs)
+	err = fh.FlushFile()
 	if err != nil {
 		// if we returned success from creat() earlier
 		// linux may think this file exists even when it doesn't,
@@ -1264,7 +928,7 @@ func (fs *Goofys) CreateFile(
 	parent := fs.getInodeOrDie(op.Parent)
 	fs.mu.Unlock()
 
-	inode, fh := parent.Create(fs, op.Name)
+	inode, fh := parent.Create(op.Name)
 
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -1298,7 +962,7 @@ func (fs *Goofys) MkDir(
 	fs.mu.Unlock()
 
 	// ignore op.Mode for now
-	inode, err := parent.MkDir(fs, op.Name)
+	inode, err := parent.MkDir(op.Name)
 	if err != nil {
 		return err
 	}
@@ -1324,7 +988,7 @@ func (fs *Goofys) RmDir(
 	parent := fs.getInodeOrDie(op.Parent)
 	fs.mu.Unlock()
 
-	err = parent.RmDir(fs, op.Name)
+	err = parent.RmDir(op.Name)
 	parent.logFuse("<-- RmDir", op.Name, err)
 	return
 }
@@ -1337,7 +1001,7 @@ func (fs *Goofys) SetInodeAttributes(
 	inode := fs.getInodeOrDie(op.Inode)
 	fs.mu.Unlock()
 
-	attr, err := inode.GetAttributes(fs)
+	attr, err := inode.GetAttributes()
 	if err == nil {
 		op.Attributes = *attr
 		op.AttributesExpiration = time.Now().Add(fs.flags.StatCacheTTL)
@@ -1357,7 +1021,7 @@ func (fs *Goofys) WriteFile(
 	}
 	fs.mu.Unlock()
 
-	err = fh.WriteFile(fs, op.Offset, op.Data)
+	err = fh.WriteFile(op.Offset, op.Data)
 
 	return
 }
@@ -1370,7 +1034,7 @@ func (fs *Goofys) Unlink(
 	parent := fs.getInodeOrDie(op.Parent)
 	fs.mu.Unlock()
 
-	err = parent.Unlink(fs, op.Name)
+	err = parent.Unlink(op.Name)
 	return
 }
 
@@ -1400,7 +1064,7 @@ func (fs *Goofys) Rename(
 		defer newParent.mu.Unlock()
 	}
 
-	err = parent.Rename(fs, op.OldName, newParent, op.NewName)
+	err = parent.Rename(op.OldName, newParent, op.NewName)
 	if err != nil {
 		if err == fuse.ENOENT {
 			// if the source doesn't exist, it could be
