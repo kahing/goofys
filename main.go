@@ -26,7 +26,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	"unsafe"
 
 	"golang.org/x/net/context"
 
@@ -36,7 +35,6 @@ import (
 	"github.com/codegangsta/cli"
 
 	"github.com/jacobsa/fuse"
-	"github.com/jacobsa/fuse/fuseops"
 	"github.com/jacobsa/fuse/fuseutil"
 
 	"github.com/kardianos/osext"
@@ -242,14 +240,6 @@ var Version string
 
 func main() {
 	VersionHash = Version
-
-	log.Infof("Inode = %v", unsafe.Sizeof(Inode{}))
-	log.Infof("InodeAttributes = %v", unsafe.Sizeof(fuseops.InodeAttributes{}))
-	log.Infof("Attributes = %v", unsafe.Sizeof(InodeAttributes{}))
-	log.Infof("Map = %v", unsafe.Sizeof(make(map[string][]byte)))
-	log.Infof("LogHandle = %v", unsafe.Sizeof(LogHandle{}))
-	log.Infof("Mutex = %v", unsafe.Sizeof(sync.Mutex{}))
-	log.Infof("time = %v", unsafe.Sizeof(time.Time{}))
 
 	massagePath()
 
