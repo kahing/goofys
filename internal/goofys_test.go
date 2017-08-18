@@ -785,6 +785,32 @@ func (s *GoofysTest) TestRenameLarge(t *C) {
 	t.Assert(err, IsNil)
 }
 
+func (s *GoofysTest) TestRenameToExisting(t *C) {
+	root := s.getRoot(t)
+
+	// cache these 2 files first
+	_, err := s.LookUpInode(t, "file1")
+	t.Assert(err, IsNil)
+
+	_, err = s.LookUpInode(t, "file2")
+	t.Assert(err, IsNil)
+
+	err = s.fs.Rename(nil, &fuseops.RenameOp{
+		OldParent: root.Id,
+		NewParent: root.Id,
+		OldName:   "file1",
+		NewName:   "file2",
+	})
+	t.Assert(err, IsNil)
+
+	file1 := root.findChild("file1")
+	t.Assert(file1, IsNil)
+
+	file2 := root.findChild("file2")
+	t.Assert(file2, NotNil)
+	t.Assert(*file2.Name, Equals, "file2")
+}
+
 func (s *GoofysTest) TestRename(t *C) {
 	root := s.getRoot(t)
 	from, to := "dir1", "new_dir"

@@ -1420,6 +1420,12 @@ func (fs *Goofys) Rename(
 			defer inode.mu.Unlock()
 
 			parent.removeChildUnlocked(inode)
+
+			newNode := newParent.findChildUnlocked(op.NewName, inode.isDir())
+			if newNode != nil {
+				newParent.removeChildUnlocked(newNode)
+			}
+
 			inode.Name = &op.NewName
 			inode.Parent = newParent
 			newParent.insertChildUnlocked(inode)
