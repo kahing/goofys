@@ -32,8 +32,6 @@ import (
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
 	"github.com/jacobsa/fuse/fuseutil"
-
-	"github.com/sirupsen/logrus"
 )
 
 type Inode struct {
@@ -57,8 +55,6 @@ type Inode struct {
 	userMetadata map[string][]byte
 	s3Metadata   map[string][]byte
 
-	log *LogHandle
-
 	mu          sync.Mutex // everything below is protected by mu
 	fileHandles map[*FileHandle]bool
 
@@ -74,14 +70,10 @@ func NewInode(parent *Inode, name *string, fullName *string, flags *FlagStorage)
 		AttrTime:    time.Now(),
 		Parent:      parent,
 		s3Metadata:  make(map[string][]byte),
-		log:         GetLogger(*fullName),
 		fileHandles: make(map[*FileHandle]bool),
 		refcnt:      1,
 	}
 
-	if inode.flags.DebugFuse {
-		inode.log.Level = logrus.DebugLevel
-	}
 	return
 }
 
