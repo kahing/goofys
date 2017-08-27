@@ -843,7 +843,10 @@ func (fs *Goofys) OpenFile(
 	in := fs.getInodeOrDie(op.Inode)
 	fs.mu.Unlock()
 
-	fh := in.OpenFile()
+	fh, err := in.OpenFile()
+	if err != nil {
+		return
+	}
 
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -896,6 +899,14 @@ func (fs *Goofys) FlushFile(
 		// until TypeCacheTTL is over
 		// TODO: figure out a way to make the kernel forget this inode
 		// see TestWriteAnonymousFuse
+		fs.mu.Lock()
+		inode := fs.getInodeOrDie(op.Inode)
+		fs.mu.Unlock()
+
+		if inode.KnownSize == nil {
+			inode.AttrTime = time.Time{}
+		}
+
 	}
 	fh.inode.logFuse("<-- FlushFile", err)
 

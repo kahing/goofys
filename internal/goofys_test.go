@@ -491,7 +491,9 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 			in, err := parent.LookUp(*en.Name)
 			t.Assert(err, IsNil)
 
-			fh := in.OpenFile()
+			fh, err := in.OpenFile()
+			t.Assert(err, IsNil)
+
 			buf := make([]byte, 4096)
 
 			nread, err := fh.ReadFile(0, buf)
@@ -515,7 +517,8 @@ func (s *GoofysTest) TestReadOffset(t *C) {
 	in, err := root.LookUp(f)
 	t.Assert(err, IsNil)
 
-	fh := in.OpenFile()
+	fh, err := in.OpenFile()
+	t.Assert(err, IsNil)
 
 	buf := make([]byte, 4096)
 
@@ -557,7 +560,9 @@ func (s *GoofysTest) TestCreateFiles(t *C) {
 	inode, err := s.getRoot(t).LookUp(fileName)
 	t.Assert(err, IsNil)
 
-	fh = inode.OpenFile()
+	fh, err = inode.OpenFile()
+	t.Assert(err, IsNil)
+
 	err = fh.FlushFile()
 	t.Assert(err, IsNil)
 
@@ -616,7 +621,8 @@ func (s *GoofysTest) testWriteFileAt(t *C, fileName string, offset int64, size i
 		in, err := s.getRoot(t).LookUp(fileName)
 		t.Assert(err, IsNil)
 
-		fh = in.OpenFile()
+		fh, err = in.OpenFile()
+		t.Assert(err, IsNil)
 	}
 
 	buf := make([]byte, write_size)
@@ -695,7 +701,8 @@ func (s *GoofysTest) TestReadRandom(t *C) {
 	in, err := s.LookUpInode(t, "testLargeFile")
 	t.Assert(err, IsNil)
 
-	fh := in.OpenFile()
+	fh, err := in.OpenFile()
+	t.Assert(err, IsNil)
 	fr := &FileHandleReader{s.fs, fh, 0}
 
 	src := rand.NewSource(time.Now().UnixNano())
@@ -922,11 +929,20 @@ func isTravis() bool {
 	return hasEnv("TRAVIS")
 }
 
+func isCatfs() bool {
+	return hasEnv("CATFS")
+}
+
 func (s *GoofysTest) mount(t *C, mountPoint string) {
 	err := os.MkdirAll(mountPoint, 0700)
 	t.Assert(err, IsNil)
 
 	server := fuseutil.NewFileSystemServer(s.fs)
+
+	if isCatfs() {
+		s.fs.flags.MountOptions = make(map[string]string)
+		s.fs.flags.MountOptions["allow_other"] = ""
+	}
 
 	// Mount the file system.
 	mountCfg := &fuse.MountConfig{
@@ -938,6 +954,37 @@ func (s *GoofysTest) mount(t *C, mountPoint string) {
 
 	_, err = fuse.Mount(mountPoint, server, mountCfg)
 	t.Assert(err, IsNil)
+
+	if isCatfs() {
+		cacheDir := mountPoint + "-cache"
+		err := os.MkdirAll(cacheDir, 0700)
+		t.Assert(err, IsNil)
+
+		catfs := exec.Command("catfs", "--test", "-ononempty", "--", mountPoint, cacheDir, mountPoint)
+		_, err = catfs.Output()
+		if err != nil {
+			if ee, ok := err.(*exec.ExitError); ok {
+				panic(ee.Stderr)
+			}
+		}
+
+		catfs = exec.Command("catfs", "-ononempty", "--", mountPoint, cacheDir, mountPoint)
+
+		if isTravis() {
+			logger := NewLogger("catfs")
+			lvl := logrus.InfoLevel
+			logger.Formatter.(*LogHandle).Lvl = &lvl
+			w := logger.Writer()
+
+			catfs.Stdout = w
+			catfs.Stderr = w
+		}
+
+		err = catfs.Start()
+		t.Assert(err, IsNil)
+
+		time.Sleep(time.Second)
+	}
 }
 
 func (s *GoofysTest) umount(t *C, mountPoint string) {
@@ -949,6 +996,10 @@ func (s *GoofysTest) umount(t *C, mountPoint string) {
 	}
 
 	os.Remove(mountPoint)
+	if isCatfs() {
+		cacheDir := mountPoint + "-cache"
+		os.Remove(cacheDir)
+	}
 }
 
 func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs ...string) {
@@ -1089,7 +1140,7 @@ func (s *GoofysTest) TestIssue64(t *C) {
 	*/
 }
 
-func (s *GoofysTest) TestIssue69(t *C) {
+func (s *GoofysTest) TestIssue69Fuse(t *C) {
 	s.fs.flags.StatCacheTTL = 0
 
 	mountPoint := "/tmp/mnt" + s.fs.bucket
@@ -1309,7 +1360,10 @@ func (s *GoofysTest) TestWriteAnonymousFuse(t *C) {
 	t.Assert(ok, Equals, true)
 	t.Assert(pathErr.Err, Equals, fuse.ENOENT)
 
-	// reading the file and getting ENOENT causes the kernel to invalidate the entry
+	// reading the file and getting ENOENT causes the kernel to
+	// invalidate the entry, failing at open is not sufficient, we
+	// have to fail at read (which means that if the application
+	// uses splice(2) it won't get to us, so this wouldn't work
 	_, err = os.Stat(mountPoint + "/test")
 	t.Assert(err, NotNil)
 	pathErr, ok = err.(*os.PathError)
@@ -1317,7 +1371,7 @@ func (s *GoofysTest) TestWriteAnonymousFuse(t *C) {
 	t.Assert(pathErr.Err, Equals, fuse.ENOENT)
 }
 
-func (s *GoofysTest) TestWriteSyncWrite(t *C) {
+func (s *GoofysTest) TestWriteSyncWriteFuse(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
 	s.mount(t, mountPoint)

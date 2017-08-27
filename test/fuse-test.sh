@@ -3,6 +3,8 @@
 set -o xtrace
 set -o errexit
 
+: ${CATFS:="false"}
+
 #COMMON=integration-test-common.sh
 #source $COMMON
 
@@ -469,7 +471,9 @@ function run_all_tests {
     test_multipart_copy
     test_special_characters
     #test_symlink
-    test_extended_attributes
+    if [ "$CATFS" != "true" ]; then        
+        test_extended_attributes
+    fi
     #test_mtime_file
     test_rm_rf_dir
     #test_write_after_seek_ahead

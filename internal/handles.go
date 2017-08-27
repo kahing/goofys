@@ -626,15 +626,15 @@ func (inode *Inode) ListXattr() ([]string, error) {
 	return xattrs, nil
 }
 
-func (inode *Inode) OpenFile() *FileHandle {
+func (inode *Inode) OpenFile() (fh *FileHandle, err error) {
 	inode.logFuse("OpenFile")
 
 	inode.mu.Lock()
 	defer inode.mu.Unlock()
 
-	fh := NewFileHandle(inode)
+	fh = NewFileHandle(inode)
 	inode.fileHandles += 1
-	return fh
+	return
 }
 
 func (parent *Inode) Rename(from string, newParent *Inode, to string) (err error) {
