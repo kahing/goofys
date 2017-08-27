@@ -1316,7 +1316,10 @@ func (s *GoofysTest) TestWriteAnonymous(t *C) {
 	err := s.fs.CreateFile(s.ctx, &createOp)
 	t.Assert(err, IsNil)
 
-	err = s.fs.FlushFile(s.ctx, &fuseops.FlushFileOp{Handle: createOp.Handle})
+	err = s.fs.FlushFile(s.ctx, &fuseops.FlushFileOp{
+		Handle: createOp.Handle,
+		Inode:  createOp.Entry.Child,
+	})
 	t.Assert(err, Equals, syscall.EACCES)
 
 	err = s.fs.ReleaseFileHandle(s.ctx, &fuseops.ReleaseFileHandleOp{Handle: createOp.Handle})
@@ -1326,8 +1329,10 @@ func (s *GoofysTest) TestWriteAnonymous(t *C) {
 		Parent: s.getRoot(t).Id,
 		Name:   fileName,
 	})
-	t.Assert(err, IsNil)
-	// BUG! the file shouldn't exist, see test below for comment
+	t.Assert(err, Equals, fuse.ENOENT)
+	// BUG! the file shouldn't exist, see test below for comment,
+	// this behaves as expected only because we are bypassing
+	// linux vfs in this test
 }
 
 func (s *GoofysTest) TestWriteAnonymousFuse(t *C) {
