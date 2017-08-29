@@ -3,6 +3,7 @@
 : ${TRAVIS:="false"}
 : ${FAST:="false"}
 : ${test:=""}
+: ${CACHE:="false"}
 
 iter=10
 
@@ -108,11 +109,13 @@ function run_test {
     test=$1
     drop_cache
     sleep 1
-    # make sure riofs cache got cleared
-    if [ -d /tmp/riofs-cache ]; then
-        cache=$(ls -1 /tmp/riofs-cache)
-        rm -Rf /tmp/riofs-cache 2>/dev/null || true
-        mkdir -p /tmp/riofs-cache/$cache
+    if [ "$CACHE" == "false" ]; then
+        # make sure riofs cache get cleared
+        if [ -d /tmp/cache ]; then
+            cache=$(ls -1 /tmp/cache)
+            rm -Rf /tmp/cache 2>/dev/null || true
+            mkdir -p /tmp/cache/$cache
+        fi
     fi
     echo -n "$test "
     if [ $# -gt 1 ]; then
