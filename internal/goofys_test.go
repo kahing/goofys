@@ -917,7 +917,7 @@ func (s *GoofysTest) TestConcurrentRefDeref(t *C) {
 func hasEnv(env string) bool {
 	prefix := env + "="
 	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, prefix) {
+		if strings.HasPrefix(e, prefix+"1") || strings.HasPrefix(e, prefix+"true") {
 			return true
 		}
 	}
@@ -978,6 +978,8 @@ func (s *GoofysTest) mount(t *C, mountPoint string) {
 
 			catfs.Stdout = w
 			catfs.Stderr = w
+
+			catfs.Env = append(catfs.Env, "RUST_LOG=debug")
 		}
 
 		err = catfs.Start()
@@ -1798,4 +1800,67 @@ func (s *GoofysTest) TestReadDirLookUp(t *C) {
 			t.Assert(err, IsNil)
 		}()
 	}
+}
+
+func (s *GoofysTest) writeSeekWriteFuse(t *C, file string, fh *os.File, first string, second string, third string) {
+	fi, err := os.Stat(file)
+	t.Assert(err, IsNil)
+
+	defer func() {
+		// close the file if the test failed so we can unmount
+		if fh != nil {
+			fh.Close()
+		}
+	}()
+
+	_, err = fh.WriteString(first)
+	t.Assert(err, IsNil)
+
+	off, err := fh.Seek(int64(len(second)), 1)
+	t.Assert(err, IsNil)
+	t.Assert(off, Equals, int64(len(first)+len(second)))
+
+	_, err = fh.WriteString(third)
+	t.Assert(err, IsNil)
+
+	off, err = fh.Seek(int64(len(first)), 0)
+	t.Assert(err, IsNil)
+	t.Assert(off, Equals, int64(len(first)))
+
+	_, err = fh.WriteString(second)
+	t.Assert(err, IsNil)
+
+	err = fh.Close()
+	t.Assert(err, IsNil)
+	fh = nil
+
+	content, err := ioutil.ReadFile(file)
+	t.Assert(err, IsNil)
+	t.Assert(string(content), Equals, first+second+third)
+
+	fi2, err := os.Stat(file)
+	t.Assert(err, IsNil)
+	t.Assert(fi.Mode(), Equals, fi2.Mode())
+}
+
+func (s *GoofysTest) TestWriteSeekWriteFuse(t *C) {
+	if !isCatfs() {
+		t.Skip("only works with CATFS=true")
+	}
+
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+	s.mount(t, mountPoint)
+	defer s.umount(t, mountPoint)
+
+	file := mountPoint + "/newfile"
+
+	fh, err := os.Create(file)
+	t.Assert(err, IsNil)
+
+	s.writeSeekWriteFuse(t, file, fh, "hello", " ", "world")
+
+	fh, err = os.OpenFile(file, os.O_WRONLY, 0600)
+	t.Assert(err, IsNil)
+
+	s.writeSeekWriteFuse(t, file, fh, "", "never", "minding")
 }

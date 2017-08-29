@@ -211,7 +211,7 @@ func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 
 	if offset != fh.nextWriteOffset {
 		fh.inode.errFuse("WriteFile: only sequential writes supported", fh.nextWriteOffset, offset)
-		fh.lastWriteError = fuse.EINVAL
+		fh.lastWriteError = syscall.ENOTSUP
 		return fh.lastWriteError
 	}
 

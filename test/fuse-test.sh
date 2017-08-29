@@ -476,7 +476,9 @@ function run_all_tests {
     fi
     #test_mtime_file
     test_rm_rf_dir
-    #test_write_after_seek_ahead
+    if [ "$CATFS" == "true" ]; then
+        test_write_after_seek_ahead
+    fi
 }
 
 # Mount the bucket
