@@ -46,7 +46,7 @@ else
     GOOFYS_ENDPOINT="${GOOFYS_ENDPOINT} --cheap"
 fi
 
-
+export ENDPOINT
 perl -p -i -e 's/\$\{([^}]+)\}/defined $ENV{$1} ? $ENV{$1} : $&/eg' $dir/riofs.conf.xml
 
 S3FS="s3fs -f -ostat_cache_expire=1 ${S3FS_CACHE} ${S3FS_ENDPOINT} $BUCKET bench-mnt"
