@@ -421,6 +421,7 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		cacheArgs = append(cacheArgs, cacheDir)
 		cacheArgs = append(cacheArgs, flags.MountPointArg)
 
+		fuseLog.Debugln("catfs", cacheArgs)
 		catfs := exec.Command("catfs", cacheArgs...)
 		_, err = catfs.Output()
 		if err != nil {

@@ -35,13 +35,14 @@ fi
 
 S3FS_ENDPOINT="-ourl=$ENDPOINT"
 GOOFYS_ENDPOINT="--endpoint $ENDPOINT"
+
 if echo "${ENDPOINT}" | fgrep -q amazonaws.com; then
     S3FS_ENDPOINT="${S3FS_ENDPOINT} -oiam_role=auto"
 else
     echo "${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}" > /etc/passwd-s3fs
     chmod 0400 /etc/passwd-s3fs
     S3FS_ENDPOINT="${S3FS_ENDPOINT} -ouse_path_request_style -osigv2"
-    # s3proxy is broken
+    # s3proxy is broken https://github.com/andrewgaul/s3proxy/issues/240
     GOOFYS_ENDPOINT="${GOOFYS_ENDPOINT} --cheap"
 fi
 

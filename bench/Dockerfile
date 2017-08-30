@@ -29,7 +29,7 @@ RUN git clone --depth 1 https://github.com/skoobe/riofs && \
     cd riofs && ./autogen.sh && ./configure && make -j4 && make install && \
     cd .. && rm -Rf riofs
 
-RUN curl -O https://github.com/kahing/catfs/releases/download/v0.4.0/catfs && \
+RUN curl -L -O https://github.com/kahing/catfs/releases/download/v0.4.0/catfs && \
     mv catfs /usr/bin && chmod 0755 /usr/bin/catfs
 
 # ideally I want to clear out all the go deps too but there's no
@@ -37,6 +37,6 @@ RUN curl -O https://github.com/kahing/catfs/releases/download/v0.4.0/catfs && \
 ENV PATH=$PATH:/root/go/bin
 ADD . /root/go/src/github.com/kahing/goofys
 WORKDIR /root/go/src/github.com/kahing/goofys
-RUN go get . && go install
+RUN go get . && make install
 
 ENTRYPOINT ["/root/go/src/github.com/kahing/goofys/bench/run_bench.sh"]
