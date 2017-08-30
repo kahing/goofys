@@ -29,6 +29,9 @@ RUN git clone --depth 1 https://github.com/skoobe/riofs && \
     cd riofs && ./autogen.sh && ./configure && make -j4 && make install && \
     cd .. && rm -Rf riofs
 
+RUN curl -O https://github.com/kahing/catfs/releases/download/v0.4.0/catfs && \
+    mv catfs /usr/bin && chmod 0755 /usr/bin/catfs
+
 # ideally I want to clear out all the go deps too but there's no
 # way to do that with ADD
 ENV PATH=$PATH:/root/go/bin

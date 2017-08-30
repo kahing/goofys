@@ -58,8 +58,6 @@ if [ "$FAST" != "false" ]; then
     iter=1
 fi
 
-cp -p /root/go/src/github.com/kahing/goofys/catfs /usr/bin/
-
 for fs in s3fs riofs goofys; do
     case $fs in
         s3fs)
