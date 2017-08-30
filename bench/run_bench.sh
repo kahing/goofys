@@ -7,6 +7,7 @@ set -o pipefail
 : ${BUCKET:="goofys-bench"}
 : ${FAST:="false"}
 : ${CACHE:="false"}
+: ${ENDPOINT:="http://s3-us-west-2.amazonaws.com/"}
 
 if [ $# = 1 ]; then
     t=$1
@@ -18,47 +19,68 @@ dir=$(dirname $0)
 
 mkdir bench-mnt
 
-S3FS_CACHE="-ouse_cache=/tmp/cache"
-GOOFYS_CACHE="--cache /tmp/cache"
-
-if [ "$CACHE" == "false" ]; then
-    S3FS_CACHE=""
-    GOOFYS_CACHE=""
-fi
-
-S3FS="s3fs -f -ostat_cache_expire=1 ${S3FS_CACHE} -oiam_role=auto $BUCKET bench-mnt"
-RIOFS="riofs -f -c $dir/riofs.conf.xml $BUCKET bench-mnt"
-GOOFYS="goofys -f --stat-cache-ttl 1s --type-cache-ttl 1s ${GOOFYS_CACHE} --endpoint http://s3-us-west-2.amazonaws.com/ $BUCKET bench-mnt"
-LOCAL="cat"
-
 if [ ! -f ~/.passwd-riofs ]; then
     echo "RioFS password file ~/.passwd-riofs missing"
     exit 1;
 fi
 source ~/.passwd-riofs
 
+S3FS_CACHE="-ouse_cache=/tmp/cache"
+GOOFYS_CACHE="--cache /tmp/cache -o allow_other"
+
+if [ "$CACHE" == "false" ]; then
+    S3FS_CACHE=""
+    GOOFYS_CACHE=""
+fi
+
+S3FS_ENDPOINT="-ourl=$ENDPOINT"
+GOOFYS_ENDPOINT="--endpoint $ENDPOINT"
+if echo "${ENDPOINT}" | fgrep -q amazonaws.com; then
+    S3FS_ENDPOINT="${S3FS_ENDPOINT} -oiam_role=auto"
+else
+    echo "${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}" > /etc/passwd-s3fs
+    chmod 0400 /etc/passwd-s3fs
+    S3FS_ENDPOINT="${S3FS_ENDPOINT} -ouse_path_request_style -osigv2"
+    # s3proxy is broken
+    GOOFYS_ENDPOINT="${GOOFYS_ENDPOINT} --cheap"
+fi
+
+
+perl -p -i -e 's/\$\{([^}]+)\}/defined $ENV{$1} ? $ENV{$1} : $&/eg' $dir/riofs.conf.xml
+
+S3FS="s3fs -f -ostat_cache_expire=1 ${S3FS_CACHE} ${S3FS_ENDPOINT} $BUCKET bench-mnt"
+RIOFS="riofs -f -c $dir/riofs.conf.xml $BUCKET bench-mnt"
+GOOFYS="goofys -f --stat-cache-ttl 1s --type-cache-ttl 1s ${GOOFYS_CACHE} ${GOOFYS_ENDPOINT} $BUCKET bench-mnt"
+LOCAL="cat"
+
 iter=10
 if [ "$FAST" != "false" ]; then
     iter=1
 fi
 
+cp -p /root/go/src/github.com/kahing/goofys/catfs /usr/bin/
 
 for fs in s3fs riofs goofys; do
     case $fs in
         s3fs)
             FS=$S3FS
+            CREATE_FS=$FS
             ;;
         riofs)
             FS=$RIOFS
-            mkdir -p /tmp/riofs-cache
+            # riofs lies when they create files
+            CREATE_FS=$GOOFYS
             ;;
         goofys)
             FS=$GOOFYS
+            CREATE_FS=$FS
             ;;
         cat)
             FS=$LOCAL
+            CREATE_FS=$FS
             ;;
     esac
+    
 
     rm $dir/bench.$fs 2>/dev/null || true
 
@@ -68,7 +90,7 @@ for fs in s3fs riofs goofys; do
             $dir/bench.sh "$GOOFYS" bench-mnt cleanup |& tee -a $dir/bench.$fs
         done
 
-        $dir/bench.sh "$GOOFYS"  bench-mnt ls_create
+        $dir/bench.sh "$CREATE_FS"  bench-mnt ls_create
 
         for i in $(seq 1 $iter); do
             $dir/bench.sh "$FS" bench-mnt ls_ls |& tee -a $dir/bench.$fs
@@ -76,14 +98,13 @@ for fs in s3fs riofs goofys; do
 
         $dir/bench.sh "$GOOFYS" bench-mnt ls_rm
 
-        # riofs lies when they create files
-        $dir/bench.sh "$GOOFYS" bench-mnt find_create |& tee -a $dir/bench.$fs
+        $dir/bench.sh "$CREATE_FS" bench-mnt find_create |& tee -a $dir/bench.$fs
         $dir/bench.sh "$FS" bench-mnt find_find |& tee -a $dir/bench.$fs
         $dir/bench.sh "$GOOFYS" bench-mnt cleanup |& tee -a $dir/bench.$fs
 
     else
         if [ "$t" = "find" ]; then
-            $dir/bench.sh "$GOOFYS" bench-mnt find_create |& tee -a $dir/bench.$fs
+            $dir/bench.sh "$CREATE_FS" bench-mnt find_create |& tee -a $dir/bench.$fs
             $dir/bench.sh "$FS" bench-mnt find_find |& tee -a $dir/bench.$fs
             $dir/bench.sh "$GOOFYS" bench-mnt cleanup |& tee -a $dir/bench.$fs
         else

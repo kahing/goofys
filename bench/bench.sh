@@ -52,11 +52,13 @@ function cleanup {
     if [ "$PID" != "" ]; then
         kill $PID >& /dev/null || true
         fusermount -u $mnt >& /dev/null || true
+        sleep 1
     fi
 }
 
 function cleanup_err {
     err=$?
+    cat mount.log
     if [ $MOUNTED == 1 ]; then
         popd >&/dev/null || true
         rmdir $prefix >&/dev/null || true
@@ -74,8 +76,10 @@ trap cleanup EXIT
 trap cleanup_err ERR
 
 if [ "$TRAVIS" == "false" -a "$cmd" != "cat" ]; then
-    for i in $(seq 1 5); do
-        (grep -q $mnt /proc/mounts && break) || true
+    for i in $(seq 1 10); do
+        if grep -q $mnt /proc/mounts; then
+            break
+        fi
         sleep 1
     done
     if ! grep -q $mnt /proc/mounts; then

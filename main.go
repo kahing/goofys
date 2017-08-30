@@ -170,7 +170,10 @@ func mount(
 		log.Infof("Starting catfs %v", flags.Cache)
 		catfs := exec.Command("catfs", flags.Cache...)
 		catfs.Env = append(catfs.Env, "RUST_LOG=info")
-		lvl := logrus.ErrorLevel
+		lvl := logrus.InfoLevel
+		if flags.DebugFuse {
+			lvl = logrus.DebugLevel
+		}
 		catfsLog := GetLogger("catfs")
 		catfsLog.Formatter.(*LogHandle).Lvl = &lvl
 		catfs.Stderr = catfsLog.Writer()
