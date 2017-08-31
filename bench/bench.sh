@@ -280,6 +280,7 @@ if [ "$t" = "" -o "$t" = "io" ]; then
     done
     if [ "$CACHE" = "true" ]; then
         write_md5
+        read_md5
         for i in $(seq 1 $iter); do
             run_test read_md5
             run_test read_first_byte

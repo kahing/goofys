@@ -79,9 +79,11 @@ To run the benchmark, do:
 $ cat > ~/.passwd-riofs
 export AWS_ACCESS_KEY_ID=AKID1234567890
 export AWS_SECRET_ACCESS_KEY=MY-SECRET-KEY
-$ sudo docker run -e BUCKET=$TESTBUCKET --rm --privileged --net=host -v  ~/.passwd-riofs:/root/.passwd-riofs kahing/goofys-bench
+$ sudo docker run -e BUCKET=$TESTBUCKET -e CACHE=false --rm --privileged --net=host -v  ~/.passwd-riofs:/root/.passwd-riofs -v /tmp/cache:/tmp/cache kahing/goofys-bench
 # result will be written to $TESTBUCKET
 ```
+
+if `CACHE` is set to `true`, the read benchmarks ('Read 1GB' and 'Time to 1st byte') will be cached read.
 
 # License
 
