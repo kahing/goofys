@@ -285,7 +285,7 @@ if [ "$t" = "" -o "$t" = "io" ]; then
             run_test read_md5
             run_test read_first_byte
         done
-        rm large_file
+        rm largefile
     fi
 fi
 
