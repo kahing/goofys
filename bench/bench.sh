@@ -272,10 +272,20 @@ function read_md5 {
 if [ "$t" = "" -o "$t" = "io" ]; then
     for i in $(seq 1 $iter); do
         run_test write_md5
-        run_test read_md5
-        run_test read_first_byte
+        if [ "$CACHE" != "true" ]; then
+            run_test read_md5
+            run_test read_first_byte
+        fi
         rm largefile
     done
+    if [ "$CACHE" = "true" ]; then
+        write_md5
+        for i in $(seq 1 $iter); do
+            run_test read_md5
+            run_test read_first_byte
+        done
+        rm large_file
+    fi
 fi
 
 if [ "$t" = "" -o "$t" = "ls" ]; then
