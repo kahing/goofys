@@ -36,6 +36,12 @@ prefix=$mnt/test_dir
 
 MOUNTED=0
 
+if [[ "$cmd" == "riofs*" ]]; then
+    RIOFS="true"
+else
+    RIOFS="false"
+fi
+
 $cmd >& mount.log &
 PID=$!
 
@@ -258,6 +264,10 @@ function write_md5 {
     fi
     MD5=$(dd if=/dev/zero bs=1MB count=$count status=none | $random_cmd | \
         tee >(md5sum) >(dd of=largefile bs=1MB oflag=nocache status=none) >/dev/null | cut -f 1 '-d ')
+    if [ "$RIOFS" == "true" ]; then
+        # riofs doesn't wait for flush, so we need to wait for object to show up
+        while ! aws s3api head-object --bucket ${BUCKET} --key largefile; do true; done
+    fi
 }
 
 function read_md5 {
@@ -285,6 +295,7 @@ if [ "$t" = "" -o "$t" = "io" ]; then
             run_test read_md5
             run_test read_first_byte
         done
+        rm largefile
     fi
 fi
 

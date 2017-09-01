@@ -46,6 +46,7 @@ else
     GOOFYS_ENDPOINT="${GOOFYS_ENDPOINT} --cheap"
 fi
 
+export BUCKET
 export ENDPOINT
 perl -p -i -e 's/\$\{([^}]+)\}/defined $ENV{$1} ? $ENV{$1} : $&/eg' $dir/riofs.conf.xml
 
