@@ -85,22 +85,27 @@ for fs in riofs s3fs goofys; do
     rm $dir/bench.$fs 2>/dev/null || true
 
     if [ "$t" = "" ]; then
-        for tt in create create_parallel io; do
-            $dir/bench.sh "$FS" bench-mnt $tt |& tee -a $dir/bench.$fs
+        if [ "$CACHE" = "true" ]; then
+            $dir/bench.sh "$FS" bench-mnt io |& tee -a $dir/bench.$fs
             $dir/bench.sh "$GOOFYS" bench-mnt cleanup |& tee -a $dir/bench.$fs
-        done
+        else
+            for tt in create create_parallel io; do
+                $dir/bench.sh "$FS" bench-mnt $tt |& tee -a $dir/bench.$fs
+                $dir/bench.sh "$GOOFYS" bench-mnt cleanup |& tee -a $dir/bench.$fs
+            done
 
-        $dir/bench.sh "$CREATE_FS"  bench-mnt ls_create
+            $dir/bench.sh "$CREATE_FS"  bench-mnt ls_create
 
-        for i in $(seq 1 $iter); do
-            $dir/bench.sh "$FS" bench-mnt ls_ls |& tee -a $dir/bench.$fs
-        done
+            for i in $(seq 1 $iter); do
+                $dir/bench.sh "$FS" bench-mnt ls_ls |& tee -a $dir/bench.$fs
+            done
 
-        $dir/bench.sh "$GOOFYS" bench-mnt ls_rm
+            $dir/bench.sh "$GOOFYS" bench-mnt ls_rm
 
-        $dir/bench.sh "$CREATE_FS" bench-mnt find_create |& tee -a $dir/bench.$fs
-        $dir/bench.sh "$FS" bench-mnt find_find |& tee -a $dir/bench.$fs
-        $dir/bench.sh "$GOOFYS" bench-mnt cleanup |& tee -a $dir/bench.$fs
+            $dir/bench.sh "$CREATE_FS" bench-mnt find_create |& tee -a $dir/bench.$fs
+            $dir/bench.sh "$FS" bench-mnt find_find |& tee -a $dir/bench.$fs
+            $dir/bench.sh "$GOOFYS" bench-mnt cleanup |& tee -a $dir/bench.$fs
+        fi
 
     else
         if [ "$t" = "find" ]; then
@@ -117,7 +122,11 @@ $dir/bench.sh cat bench-mnt $t |& tee $dir/bench.local
 
 $dir/bench_format.py <(paste $dir/bench.goofys $dir/bench.s3fs $dir/bench.riofs) > $dir/bench.data
 
-gnuplot $dir/bench_graph.gnuplot && convert -rotate 90 $dir/bench.png $dir/bench.png
+if [ "$CACHE" = "true" ]; then
+    gnuplot $dir/bench_graph_cached.gnuplot && convert -rotate 90 $dir/bench.png $dir/bench.png
+else
+    gnuplot $dir/bench_graph.gnuplot && convert -rotate 90 $dir/bench.png $dir/bench.png
+fi
 
 $GOOFYS >/dev/null &
 PID=$!
@@ -129,5 +138,6 @@ for f in $dir/bench.goofys $dir/bench.s3fs $dir/bench.riofs $dir/bench.data $dir
 done
 
 kill $PID
+fusermount -u bench-mnt || true
 sleep 1
 rmdir bench-mnt

@@ -84,16 +84,16 @@
     <md5_enabled type="boolean">False</md5_enabled>
     
     <!-- set True to enable objects caching -->
-    <cache_enabled type="boolean">False</cache_enabled>
+    <cache_enabled type="boolean">True</cache_enabled>
 
     <!-- directory for storing cache objects -->
     <cache_dir type="string">/tmp/cache</cache_dir>
 
     <!-- maximum size of cache directory (1Gb) -->
-    <cache_dir_max_size type="uint">0</cache_dir_max_size>
+    <cache_dir_max_size type="uint">10737418240</cache_dir_max_size>
 
     <!-- maximum time of cached object, 10 min -->
-    <cache_object_ttl type="uint">0</cache_object_ttl>
+    <cache_object_ttl type="uint">600</cache_object_ttl>
 </filesystem>
 
 <statistics>

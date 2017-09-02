@@ -37,6 +37,7 @@ data = open(f).readlines()
 #print '----------| ------ | ------ | -------'
 
 table = [{}, {}, {}]
+has_data = {}
 
 print '#operation,time'
 for l in data:
@@ -46,16 +47,18 @@ for l in data:
         if not op in table[d]:
             table[d][op] = []
         table[d][op] += [float(num)]
+        has_data[op] = True
 
 
 for c in outputOrder:
-    print op_str[c],
-    for d in table:
-        mean = numpy.mean(d[c])
-        err = numpy.std(d[c])
-        x = filter_outliers(d[c], mean, err)
-        print "\t%s\t%s\t%s" % (numpy.mean(x), numpy.min(x), numpy.max(x)),
-    print
+    if c in has_data:
+        print op_str[c],
+        for d in table:
+            mean = numpy.mean(d[c])
+            err = numpy.std(d[c])
+            x = filter_outliers(d[c], mean, err)
+            print "\t%s\t%s\t%s" % (numpy.mean(x), numpy.min(x), numpy.max(x)),
+        print
 
     # op = op_str[nums[0]]
 
