@@ -60,7 +60,7 @@ if [ "$FAST" != "false" ]; then
     iter=1
 fi
 
-for fs in s3fs riofs goofys; do
+for fs in riofs s3fs goofys; do
     case $fs in
         s3fs)
             FS=$S3FS

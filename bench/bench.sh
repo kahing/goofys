@@ -36,7 +36,7 @@ prefix=$mnt/test_dir
 
 MOUNTED=0
 
-if [[ "$cmd" == "riofs*" ]]; then
+if [[ "$cmd" == riofs* ]]; then
     RIOFS="true"
 else
     RIOFS="false"
@@ -266,7 +266,8 @@ function write_md5 {
         tee >(md5sum) >(dd of=largefile bs=1MB oflag=nocache status=none) >/dev/null | cut -f 1 '-d ')
     if [ "$RIOFS" == "true" ]; then
         # riofs doesn't wait for flush, so we need to wait for object to show up
-        while ! aws s3api head-object --bucket ${BUCKET} --key largefile; do true; done
+        # XXX kind of broken due to eventual consistency but it's hte best we can do
+        while ! aws s3api --endpoint ${ENDPOINT} head-object --bucket ${BUCKET} --key test_dir/largefile >& /dev/null; do sleep 0.1; done
     fi
 }
 
@@ -276,6 +277,14 @@ function read_md5 {
         echo "$READ_MD5 != $MD5" >&2
         rm largefile
         exit 1
+    fi
+}
+
+function rm {
+    if [ "$RIOFS" == "true" ]; then
+        while ! /bin/rm $@; do true; done
+    else
+        /bin/rm $@
     fi
 }
 

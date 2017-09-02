@@ -8,7 +8,7 @@ RUN apt-get update && \
             build-essential gcc make automake autoconf libtool pkg-config intltool \
             libglib2.0-dev libfuse-dev libxml2-dev libevent-dev libssl-dev \
             # for running goofys benchmark \
-            curl python-setuptools python-pip gnuplot-nox imagemagick \
+            curl python-setuptools python-pip gnuplot-nox imagemagick awscli \
             # finally, clean up to make image smaller \
             && apt-get clean
 # goofys graph generation
