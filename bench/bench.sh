@@ -118,7 +118,7 @@ export TIMEFORMAT=%R
 function run_test {
     test=$1
     drop_cache
-    sleep 1
+    sleep 2
     if [ "$CACHE" == "false" ]; then
         # make sure riofs cache get cleared
         if [ -d /tmp/cache ]; then

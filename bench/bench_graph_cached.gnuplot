@@ -36,8 +36,8 @@ set bmargin at screen 0.4
 #set size 1, 1
 
 set origin 0.0,0.1
-set size 0.31,0.8
-set xrange [-1:1.8]
+set size 0.3,0.8
+set xrange [-0.5:0.8]
 
 plot 'bench/bench.data' using 2:3:4 title " ", \
      '' using 5:6:7 title " ", \
@@ -51,9 +51,18 @@ unset label 3
 set lmargin
 
 set origin 0.3,0.1
-set size 0.175,0.8
+set size 0.2,0.8
+set xrange [0.5:1.8]
+
+plot 'bench/bench.data' using 2:3:4 title " ", \
+     '' using 5:6:7 title " ", \
+     '' using 8:9:10 title " ", \
+     '' using 0:(0):xticlabel(1) w l title ''
+
+set origin 0.5,0.1
+set size 0.2,0.8
 set xrange [1.5:2.8]
-set yrange [0:0.5]
+set yrange [0:0.1]
 
 plot 'bench/bench.data' using 2:3:4 title " ", \
      '' using 5:6:7 title " ", \
