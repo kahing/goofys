@@ -72,6 +72,16 @@ connecting to a bucket in us-west-2. Units are seconds.
 
 (†) riofs does not wait for HTTP response before returning from `release()`, so the create files benchmarks do not measure the right thing for it
 
+## Benchmark with caching enabled
+
+Enabling `--cache` has little impact on write speed (since `catfs`
+implements a write-through cache) but read has a large variance. Time
+to first byte is competitive with `s3fs` which suggests layering fuse
+filesystems can be a viable approach.
+
+![Cached Benchmark result](/bench/bench-cached.png?raw=true "Cached Benchmark")
+
+
 <a name="runbenchmark"></a>
 To run the benchmark, do:
 
