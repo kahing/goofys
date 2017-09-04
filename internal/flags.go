@@ -410,7 +410,7 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 			flags.MountPoint = flags.MountPointCreated
 		}
 
-		cacheArgs = append(cacheArgs, "--test")
+		cacheArgs = append([]string{"--test"}, cacheArgs...)
 
 		if flags.MountPointArg == flags.MountPoint {
 			cacheArgs = append(cacheArgs, "-ononempty")
@@ -421,7 +421,7 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		cacheArgs = append(cacheArgs, cacheDir)
 		cacheArgs = append(cacheArgs, flags.MountPointArg)
 
-		fuseLog.Debugln("catfs", cacheArgs)
+		fuseLog.Debugf("catfs %v", cacheArgs)
 		catfs := exec.Command("catfs", cacheArgs...)
 		_, err = catfs.Output()
 		if err != nil {
