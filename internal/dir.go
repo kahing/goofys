@@ -180,6 +180,7 @@ func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *s3.ListObjectsOutput
 
 		if sealed || !*resp.IsTruncated {
 			d.dir.DirTime = time.Now()
+			d.Attributes.Mtime = d.findChildMaxTime()
 		}
 	}
 

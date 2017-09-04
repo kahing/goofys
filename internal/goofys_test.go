@@ -1864,3 +1864,40 @@ func (s *GoofysTest) TestWriteSeekWriteFuse(t *C) {
 
 	s.writeSeekWriteFuse(t, file, fh, "", "never", "minding")
 }
+
+func (s *GoofysTest) TestDirMtimeCreate(t *C) {
+	root := s.getRoot(t)
+
+	attr, _ := root.GetAttributes()
+	m1 := attr.Mtime
+	time.Sleep(time.Second)
+
+	_, _ = root.Create("foo")
+	attr2, _ := root.GetAttributes()
+	m2 := attr2.Mtime
+
+	t.Assert(m1.Before(m2), Equals, true)
+}
+
+func (s *GoofysTest) TestDirMtimeLs(t *C) {
+	root := s.getRoot(t)
+
+	attr, _ := root.GetAttributes()
+	m1 := attr.Mtime
+	time.Sleep(time.Second)
+
+	params := &s3.PutObjectInput{
+		Bucket: &s.fs.bucket,
+		Key:    aws.String("newfile"),
+		Body:   bytes.NewReader([]byte("foo")),
+	}
+	_, err := s.s3.PutObject(params)
+	t.Assert(err, IsNil)
+
+	s.readDirIntoCache(t, fuseops.RootInodeID)
+
+	attr2, _ := root.GetAttributes()
+	m2 := attr2.Mtime
+
+	t.Assert(m1.Before(m2), Equals, true)
+}

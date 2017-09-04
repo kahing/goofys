@@ -86,6 +86,10 @@ func (inode *Inode) FullName() *string {
 	}
 }
 
+func (inode *Inode) touch() {
+	inode.Attributes.Mtime = time.Now()
+}
+
 func (inode *Inode) InflateAttributes() (attr fuseops.InodeAttributes) {
 	attr = fuseops.InodeAttributes{
 		Size:   inode.Attributes.Size,
@@ -315,6 +319,8 @@ func (parent *Inode) Create(
 	fh.buf = MBuf{}.Init(fh.poolHandle, 0, true)
 	fh.dirty = true
 	inode.fileHandles = 1
+
+	parent.touch()
 
 	return
 }
@@ -959,6 +965,18 @@ func (parent *Inode) insertSubTree(path string, obj *s3.Object, dirs map[*Inode]
 			inode.insertSubTree(path, obj, dirs)
 		}
 	}
+}
+
+func (parent *Inode) findChildMaxTime() time.Time {
+	maxTime := parent.Attributes.Mtime
+
+	for _, c := range parent.dir.Children {
+		if c.Attributes.Mtime.After(maxTime) {
+			maxTime = c.Attributes.Mtime
+		}
+	}
+
+	return maxTime
 }
 
 func (parent *Inode) readDirFromCache(offset fuseops.DirOffset) (en *DirHandleEntry, ok bool) {

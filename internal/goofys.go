@@ -797,6 +797,7 @@ func (fs *Goofys) ReadDir(
 			// from S3 then update the cache time
 			if readFromS3 {
 				inode.dir.DirTime = time.Now()
+				inode.Attributes.Mtime = inode.findChildMaxTime()
 			}
 			break
 		}
