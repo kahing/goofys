@@ -338,8 +338,10 @@ func (fs *Goofys) detectBucketLocationByHEAD() (err error, isAws bool) {
 	switch resp.StatusCode {
 	case 200:
 		// note that this only happen if the bucket is in us-east-1
-		fs.awsConfig.Credentials = credentials.AnonymousCredentials
-		s3Log.Infof("anonymous bucket detected")
+		if len(fs.flags.Profile) == 0 {
+			fs.awsConfig.Credentials = credentials.AnonymousCredentials
+			s3Log.Infof("anonymous bucket detected")
+		}
 	case 400:
 		err = fuse.EINVAL
 	case 403:
