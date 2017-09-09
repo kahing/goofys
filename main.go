@@ -29,10 +29,10 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/codegangsta/cli"
 	"github.com/jacobsa/fuse"
 	"github.com/jinzhu/copier"
 	"github.com/kardianos/osext"
+	"github.com/urfave/cli"
 
 	daemon "github.com/sevlyar/go-daemon"
 )

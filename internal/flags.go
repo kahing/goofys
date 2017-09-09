@@ -26,7 +26,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/codegangsta/cli"
+	"github.com/urfave/cli"
 )
 
 var flagCategories map[string]string
