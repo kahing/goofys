@@ -191,9 +191,11 @@ func (parent *Inode) removeChildUnlocked(inode *Inode) {
 		panic(fmt.Sprintf("%v.removeName(%v) but child not found: %v",
 			*parent.FullName(), *inode.Name, i))
 	}
+	if parent.dir.Children[i].Id == inode.Id {
+		copy(parent.dir.Children[i:], parent.dir.Children[i+1:])
+		parent.dir.Children = parent.dir.Children[:l-1]
+	}
 
-	copy(parent.dir.Children[i:], parent.dir.Children[i+1:])
-	parent.dir.Children = parent.dir.Children[:l-1]
 }
 
 func (parent *Inode) removeChild(inode *Inode) {
