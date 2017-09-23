@@ -191,19 +191,28 @@ func (parent *Inode) removeChildUnlocked(inode *Inode) {
 		return
 	}
 	i := sort.Search(l, parent.findInodeFunc(*inode.Name, inode.isDir()))
-	if i >= l || *parent.dir.Children[i].Name != *inode.Name {
-		panic(fmt.Sprintf("%v.removeName(%v) but child not found: %v",
-			*parent.FullName(), *inode.Name, i))
-	}
+	if i < l {
+		// rm dir with dir fd opend fix
+		// maybe we should reconsider the dentry/dirdents,inode managment involed with hardlink
 
-	copy(parent.dir.Children[i:], parent.dir.Children[i+1:])
-	parent.dir.Children[l-1] = nil
-	parent.dir.Children = parent.dir.Children[:l-1]
+		// if we use flock ,we can do it another way
+		if *parent.dir.Children[i].Name != *inode.Name {
+			parent.logFuse("remove inode child, not exist,not same name", *inode.Name)
+		}
+		if *parent.dir.Children[i].Name == *inode.Name && parent.dir.Children[i].Id == inode.Id {
+			copy(parent.dir.Children[i:], parent.dir.Children[i+1:])
+			parent.dir.Children[l-1] = nil
+			parent.dir.Children = parent.dir.Children[:l-1]
 
-	if cap(parent.dir.Children)-len(parent.dir.Children) > 20 {
-		tmp := make([]*Inode, len(parent.dir.Children))
-		copy(tmp, parent.dir.Children)
-		parent.dir.Children = tmp
+			if cap(parent.dir.Children)-len(parent.dir.Children) > 20 {
+				tmp := make([]*Inode, len(parent.dir.Children))
+				copy(tmp, parent.dir.Children)
+				parent.dir.Children = tmp
+			}
+		}
+
+	} else {
+		parent.logFuse("remove inode child ,not exist", *inode.Name)
 	}
 }
 

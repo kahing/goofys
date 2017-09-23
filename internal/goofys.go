@@ -1017,6 +1017,18 @@ func (fs *Goofys) RmDir(
 	fs.mu.Unlock()
 
 	err = parent.RmDir(op.Name)
+	if err == nil {
+		inode := parent.findChildUnlockedFull(op.Name) // by name
+		if inode != nil {
+			inode.mu.Lock() // vs fs.mu.Lock?
+			defer inode.mu.Unlock()
+			inode.AttrTime = time.Time{}
+			parent.removeChildUnlocked(inode)
+
+			parent.AttrTime = time.Time{}
+			parent.dir.DirTime = time.Time{}
+		}
+	}
 	parent.logFuse("<-- RmDir", op.Name, err)
 	return
 }
