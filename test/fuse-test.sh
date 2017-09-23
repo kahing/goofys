@@ -157,6 +157,39 @@ function test_mv_file {
     # clean up
     rm_test_file $ALT_TEST_TEXT_FILE
 }
+function mv_file_repeatedly () {
+    
+    echo "aaaaaa" > "$1"
+    mkdir -p  $TEST_BUCKET_MOUNT_POINT_1/$TEST_DIR/test
+    cp $1  $TEST_BUCKET_MOUNT_POINT_1/$TEST_DIR/test/testfile
+    mv $TEST_BUCKET_MOUNT_POINT_1/$TEST_DIR/test/testfile $TEST_BUCKET_MOUNT_POINT_1/$TEST_DIR/test/rename
+    
+    lsout=`ls $TEST_BUCKET_MOUNT_POINT_1/$TEST_DIR/test`
+    lslahout=`ls -lah $TEST_BUCKET_MOUNT_POINT_1/$TEST_DIR/test`
+    
+    echo "$lsout" | grep -q "rename"  > /dev/null 2>&1
+    if [ "$?" != "0" ]; then
+      echo "file rename missing"
+      exit 1
+    fi
+
+    echo "$lslahout" | grep -q "rename"  > /dev/null 2>&1
+    if [ "$?" != "0" ]; then
+      echo "file rename missing"
+      exit 1
+    fi
+}
+
+function test_mv_file_repeatedly {
+    echo "Testing mv file function repeatedly ..."
+    
+    mv_file_repeatedly /tmp/testfile 
+    mv_file_repeatedly /tmp/testfile 
+    mv_file_repeatedly /tmp/testfile 
+    
+    rm -rf $TEST_BUCKET_MOUNT_POINT_1/$TEST_DIR
+    rm -f /tmp/testfile
+}
 
 function test_mv_directory {
     echo "Testing mv directory function ..."
@@ -479,6 +512,8 @@ function run_all_tests {
     if [ "$CATFS" == "true" ]; then
         test_write_after_seek_ahead
     fi
+
+    test_mv_file_repeatedly 
 }
 
 # Mount the bucket
@@ -492,7 +527,6 @@ fi
 pushd $TEST_BUCKET_MOUNT_POINT_1
 mkdir test_dir
 cd test_dir
-
 if [ -e $TEST_TEXT_FILE ]
 then
   rm -f $TEST_TEXT_FILE
