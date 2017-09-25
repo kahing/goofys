@@ -1901,3 +1901,21 @@ func (s *GoofysTest) TestDirMtimeLs(t *C) {
 
 	t.Assert(m1.Before(m2), Equals, true)
 }
+
+func (s *GoofysTest) TestRenameOverwrite(t *C) {
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+	s.mount(t, mountPoint)
+	defer s.umount(t, mountPoint)
+
+	file := mountPoint + "/newfile"
+	rename := mountPoint + "/file1"
+
+	fh, err := os.Create(file)
+	t.Assert(err, IsNil)
+
+	err = fh.Close()
+	t.Assert(err, IsNil)
+
+	err = os.Rename(file, rename)
+	t.Assert(err, IsNil)
+}

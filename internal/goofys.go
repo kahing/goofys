@@ -1101,7 +1101,12 @@ func (fs *Goofys) Rename(
 
 			newNode := newParent.findChildUnlocked(op.NewName, inode.isDir())
 			if newNode != nil {
+				// this file's been overwritten, it's
+				// been detached but we can't delete
+				// it just yet, because the kernel
+				// will still send forget ops to us
 				newParent.removeChildUnlocked(newNode)
+				newNode.Parent = nil
 			}
 
 			inode.Name = &op.NewName
