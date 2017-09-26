@@ -144,12 +144,8 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 			return nil
 		} else {
 			// this is NOT AWS, we expect the request to fail with 403 if this is not
-			// an anonymous bucket, or if the provider doesn't support v4 signing, or both
-			// swift3 and ceph-s3 return 400 so we know we can fallback to v2 signing
-			// minio returns 403 because we are using anonymous credential
-			if err == fuse.EINVAL {
-				fs.fallbackV2Signer()
-			} else if err != syscall.EACCES {
+			// an anonymous bucket
+			if err != syscall.EACCES {
 				log.Errorf("Unable to access '%v': %v", fs.bucket, err)
 			}
 		}
@@ -160,8 +156,9 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 	if err != nil {
 		if !isAws {
 			// EMC returns 403 because it doesn't support v4 signing
+			// swift3, ceph-s3 returns 400
 			// Amplidata just gives up and return 500
-			if err == syscall.EACCES || err == syscall.EAGAIN {
+			if err == syscall.EACCES || err == fuse.EINVAL || err == syscall.EAGAIN {
 				fs.fallbackV2Signer()
 				err = mapAwsError(fs.testBucket())
 			}
