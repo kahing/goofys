@@ -204,6 +204,7 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 	fs.replicators = Ticket{Total: 16}.Init()
 	fs.restorers = Ticket{Total: 8}.Init()
 
+	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = 1000
 	return fs
 }
 
