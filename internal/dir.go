@@ -257,7 +257,7 @@ func (dh *DirHandle) listObjects(prefix string) (resp *s3.ListObjectsOutput, err
 
 	if !fs.flags.Cheap {
 		// invoke the fallback in parallel if desired
-		listObjectsFlat()
+		go listObjectsFlat()
 	}
 
 	// first see if we get anything from the slurp
