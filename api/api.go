@@ -59,7 +59,7 @@ type Config struct {
 func Mount(
 	ctx context.Context,
 	bucketName string,
-	config *Config) (mfs *fuse.MountedFileSystem, err error) {
+	config *Config) (fs *Goofys, mfs *fuse.MountedFileSystem, err error) {
 
 	var flags FlagStorage
 	copier.Copy(&flags, config)
@@ -80,12 +80,12 @@ func Mount(
 
 	awsConfig.S3ForcePathStyle = aws.Bool(true)
 
-	goofys := NewGoofys(ctx, bucketName, awsConfig, &flags)
-	if goofys == nil {
+	fs = NewGoofys(ctx, bucketName, awsConfig, &flags)
+	if fs == nil {
 		err = fmt.Errorf("Mount: initialization failed")
 		return
 	}
-	server := fuseutil.NewFileSystemServer(goofys)
+	server := fuseutil.NewFileSystemServer(fs)
 
 	fuseLog := GetLogger("fuse")
 

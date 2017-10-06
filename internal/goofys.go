@@ -20,6 +20,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -396,6 +397,15 @@ func (fs *Goofys) cleanUpOldMPU() {
 			s3Log.Debugf("Keeping MPU Key=%v Id=%v", *upload.Key, *upload.UploadId)
 		}
 	}
+}
+
+func (fs *Goofys) SigUsr1() {
+	fs.mu.Lock()
+
+	log.Infof("forgot %v inodes", fs.forgotCnt)
+	log.Infof("%v inodes", len(fs.inodes))
+	fs.mu.Unlock()
+	debug.FreeOSMemory()
 }
 
 // Find the given inode. Panic if it doesn't exist.

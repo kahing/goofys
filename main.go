@@ -39,15 +39,21 @@ import (
 
 var log = GetLogger("main")
 
-func registerSIGINTHandler(flags *FlagStorage) {
+func registerSIGINTHandler(fs *Goofys, flags *FlagStorage) {
 	// Register for SIGINT.
 	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM, syscall.SIGUSR1)
 
 	// Start a goroutine that will unmount when the signal is received.
 	go func() {
 		for {
 			s := <-signalChan
+			if s == syscall.SIGUSR1 {
+				log.Infof("Received %v", s)
+				fs.SigUsr1()
+				continue
+			}
+
 			if len(flags.Cache) == 0 {
 				log.Infof("Received %v, attempting to unmount...", s)
 
@@ -100,7 +106,7 @@ func kill(pid int, s os.Signal) (err error) {
 func mount(
 	ctx context.Context,
 	bucketName string,
-	flags *FlagStorage) (mfs *fuse.MountedFileSystem, err error) {
+	flags *FlagStorage) (fs *Goofys, mfs *fuse.MountedFileSystem, err error) {
 
 	// XXX really silly copy here! in goofys.Mount we will copy it
 	// back to FlagStorage. But I don't see a easier way to expose
@@ -203,7 +209,8 @@ func main() {
 
 		// Mount the file system.
 		var mfs *fuse.MountedFileSystem
-		mfs, err = mount(
+		var fs *Goofys
+		fs, mfs, err = mount(
 			context.Background(),
 			bucketName,
 			flags)
@@ -222,7 +229,7 @@ func main() {
 			// Let the user unmount with Ctrl-C
 			// (SIGINT). But if cache is on, catfs will
 			// receive the signal and we would detect that exiting
-			registerSIGINTHandler(flags)
+			registerSIGINTHandler(fs, flags)
 
 			// Wait for the file system to be unmounted.
 			err = mfs.Join(context.Background())
