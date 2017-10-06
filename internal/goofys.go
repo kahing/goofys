@@ -99,6 +99,8 @@ type Goofys struct {
 
 	replicators *Ticket
 	restorers   *Ticket
+
+	forgotCnt uint32
 }
 
 var s3Log = GetLogger("s3")
@@ -673,16 +675,20 @@ func (fs *Goofys) ForgetInode(
 	op *fuseops.ForgetInodeOp) (err error) {
 
 	fs.mu.Lock()
-	defer fs.mu.Unlock()
 
 	inode := fs.getInodeOrDie(op.Inode)
 	stale := inode.DeRef(op.N)
 
 	if stale {
 		delete(fs.inodes, op.Inode)
+		fs.forgotCnt += 1
+		fs.mu.Unlock()
+
 		if inode.Parent != nil {
 			inode.Parent.removeChild(inode)
 		}
+	} else {
+		fs.mu.Unlock()
 	}
 
 	return
