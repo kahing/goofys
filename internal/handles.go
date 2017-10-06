@@ -193,7 +193,14 @@ func (parent *Inode) removeChildUnlocked(inode *Inode) {
 	}
 
 	copy(parent.dir.Children[i:], parent.dir.Children[i+1:])
+	parent.dir.Children[l-1] = nil
 	parent.dir.Children = parent.dir.Children[:l-1]
+
+	if cap(parent.dir.Children)-len(parent.dir.Children) > 20 {
+		tmp := make([]*Inode, len(parent.dir.Children))
+		copy(tmp, parent.dir.Children)
+		parent.dir.Children = tmp
+	}
 }
 
 func (parent *Inode) removeChild(inode *Inode) {
