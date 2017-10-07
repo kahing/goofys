@@ -351,6 +351,15 @@ if [ "$t" = "find_find" ]; then
     done
 fi
 
+if [ "$t" = "issue231" ]; then
+    run_test write_md5
+    (for i in $(seq 1 20); do
+         run_test read_md5 & true
+    done; wait);
+    rm largefile
+fi
+
+
 if [ "$t" = "cleanup" ]; then
     rm -Rf *
     test=dummy

@@ -1109,6 +1109,14 @@ func (s *GoofysTest) TestBenchFindTree(t *C) {
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "find")
 }
 
+func (s *GoofysTest) TestIssue231(t *C) {
+	if isTravis() {
+		t.Skip("disable in travis, not sure if it has enough memory")
+	}
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "issue231")
+}
+
 func (s *GoofysTest) TestChmod(t *C) {
 	root := s.getRoot(t)
 
