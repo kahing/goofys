@@ -30,6 +30,8 @@ import (
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
 	"github.com/jacobsa/fuse/fuseutil"
+
+	"github.com/sirupsen/logrus"
 )
 
 type InodeAttributes struct {
@@ -112,11 +114,13 @@ func (inode *Inode) InflateAttributes() (attr fuseops.InodeAttributes) {
 }
 
 func (inode *Inode) logFuse(op string, args ...interface{}) {
-	fuseLog.Debugln(op, inode.Id, inode.FullName(), args)
+	if fuseLog.Level >= logrus.DebugLevel {
+		fuseLog.Debugln(op, inode.Id, *inode.FullName(), args)
+	}
 }
 
 func (inode *Inode) errFuse(op string, args ...interface{}) {
-	fuseLog.Errorln(op, inode.Id, inode.FullName(), args)
+	fuseLog.Errorln(op, inode.Id, *inode.FullName(), args)
 }
 
 func (inode *Inode) ToDir() {
