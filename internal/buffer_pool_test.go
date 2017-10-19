@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"io"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -115,6 +116,18 @@ func CompareReader(r1, r2 io.Reader) (int, error) {
 	} else {
 		return nread2, err
 	}
+}
+func Readerwitherror(r1 io.Reader) (int, error) {
+	var buf1 [1337]byte
+
+	r1.(*Buffer).reader = nil
+	r1.(*Buffer).err = syscall.Errno(0xd)
+	nread, err := r1.Read(buf1[:])
+	if err != nil && err != io.EOF {
+		return -1, err
+	}
+
+	return nread, err
 }
 
 func (s *BufferTest) TestMBuf(t *C) {
@@ -243,4 +256,22 @@ func (s *BufferTest) TestIssue193(t *C) {
 	b.Close()
 
 	// readloop would have caused a panic
+}
+func (s *BufferTest) TestBufferwitherro(t *C) {
+	h := NewBufferPool(1000 * 1024 * 1024)
+
+	n := uint64(2 * BUF_SIZE)
+	mb := MBuf{}.Init(h, n, false)
+	t.Assert(len(mb.buffers), Equals, 2)
+
+	r := func() (io.ReadCloser, error) {
+		return &SlowReader{io.LimitReader(&SeqReader{}, int64(n)), 1 * time.Millisecond}, nil
+	}
+
+	b := Buffer{}.Init(mb, r)
+
+	nread, err := Readerwitherror(b)
+	t.Assert(err, Equals, syscall.Errno(0xd))
+	t.Assert(nread, Equals, -1)
+
 }
