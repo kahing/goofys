@@ -305,7 +305,7 @@ func (b *S3ReadBuffer) Read(offset uint64, p []byte) (n int, err error) {
 		if n != 0 && err == io.ErrUnexpectedEOF {
 			err = nil
 		}
-		if err == nil {
+		if n > 0 {
 			if uint32(n) > b.size {
 				panic(fmt.Sprintf("read more than available %v %v", n, b.size))
 			}
@@ -399,7 +399,7 @@ func (fh *FileHandle) ReadFile(offset int64, buf []byte) (bytesRead int, err err
 		fh.inode.logFuse("< ReadFile", bytesRead, err)
 
 		if err != nil {
-			if bytesRead > 0 || err == io.EOF {
+			if err == io.EOF {
 				err = nil
 			}
 		}
