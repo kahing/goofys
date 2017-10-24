@@ -38,7 +38,7 @@ $ go install github.com/kahing/goofys
 # Usage
 
 ```ShellSession
-$ cat > ~/.aws/credentials
+$ cat ~/.aws/credentials
 [default]
 aws_access_key_id = AKID1234567890
 aws_secret_access_key = MY-SECRET-KEY
