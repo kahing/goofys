@@ -377,7 +377,9 @@ func (b *Buffer) Read(p []byte) (n int, err error) {
 		b.cond.Wait()
 	}
 
-	if b.buf != nil {
+	if b.err != nil && b.err != io.EOF {
+		err = b.err
+	} else if b.buf != nil {
 		bufferLog.Debugf("reading %v from buffer", len(p))
 
 		n, err = b.buf.Read(p)
@@ -389,8 +391,6 @@ func (b *Buffer) Read(p []byte) (n int, err error) {
 		} else {
 			bufferLog.Debugf("read %v from buffer", n)
 		}
-	} else if b.err != nil {
-		err = b.err
 	} else {
 		n, err = b.readFromStream(p)
 	}
