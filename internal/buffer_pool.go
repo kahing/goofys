@@ -375,6 +375,10 @@ func (b *Buffer) Read(p []byte) (n int, err error) {
 	for b.reader == nil && b.err == nil {
 		bufferLog.Debugf("waiting for stream")
 		b.cond.Wait()
+		if b.err != nil {
+			err = b.err
+			return
+		}
 	}
 
 	if b.buf != nil {

@@ -1927,3 +1927,27 @@ func (s *GoofysTest) TestRenameOverwrite(t *C) {
 	err = os.Rename(file, rename)
 	t.Assert(err, IsNil)
 }
+
+func (s *GoofysTest) TestRead403(t *C) {
+	s.fs.flags.StatCacheTTL = 1 * time.Minute
+	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+
+	// cache the inode first so we don't get 403 when we lookup
+	in, err := s.LookUpInode(t, "file1")
+	t.Assert(err, IsNil)
+
+	fh, err := in.OpenFile()
+	t.Assert(err, IsNil)
+
+	s.fs.awsConfig.Credentials = credentials.AnonymousCredentials
+	s.fs.sess = session.New(s.fs.awsConfig)
+	s.fs.s3 = s.fs.newS3()
+
+	// fake enable read-ahead
+	fh.seqReadAmount = uint64(READAHEAD_CHUNK)
+
+	buf := make([]byte, 5)
+
+	_, err = fh.ReadFile(0, buf)
+	t.Assert(err, Equals, syscall.EACCES)
+}
