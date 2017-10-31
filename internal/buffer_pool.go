@@ -381,6 +381,15 @@ func (b *Buffer) Read(p []byte) (n int, err error) {
 		}
 	}
 
+	// we could have received the err before Read was called
+	if b.reader == nil {
+		if b.err == nil {
+			panic("reader and err are both nil")
+		}
+		err = b.err
+		return
+	}
+
 	if b.buf != nil {
 		bufferLog.Debugf("reading %v from buffer", len(p))
 
