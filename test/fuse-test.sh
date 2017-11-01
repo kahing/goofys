@@ -453,6 +453,40 @@ function test_write_after_seek_ahead {
    rm testfile
 }
 
+function test_rmdir_withfdopen {
+    
+    mkdir -p  $TEST_BUCKET_MOUNT_POINT_1/$TEST_DIR/test
+    mkdir -p  $TEST_BUCKET_MOUNT_POINT_1/$TEST_DIR/test1
+    echo "ls mountpoint"
+    lsout0=`ls -lah $TEST_BUCKET_MOUNT_POINT_1/`
+    echo $lsout0
+
+
+
+   nohup /root/go/src/github.com/kahing/goofys/test/rmdirwihtopen/lsunconsistency $TEST_BUCKET_MOUNT_POINT_1/$TEST_DIR/test a > /dev/null 2>&1 &
+   openpid=$!
+    rm -rf $TEST_BUCKET_MOUNT_POINT_1/$TEST_DIR/test
+    echo "ls $TEST_BUCKET_MOUNT_POINT_1/$TEST_DIR"
+    lsout1=`ls $TEST_BUCKET_MOUNT_POINT_1/$TEST_DIR`
+    echo $lsout1
+
+    echo "ls -lah $TEST_BUCKET_MOUNT_POINT_1/$TEST_DIR"
+    lsout2=`ls $TEST_BUCKET_MOUNT_POINT_1/$TEST_DIR`
+    echo $lsout2
+
+
+    echo "should only test1 dir by ls"
+
+    lsout=`ls $TEST_BUCKET_MOUNT_POINT_1/$TEST_DIR|uniq -c|grep 2|wc -l`
+
+
+    if [[ "$lsout" != 0 ]] ; then
+      exit 1
+    fi
+
+      echo `kill -9  $openpid`
+}
+
 function run_all_tests {
     test_append_file
     #test_truncate_file
@@ -479,6 +513,7 @@ function run_all_tests {
     if [ "$CATFS" == "true" ]; then
         test_write_after_seek_ahead
     fi
+    test_rmdir_withfdopen
 }
 
 # Mount the bucket
