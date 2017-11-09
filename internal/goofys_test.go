@@ -1956,3 +1956,77 @@ func (s *GoofysTest) TestRead403(t *C) {
 	_, err = fh.ReadFile(0, buf)
 	t.Assert(err, Equals, syscall.EACCES)
 }
+
+func (s *GoofysTest) TestRmdirWithDiropen(t *C) {
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+	s.fs.flags.StatCacheTTL = 1 * time.Minute
+	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+
+	s.mount(t, mountPoint)
+	defer s.umount(t, mountPoint)
+
+	err := os.MkdirAll(mountPoint+"/dir2/dir4", 0700)
+	t.Assert(err, IsNil)
+	err = os.MkdirAll(mountPoint+"/dir2/dir5", 0700)
+	t.Assert(err, IsNil)
+
+	//1, open dir5
+	dir := mountPoint + "/dir2/dir5"
+	fh, err := os.Open(dir)
+	t.Assert(err, IsNil)
+	defer fh.Close()
+
+	cmd1 := exec.Command("ls", mountPoint+"/dir2")
+	//out, err := cmd.Output()
+	out1, err1 := cmd1.Output()
+	if err1 != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			panic(ee.Stderr)
+		}
+	}
+	t.Assert(string(out1), DeepEquals, ""+"dir3\n"+"dir4\n"+"dir5\n")
+
+	//2, rm -rf dir5
+	cmd := exec.Command("rm", "-rf", dir)
+	_, err = cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			panic(ee.Stderr)
+		}
+	}
+
+	//3,  readdir dir2
+	fh1, err := os.Open(mountPoint + "/dir2")
+	t.Assert(err, IsNil)
+	defer func() {
+		// close the file if the test failed so we can unmount
+		if fh1 != nil {
+			fh1.Close()
+		}
+	}()
+
+	names, err := fh1.Readdirnames(0)
+	t.Assert(err, IsNil)
+	t.Assert(names, DeepEquals, []string{"dir3", "dir4"})
+
+	cmd = exec.Command("ls", mountPoint+"/dir2")
+	out, err := cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			panic(ee.Stderr)
+		}
+	}
+
+	t.Assert(string(out), DeepEquals, ""+"dir3\n"+"dir4\n")
+
+	err = fh1.Close()
+	t.Assert(err, IsNil)
+
+	// 4,reset env
+	err = fh.Close()
+	t.Assert(err, IsNil)
+
+	err = os.RemoveAll(mountPoint + "/dir2/dir4")
+	t.Assert(err, IsNil)
+
+}

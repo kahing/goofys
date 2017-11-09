@@ -305,6 +305,15 @@ func (parent *Inode) Unlink(name string) (err error) {
 
 	s3Log.Debug(resp)
 
+	parent.mu.Lock()
+	defer parent.mu.Unlock()
+
+	inode := parent.findChildUnlocked(name, false)
+	if inode != nil {
+		parent.removeChildUnlocked(inode)
+		inode.Parent = nil
+	}
+
 	return
 }
 
@@ -404,9 +413,7 @@ func isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
 	return
 }
 
-func (parent *Inode) RmDir(
-	name string) (err error) {
-
+func (parent *Inode) RmDir(name string) (err error) {
 	parent.logFuse("Rmdir", name)
 
 	fullName := parent.getChildName(name)
@@ -430,6 +437,16 @@ func (parent *Inode) RmDir(
 	_, err = fs.s3.DeleteObject(params)
 	if err != nil {
 		return mapAwsError(err)
+	}
+
+	// we know this entry is gone
+	parent.mu.Lock()
+	defer parent.mu.Unlock()
+
+	inode := parent.findChildUnlocked(name, true)
+	if inode != nil {
+		parent.removeChildUnlocked(inode)
+		inode.Parent = nil
 	}
 
 	return
