@@ -43,7 +43,7 @@ type Inode struct {
 	Id         fuseops.InodeID
 	Name       *string
 	fs         *Goofys
-	Attributes *InodeAttributes
+	Attributes InodeAttributes
 	KnownSize  *uint64
 	AttrTime   time.Time
 
@@ -124,7 +124,7 @@ func (inode *Inode) errFuse(op string, args ...interface{}) {
 }
 
 func (inode *Inode) ToDir() {
-	inode.Attributes = &inode.fs.rootAttrs
+	inode.Attributes = inode.fs.rootAttrs
 	inode.dir = &DirInodeData{}
 	inode.KnownSize = &inode.fs.rootAttrs.Size
 }
@@ -329,7 +329,7 @@ func (parent *Inode) Create(
 
 	now := time.Now()
 	inode = NewInode(fs, parent, &name, &fullName)
-	inode.Attributes = &InodeAttributes{
+	inode.Attributes = InodeAttributes{
 		Size:  0,
 		Mtime: now,
 	}
@@ -377,6 +377,8 @@ func (parent *Inode) MkDir(
 
 	inode = NewInode(fs, parent, &name, &fullName)
 	inode.ToDir()
+	inode.touch()
+	parent.Attributes.Mtime = inode.Attributes.Mtime
 
 	return
 }
@@ -1023,7 +1025,7 @@ func (parent *Inode) readDirFromCache(offset fuseops.DirOffset) (en *DirHandleEn
 			Name:       child.Name,
 			Inode:      child.Id,
 			Offset:     offset + 1,
-			Attributes: child.Attributes,
+			Attributes: &child.Attributes,
 		}
 		if child.isDir() {
 			en.Type = fuseutil.DT_Directory
@@ -1097,7 +1099,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 			err = nil
 			// XXX/TODO if both object and object/ exists, return dir
 			inode = NewInode(parent.fs, parent, &name, &fullName)
-			inode.Attributes = &InodeAttributes{
+			inode.Attributes = InodeAttributes{
 				Size:  uint64(aws.Int64Value(resp.ContentLength)),
 				Mtime: *resp.LastModified,
 			}
@@ -1147,6 +1149,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 			err = nil
 			inode = NewInode(parent.fs, parent, &name, &fullName)
 			inode.ToDir()
+			inode.Attributes.Mtime = *resp.LastModified
 			inode.fillXattrFromHead(&resp)
 			return
 		case err = <-errDirBlobChan:

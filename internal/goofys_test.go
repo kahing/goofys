@@ -1707,18 +1707,18 @@ func (s *GoofysTest) TestInodeInsert(t *C) {
 	root := s.getRoot(t)
 
 	in := NewInode(s.fs, root, aws.String("2"), aws.String("2"))
-	in.Attributes = &InodeAttributes{}
+	in.Attributes = InodeAttributes{}
 	root.insertChild(in)
 	t.Assert(*root.dir.Children[0].Name, Equals, "2")
 
 	in = NewInode(s.fs, root, aws.String("1"), aws.String("1"))
-	in.Attributes = &InodeAttributes{}
+	in.Attributes = InodeAttributes{}
 	root.insertChild(in)
 	t.Assert(*root.dir.Children[0].Name, Equals, "1")
 	t.Assert(*root.dir.Children[1].Name, Equals, "2")
 
 	in = NewInode(s.fs, root, aws.String("4"), aws.String("4"))
-	in.Attributes = &InodeAttributes{}
+	in.Attributes = InodeAttributes{}
 	root.insertChild(in)
 	t.Assert(*root.dir.Children[0].Name, Equals, "1")
 	t.Assert(*root.dir.Children[1].Name, Equals, "2")
@@ -2029,4 +2029,40 @@ func (s *GoofysTest) TestRmdirWithDiropen(t *C) {
 	err = os.RemoveAll(mountPoint + "/dir2/dir4")
 	t.Assert(err, IsNil)
 
+}
+
+func (s *GoofysTest) TestDirMTime(t *C) {
+	s.fs.flags.StatCacheTTL = 1 * time.Minute
+	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+
+	root := s.getRoot(t)
+
+	dir1, err := s.LookUpInode(t, "dir1")
+	t.Assert(err, IsNil)
+
+	time.Sleep(time.Second)
+
+	m1 := dir1.Attributes.Mtime
+
+	dir2, err := dir1.MkDir("dir2")
+	t.Assert(err, IsNil)
+
+	m2 := dir2.Attributes.Mtime
+	t.Assert(m1.Before(m2), Equals, true)
+	t.Assert(root.Attributes.Mtime.Before(m2), Equals, true)
+
+	// dir1's mtime should update now that we did a mkdir inside it
+	m1 = dir1.Attributes.Mtime
+	t.Assert(m1, Equals, m2)
+
+	// simulate forget inode so we will retrieve the inode again
+	dir1.removeChild(dir2)
+
+	dir2, err = dir1.LookUp("dir2")
+	t.Assert(err, IsNil)
+
+	// the new time comes from S3 which only has seconds
+	// granularity
+	m2 = dir2.Attributes.Mtime
+	t.Assert(root.Attributes.Mtime.Before(m2), Equals, true)
 }

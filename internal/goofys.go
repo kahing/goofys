@@ -739,7 +739,7 @@ func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) 
 		if entry.Type == fuseutil.DT_Directory {
 			inode.ToDir()
 		} else {
-			inode.Attributes = entry.Attributes
+			inode.Attributes = *entry.Attributes
 		}
 		if entry.ETag != nil {
 			inode.s3Metadata["etag"] = []byte(*entry.ETag)
