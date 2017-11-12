@@ -87,8 +87,8 @@ func (fh *FileHandle) initMPU() {
 		ContentType:  fs.getMimeType(*fh.inode.FullName()),
 	}
 
-	if fs.flags.RequestPayer{
-		params.RequestPayer = "RequestPayer"
+	if fs.flags.RequestPayer {
+		params.RequestPayer = aws.String("requester")
 	}
 
 	if fs.flags.UseSSE {
@@ -140,8 +140,8 @@ func (fh *FileHandle) mpuPartNoSpawn(buf *MBuf, part int) (err error) {
 		Body:       buf,
 	}
 
-	if fs.flags.RequestPayer{
-		params.RequestPayer = "RequestPayer"
+	if fs.flags.RequestPayer {
+		params.RequestPayer = aws.String("requester")
 	}
 
 	s3Log.Debug(params)
@@ -291,8 +291,8 @@ func (b S3ReadBuffer) Init(fh *FileHandle, offset uint64, size uint32) *S3ReadBu
 			Key:    fs.key(*fh.inode.FullName()),
 		}
 
-		if fs.flags.RequestPayer{
-			params.RequestPayer = "RequestPayer"
+		if fs.flags.RequestPayer {
+			params.RequestPayer = aws.String("requester")
 		}
 
 		bytes := fmt.Sprintf("bytes=%v-%v", offset, offset+uint64(size)-1)
@@ -564,8 +564,8 @@ func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, e
 			Key:    fs.key(*fh.inode.FullName()),
 		}
 
-		if fs.flags.RequestPayer{
-			params.RequestPayer = "RequestPayer"
+		if fs.flags.RequestPayer {
+			params.RequestPayer = aws.String("requester")
 		}
 
 		if offset != 0 {
@@ -617,8 +617,8 @@ func (fh *FileHandle) flushSmallFile() (err error) {
 		ContentType:  fs.getMimeType(*fh.inode.FullName()),
 	}
 
-	if fs.flags.RequestPayer{
-		params.RequestPayer = "RequestPayer"
+	if fs.flags.RequestPayer {
+		params.RequestPayer = aws.String("requester")
 	}	
 
 	if fs.flags.UseSSE {
@@ -679,8 +679,8 @@ func (fh *FileHandle) FlushFile() (err error) {
 						UploadId: fh.mpuId,
 					}
 
-					if fs.flags.RequestPayer{
-						params.RequestPayer = "RequestPayer"
+					if fs.flags.RequestPayer {
+						params.RequestPayer = aws.String("requester")
 					}
 
 					fh.mpuId = nil
@@ -746,8 +746,8 @@ func (fh *FileHandle) FlushFile() (err error) {
 		},
 	}
 
-	if fs.flags.RequestPayer{
-		params.RequestPayer = "RequestPayer"
+	if fs.flags.RequestPayer {
+		params.RequestPayer = aws.String("requester")
 	}
 
 	s3Log.Debug(params)
