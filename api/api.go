@@ -1,7 +1,7 @@
 package goofys
 
 import (
-	. "github.com/msmitherdc/goofys/internal"
+	. "github.com/kahing/goofys/internal"
 
 	"fmt"
 	"os"
