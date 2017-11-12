@@ -362,7 +362,7 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		Endpoint:       c.String("endpoint"),
 		Region:         c.String("region"),
 		RegionSet:      c.IsSet("region"),
-		RequestPayer    c.Bool("request-payer"),
+		RequestPayer:   c.Bool("request-payer"),
 		StorageClass:   c.String("storage-class"),
 		Profile:        c.String("profile"),
 		UseContentType: c.Bool("use-content-type"),
