@@ -272,7 +272,12 @@ func RandStringBytesMaskImprSrc(n int) string {
 func (fs *Goofys) testBucket() (err error) {
 	randomObjectName := fs.key(RandStringBytesMaskImprSrc(32))
 
-	_, err = fs.s3.HeadObject(&s3.HeadObjectInput{Bucket: &fs.bucket, Key: randomObjectName})
+	if fs.flags.RequestPayer{
+		_, err = fs.s3.HeadObject(&s3.HeadObjectInput{Bucket: &fs.bucket, Key: randomObjectName, RequestPayer: "RequestPayer"})
+	} else {
+	   _, err = fs.s3.HeadObject(&s3.HeadObjectInput{Bucket: &fs.bucket, Key: randomObjectName})  
+    }
+
 	if err != nil {
 		err = mapAwsError(err)
 		if err == fuse.ENOENT {
@@ -387,6 +392,11 @@ func (fs *Goofys) cleanUpOldMPU() {
 				Key:      upload.Key,
 				UploadId: upload.UploadId,
 			}
+
+			if fs.flags.RequestPayer{
+				params.RequestPayer = "RequestPayer"
+			}
+			
 			resp, err := fs.s3.AbortMultipartUpload(params)
 			s3Log.Debug(resp)
 

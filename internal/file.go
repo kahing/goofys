@@ -87,6 +87,10 @@ func (fh *FileHandle) initMPU() {
 		ContentType:  fs.getMimeType(*fh.inode.FullName()),
 	}
 
+	if fs.flags.RequestPayer{
+		params.RequestPayer = "RequestPayer"
+	}
+
 	if fs.flags.UseSSE {
 		params.ServerSideEncryption = &fs.sseType
 		if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
@@ -134,6 +138,10 @@ func (fh *FileHandle) mpuPartNoSpawn(buf *MBuf, part int) (err error) {
 		PartNumber: aws.Int64(int64(part)),
 		UploadId:   fh.mpuId,
 		Body:       buf,
+	}
+
+	if fs.flags.RequestPayer{
+		params.RequestPayer = "RequestPayer"
 	}
 
 	s3Log.Debug(params)
@@ -281,6 +289,10 @@ func (b S3ReadBuffer) Init(fh *FileHandle, offset uint64, size uint32) *S3ReadBu
 		params := &s3.GetObjectInput{
 			Bucket: &fs.bucket,
 			Key:    fs.key(*fh.inode.FullName()),
+		}
+
+		if fs.flags.RequestPayer{
+			params.RequestPayer = "RequestPayer"
 		}
 
 		bytes := fmt.Sprintf("bytes=%v-%v", offset, offset+uint64(size)-1)
@@ -552,6 +564,10 @@ func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, e
 			Key:    fs.key(*fh.inode.FullName()),
 		}
 
+		if fs.flags.RequestPayer{
+			params.RequestPayer = "RequestPayer"
+		}
+
 		if offset != 0 {
 			bytes := fmt.Sprintf("bytes=%v-", offset)
 			params.Range = &bytes
@@ -600,6 +616,10 @@ func (fh *FileHandle) flushSmallFile() (err error) {
 		StorageClass: &fs.flags.StorageClass,
 		ContentType:  fs.getMimeType(*fh.inode.FullName()),
 	}
+
+	if fs.flags.RequestPayer{
+		params.RequestPayer = "RequestPayer"
+	}	
 
 	if fs.flags.UseSSE {
 		params.ServerSideEncryption = &fs.sseType
@@ -657,6 +677,10 @@ func (fh *FileHandle) FlushFile() (err error) {
 						Bucket:   &fs.bucket,
 						Key:      fs.key(*fh.inode.FullName()),
 						UploadId: fh.mpuId,
+					}
+
+					if fs.flags.RequestPayer{
+						params.RequestPayer = "RequestPayer"
 					}
 
 					fh.mpuId = nil
@@ -720,6 +744,10 @@ func (fh *FileHandle) FlushFile() (err error) {
 		MultipartUpload: &s3.CompletedMultipartUpload{
 			Parts: parts,
 		},
+	}
+
+	if fs.flags.RequestPayer{
+		params.RequestPayer = "RequestPayer"
 	}
 
 	s3Log.Debug(params)
