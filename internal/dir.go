@@ -150,6 +150,10 @@ func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *s3.ListObjectsOutput
 		Marker: marker,
 	}
 
+	if fs.flags.RequestPayer {
+		params.RequestPayer = aws.String("requester")
+	}	
+
 	resp, err = fs.s3.ListObjects(params)
 	if err != nil {
 		s3Log.Errorf("ListObjects %v = %v", params, err)
@@ -246,6 +250,11 @@ func (dh *DirHandle) listObjects(prefix string) (resp *s3.ListObjectsOutput, err
 			Marker:    dh.Marker,
 			Prefix:    &prefix,
 		}
+
+		if fs.flags.RequestPayer {
+			params.RequestPayer = aws.String("requester")
+		}	
+
 
 		resp, err := fs.s3.ListObjects(params)
 		if err != nil {
