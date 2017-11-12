@@ -16,7 +16,7 @@
 package main
 
 import (
-	goofys "github.com/msmitherc/goofys/api"
+	goofys "github.com/msmitherdc/goofys/api"
 	. "github.com/msmitherdc/goofys/internal"
 
 	"fmt"
