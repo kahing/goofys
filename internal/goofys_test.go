@@ -2034,25 +2034,33 @@ func (s *GoofysTest) TestRmdirWithDiropen(t *C) {
 func (s *GoofysTest) TestDirMTime(t *C) {
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+	// enable cheap to ensure GET dir/ will come back before LIST dir/
+	s.fs.flags.Cheap = true
 
 	root := s.getRoot(t)
+	t.Assert(time.Time{}.Before(root.Attributes.Mtime), Equals, true)
 
 	dir1, err := s.LookUpInode(t, "dir1")
 	t.Assert(err, IsNil)
 
-	time.Sleep(time.Second)
+	attr1, _ := dir1.GetAttributes()
+	m1 := attr1.Mtime
+	// dir1 doesn't have a dir blob, so should take root's mtime
+	t.Assert(m1, Equals, root.Attributes.Mtime)
 
-	m1 := dir1.Attributes.Mtime
+	time.Sleep(2 * time.Second)
 
 	dir2, err := dir1.MkDir("dir2")
 	t.Assert(err, IsNil)
 
-	m2 := dir2.Attributes.Mtime
-	t.Assert(m1.Before(m2), Equals, true)
-	t.Assert(root.Attributes.Mtime.Before(m2), Equals, true)
+	attr2, _ := dir2.GetAttributes()
+	m2 := attr2.Mtime
+	t.Assert(m1.Add(2*time.Second).Before(m2), Equals, true)
 
-	// dir1's mtime should update now that we did a mkdir inside it
-	m1 = dir1.Attributes.Mtime
+	// dir1 didn't have an explicit mtime, so it should update now
+	// that we did a mkdir inside it
+	attr1, _ = dir1.GetAttributes()
+	m1 = attr1.Mtime
 	t.Assert(m1, Equals, m2)
 
 	// simulate forget inode so we will retrieve the inode again
@@ -2063,6 +2071,68 @@ func (s *GoofysTest) TestDirMTime(t *C) {
 
 	// the new time comes from S3 which only has seconds
 	// granularity
-	m2 = dir2.Attributes.Mtime
-	t.Assert(root.Attributes.Mtime.Before(m2), Equals, true)
+	attr2, _ = dir2.GetAttributes()
+	t.Assert(m2, Not(Equals), attr2.Mtime)
+	t.Assert(root.Attributes.Mtime.Add(time.Second).Before(attr2.Mtime), Equals, true)
+
+	// different dir2
+	dir2, err = s.LookUpInode(t, "dir2")
+	t.Assert(err, IsNil)
+
+	attr2, _ = dir2.GetAttributes()
+	m2 = attr2.Mtime
+
+	// this fails because we are listing dir/, which means we
+	// don't actually see the dir blob dir2/dir3/ (it's returned
+	// as common prefix), so we can't get dir3's mtime
+	if false {
+		// dir2/dir3/ exists and has mtime
+		s.readDirIntoCache(t, dir2.Id)
+		dir3, err := s.LookUpInode(t, "dir2/dir3")
+		t.Assert(err, IsNil)
+
+		attr3, _ := dir3.GetAttributes()
+		// setupDefaultEnv is before mounting
+		t.Assert(attr3.Mtime.Before(m2), Equals, true)
+	}
+
+	time.Sleep(time.Second)
+
+	params := &s3.PutObjectInput{
+		Bucket: &s.fs.bucket,
+		Key:    aws.String("dir2/newfile"),
+		Body:   bytes.NewReader([]byte("foo")),
+	}
+	_, err = s.s3.PutObject(params)
+	t.Assert(err, IsNil)
+
+	s.readDirIntoCache(t, dir2.Id)
+
+	newfile, err := dir2.LookUp("newfile")
+	t.Assert(err, IsNil)
+
+	attr2New, _ := dir2.GetAttributes()
+	// mtime should reflect that of the latest object
+	t.Assert(attr2New.Mtime, Equals, newfile.Attributes.Mtime)
+	t.Assert(m2.Before(attr2New.Mtime), Equals, true)
+}
+
+func (s *GoofysTest) TestDirMTimeNoTTL(t *C) {
+	// enable cheap to ensure GET dir/ will come back before LIST dir/
+	s.fs.flags.Cheap = true
+
+	dir2, err := s.LookUpInode(t, "dir2")
+	t.Assert(err, IsNil)
+
+	attr2, _ := dir2.GetAttributes()
+	m2 := attr2.Mtime
+
+	// dir2/dir3/ exists and has mtime
+	s.readDirIntoCache(t, dir2.Id)
+	dir3, err := s.LookUpInode(t, "dir2/dir3")
+	t.Assert(err, IsNil)
+
+	attr3, _ := dir3.GetAttributes()
+	// setupDefaultEnv is before mounting
+	t.Assert(attr3.Mtime.Before(m2), Equals, true)
 }

@@ -196,6 +196,7 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 	root := NewInode(fs, nil, aws.String(""), aws.String(""))
 	root.Id = fuseops.RootInodeID
 	root.ToDir()
+	root.Attributes.Mtime = fs.rootAttrs.Mtime
 
 	fs.inodes[fuseops.RootInodeID] = root
 
@@ -658,6 +659,9 @@ func (fs *Goofys) LookUpInode(
 			}
 			parent.mu.Unlock()
 		} else {
+			if newInode.Attributes.Mtime.IsZero() {
+				newInode.Attributes.Mtime = inode.Attributes.Mtime
+			}
 			inode.Attributes = newInode.Attributes
 			inode.AttrTime = time.Now()
 		}
