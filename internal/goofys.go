@@ -1104,7 +1104,7 @@ func (fs *Goofys) Rename(
 			// flushed it yet, pretend that's ok because
 			// when we flush we will handle the rename
 			inode := parent.findChildUnlocked(op.OldName, false)
-			if inode.fileHandles != 0 {
+			if inode != nil && inode.fileHandles != 0 {
 				err = nil
 			}
 		}
