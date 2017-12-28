@@ -593,11 +593,15 @@ func (fh *FileHandle) flushSmallFile() (err error) {
 
 	fs := fh.inode.fs
 
+	storageClass := fs.flags.StorageClass
+	if fh.nextWriteOffset < 128*1024 && storageClass == "STANDARD_IA" {
+		storageClass = "STANDARD"
+   }
 	params := &s3.PutObjectInput{
 		Bucket:       &fs.bucket,
 		Key:          fs.key(*fh.inode.FullName()),
 		Body:         buf,
-		StorageClass: &fs.flags.StorageClass,
+		StorageClass: &storageClass,
 		ContentType:  fs.getMimeType(*fh.inode.FullName()),
 	}
 
