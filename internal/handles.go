@@ -886,11 +886,16 @@ func copyObjectMaybeMultipart(fs *Goofys, size int64, from string, to string, sr
 		return copyObjectMultipart(fs, size, from, to, "", srcEtag, metadata)
 	}
 
+	storageClass := fs.flags.StorageClass
+	if size < 128*1024 && storageClass == "STANDARD_IA" {
+		storageClass = "STANDARD"
+	}
+
 	params := &s3.CopyObjectInput{
 		Bucket:            &fs.bucket,
 		CopySource:        aws.String(pathEscape(from)),
 		Key:               fs.key(to),
-		StorageClass:      &fs.flags.StorageClass,
+		StorageClass:      &storageClass,
 		ContentType:       fs.getMimeType(to),
 		Metadata:          metadata,
 		MetadataDirective: aws.String(s3.MetadataDirectiveReplace),
