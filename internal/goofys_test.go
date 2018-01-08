@@ -133,6 +133,14 @@ func selectTestConfig(t *C) *aws.Config {
 			//LogLevel:         aws.LogLevel(aws.LogDebug | aws.LogDebugWithSigning),
 			S3ForcePathStyle: aws.Bool(true),
 		}
+	} else if hasEnv("GCS") {
+		return &aws.Config{
+			Region:      aws.String("us-west1"),
+			Endpoint:    aws.String("http://storage.googleapis.com"),
+			Credentials: credentials.NewSharedCredentials("", os.Getenv("GCS")),
+			//LogLevel:         aws.LogLevel(aws.LogDebug | aws.LogDebugWithSigning),
+			S3ForcePathStyle: aws.Bool(true),
+		}
 	} else if hasEnv("MINIO") {
 		return &aws.Config{
 			Credentials: credentials.NewStaticCredentials("Q3AM3UQ867SPQQA43P2F",
@@ -170,19 +178,38 @@ func (s *GoofysTest) deleteBucket(t *C) {
 	resp, err := s.s3.ListObjects(&s3.ListObjectsInput{Bucket: &s.fs.bucket})
 	t.Assert(err, IsNil)
 
-	num_objs := len(resp.Contents)
+	if hasEnv("GCS") {
+		// GCS does not have multi-delete
+		var wg sync.WaitGroup
 
-	var items s3.Delete
-	var objs = make([]*s3.ObjectIdentifier, num_objs)
+		for _, o := range resp.Contents {
+			wg.Add(1)
+			key := *o.Key
+			go func() {
+				_, err = s.s3.DeleteObject(&s3.DeleteObjectInput{
+					Bucket: &s.fs.bucket,
+					Key:    &key,
+				})
+				wg.Done()
+				t.Assert(err, IsNil)
+			}()
+		}
+		wg.Wait()
+	} else {
+		num_objs := len(resp.Contents)
 
-	for i, o := range resp.Contents {
-		objs[i] = &s3.ObjectIdentifier{Key: aws.String(*o.Key)}
+		var items s3.Delete
+		var objs = make([]*s3.ObjectIdentifier, num_objs)
+
+		for i, o := range resp.Contents {
+			objs[i] = &s3.ObjectIdentifier{Key: aws.String(*o.Key)}
+		}
+
+		// Add list of objects to delete to Delete object
+		items.SetObjects(objs)
+		_, err = s.s3.DeleteObjects(&s3.DeleteObjectsInput{Bucket: &s.fs.bucket, Delete: &items})
+		t.Assert(err, IsNil)
 	}
-
-	// Add list of objects to delete to Delete object
-	items.SetObjects(objs)
-	_, err = s.s3.DeleteObjects(&s3.DeleteObjectsInput{Bucket: &s.fs.bucket, Delete: &items})
-	t.Assert(err, IsNil)
 
 	s.s3.DeleteBucket(&s3.DeleteBucketInput{Bucket: &s.fs.bucket})
 }
@@ -278,6 +305,9 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		FileMode:     0700,
 		Uid:          uint32(uid),
 		Gid:          uint32(gid),
+	}
+	if hasEnv("GCS") {
+		flags.Endpoint = "http://storage.googleapis.com"
 	}
 	s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
 	t.Assert(s.fs, NotNil)
@@ -915,14 +945,9 @@ func (s *GoofysTest) TestConcurrentRefDeref(t *C) {
 }
 
 func hasEnv(env string) bool {
-	prefix := env + "="
-	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, prefix+"1") || strings.HasPrefix(e, prefix+"true") {
-			return true
-		}
-	}
+	v := os.Getenv(env)
 
-	return false
+	return !(v == "" || v == "0" || v == "false")
 }
 
 func isTravis() bool {
@@ -1218,7 +1243,7 @@ func (s *GoofysTest) TestPutMimeType(t *C) {
 
 	resp, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &file})
 	t.Assert(err, IsNil)
-	if hasEnv("AWS") {
+	if hasEnv("AWS") || hasEnv("GCS") {
 		t.Assert(*resp.ContentType, Equals, "binary/octet-stream")
 	} else {
 		// workaround s3proxy https://github.com/andrewgaul/s3proxy/issues/179

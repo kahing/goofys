@@ -344,7 +344,6 @@ func (parent *Inode) Create(
 
 	fh = NewFileHandle(inode)
 	fh.poolHandle = fs.bufferPool
-	fh.buf = MBuf{}.Init(fh.poolHandle, 0, true)
 	fh.dirty = true
 	inode.fileHandles = 1
 

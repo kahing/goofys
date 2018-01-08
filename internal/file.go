@@ -18,6 +18,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
+	"strconv"
 	"sync"
 	"syscall"
 
@@ -98,25 +100,48 @@ func (fh *FileHandle) initMPU() {
 		params.ACL = &fs.flags.ACL
 	}
 
-	resp, err := fs.s3.CreateMultipartUpload(params)
+	if !fs.gcs {
+		resp, err := fs.s3.CreateMultipartUpload(params)
 
-	fh.mu.Lock()
-	defer fh.mu.Unlock()
+		fh.mu.Lock()
+		defer fh.mu.Unlock()
 
-	if err != nil {
-		fh.lastWriteError = mapAwsError(err)
+		if err != nil {
+			fh.lastWriteError = mapAwsError(err)
+			s3Log.Errorf("CreateMultipartUpload %v = %v", *fh.mpuKey, err)
+		}
+
+		s3Log.Debug(resp)
+
+		fh.mpuId = resp.UploadId
+	} else {
+		req, _ := fs.s3.CreateMultipartUploadRequest(params)
+		// get rid of ?uploads=
+		req.HTTPRequest.URL.RawQuery = ""
+		req.HTTPRequest.Header.Set("x-goog-resumable", "start")
+
+		err := req.Send()
+		if err != nil {
+			fh.lastWriteError = mapAwsError(err)
+			s3Log.Errorf("CreateMultipartUpload %v = %v", *fh.mpuKey, err)
+		}
+
+		location := req.HTTPResponse.Header.Get("Location")
+		_, err = url.Parse(location)
+		if err != nil {
+			fh.lastWriteError = mapAwsError(err)
+			s3Log.Errorf("CreateMultipartUpload %v = %v", *fh.mpuKey, err)
+		}
+
+		fh.mpuId = &location
 	}
 
-	s3Log.Debug(resp)
-
-	fh.mpuId = resp.UploadId
 	fh.etags = make([]*string, 10000) // at most 10K parts
 
 	return
 }
 
-func (fh *FileHandle) mpuPartNoSpawn(buf *MBuf, part int) (err error) {
-	//fh.inode.logFuse("mpuPartNoSpawn", cap(buf), part)
+func (fh *FileHandle) mpuPartNoSpawn(buf *MBuf, part int, total int64, last bool) (err error) {
 	fs := fh.inode.fs
 
 	fs.replicators.Take(1, true)
@@ -128,31 +153,73 @@ func (fh *FileHandle) mpuPartNoSpawn(buf *MBuf, part int) (err error) {
 		return errors.New(fmt.Sprintf("invalid part number: %v", part))
 	}
 
-	params := &s3.UploadPartInput{
-		Bucket:     &fs.bucket,
-		Key:        fs.key(*fh.inode.FullName()),
-		PartNumber: aws.Int64(int64(part)),
-		UploadId:   fh.mpuId,
-		Body:       buf,
-	}
-
-	s3Log.Debug(params)
-
-	resp, err := fs.s3.UploadPart(params)
-	if err != nil {
-		return mapAwsError(err)
-	}
-
 	en := &fh.etags[part-1]
 
-	if *en != nil {
-		panic(fmt.Sprintf("etags for part %v already set: %v", part, **en))
+	if !fs.gcs {
+		params := &s3.UploadPartInput{
+			Bucket:     &fs.bucket,
+			Key:        fs.key(*fh.inode.FullName()),
+			PartNumber: aws.Int64(int64(part)),
+			UploadId:   fh.mpuId,
+			Body:       buf,
+		}
+
+		s3Log.Debug(params)
+
+		resp, err := fs.s3.UploadPart(params)
+		if err != nil {
+			return mapAwsError(err)
+		}
+
+		if *en != nil {
+			panic(fmt.Sprintf("etags for part %v already set: %v", part, **en))
+		}
+		*en = resp.ETag
+	} else {
+		// the mpuId serves as authentication token so
+		// technically we don't need to sign this anymore and
+		// can just use a plain HTTP request, but going
+		// through aws-sdk-go anyway to get retry handling
+		params := &s3.PutObjectInput{
+			Bucket: &fs.bucket,
+			Key:    fs.key(*fh.inode.FullName()),
+			Body:   buf,
+		}
+
+		s3Log.Debug(params)
+
+		req, _ := fs.s3.PutObjectRequest(params)
+		req.HTTPRequest.URL, _ = url.Parse(*fh.mpuId)
+
+		bufSize := buf.Len()
+		start := total - int64(bufSize)
+		end := total - 1
+		var size string
+		if last {
+			size = strconv.FormatInt(total, 10)
+		} else {
+			size = "*"
+		}
+
+		contentRange := fmt.Sprintf("bytes %v-%v/%v", start, end, size)
+
+		req.HTTPRequest.Header.Set("Content-Length", strconv.Itoa(bufSize))
+		req.HTTPRequest.Header.Set("Content-Range", contentRange)
+
+		err = req.Send()
+		if err != nil {
+			if req.HTTPResponse.StatusCode == 308 {
+				err = nil
+			} else {
+				return mapAwsError(err)
+			}
+		}
 	}
-	*en = resp.ETag
+
 	return
 }
 
-func (fh *FileHandle) mpuPart(buf *MBuf, part int) {
+func (fh *FileHandle) mpuPart(buf *MBuf, part int, total int64) {
 	defer func() {
 		fh.mpuWG.Done()
 	}()
@@ -166,7 +233,7 @@ func (fh *FileHandle) mpuPart(buf *MBuf, part int) {
 		}
 	}
 
-	err := fh.mpuPartNoSpawn(buf, part)
+	err := fh.mpuPartNoSpawn(buf, part, total, false)
 	if err != nil {
 		if fh.lastWriteError == nil {
 			fh.lastWriteError = mapAwsError(err)
@@ -199,6 +266,28 @@ func (fh *FileHandle) partSize() uint64 {
 	}
 }
 
+func (fh *FileHandle) uploadCurrentBuf(gcs bool) (err error) {
+	err = fh.waitForCreateMPU()
+	if err != nil {
+		return
+	}
+
+	fh.lastPartId++
+	part := fh.lastPartId
+	buf := fh.buf
+	fh.buf = nil
+
+	if !gcs {
+		fh.mpuWG.Add(1)
+		go fh.mpuPart(buf, part, fh.nextWriteOffset)
+	} else {
+		// GCS doesn't support concurrent uploads
+		err = fh.mpuPartNoSpawn(buf, part, fh.nextWriteOffset, false)
+	}
+
+	return
+}
+
 func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 	fh.inode.logFuse("WriteFile", offset, len(data))
 
@@ -219,32 +308,36 @@ func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 
 	if offset == 0 {
 		fh.poolHandle = fs.bufferPool
-		fh.buf = MBuf{}.Init(fh.poolHandle, 0, true)
 		fh.dirty = true
 	}
 
 	for {
-		if fh.buf == nil || fh.buf.Full() {
+		if fh.buf == nil {
+			fh.buf = MBuf{}.Init(fh.poolHandle, fh.partSize(), true)
+		}
+
+		if fh.buf.Full() {
+			err = fh.uploadCurrentBuf(fs.gcs)
+			if err != nil {
+				return
+			}
 			fh.buf = MBuf{}.Init(fh.poolHandle, fh.partSize(), true)
 		}
 
 		nCopied, _ := fh.buf.Write(data)
 		fh.nextWriteOffset += int64(nCopied)
 
-		if fh.buf.Full() {
-			// we filled this buffer, upload this part
-			err = fh.waitForCreateMPU()
-			if err != nil {
-				return
+		if !fs.gcs {
+			// don't upload a buffer post write for GCS
+			// because we want to leave a buffer until
+			// flush so that we can mark the last part
+			// specially
+			if fh.buf.Full() {
+				err = fh.uploadCurrentBuf(fs.gcs)
+				if err != nil {
+					return
+				}
 			}
-
-			fh.lastPartId++
-			part := fh.lastPartId
-			buf := fh.buf
-			fh.buf = nil
-			fh.mpuWG.Add(1)
-
-			go fh.mpuPart(buf, part)
 		}
 
 		if nCopied == len(data) {
@@ -586,7 +679,7 @@ func (fh *FileHandle) flushSmallFile() (err error) {
 	fh.buf = nil
 
 	if buf == nil {
-		panic(fmt.Sprintf("%s size is %d", *fh.inode.Name, fh.nextWriteOffset))
+		buf = MBuf{}.Init(fh.poolHandle, 0, true)
 	}
 
 	defer buf.Free()
@@ -704,37 +797,42 @@ func (fh *FileHandle) FlushFile() (err error) {
 	if fh.buf != nil {
 		// upload last part
 		nParts++
-		err = fh.mpuPartNoSpawn(fh.buf, nParts)
+		err = fh.mpuPartNoSpawn(fh.buf, nParts, fh.nextWriteOffset, true)
 		if err != nil {
 			return
 		}
 	}
 
-	parts := make([]*s3.CompletedPart, nParts)
-	for i := 0; i < nParts; i++ {
-		parts[i] = &s3.CompletedPart{
-			ETag:       fh.etags[i],
-			PartNumber: aws.Int64(int64(i + 1)),
+	if !fs.gcs {
+		parts := make([]*s3.CompletedPart, nParts)
+		for i := 0; i < nParts; i++ {
+			parts[i] = &s3.CompletedPart{
+				ETag:       fh.etags[i],
+				PartNumber: aws.Int64(int64(i + 1)),
+			}
 		}
+
+		params := &s3.CompleteMultipartUploadInput{
+			Bucket:   &fs.bucket,
+			Key:      fs.key(*fh.mpuKey),
+			UploadId: fh.mpuId,
+			MultipartUpload: &s3.CompletedMultipartUpload{
+				Parts: parts,
+			},
+		}
+
+		s3Log.Debug(params)
+
+		resp, err := fs.s3.CompleteMultipartUpload(params)
+		if err != nil {
+			return mapAwsError(err)
+		}
+
+		s3Log.Debug(resp)
+	} else {
+		// nothing, we already uploaded last part
 	}
 
-	params := &s3.CompleteMultipartUploadInput{
-		Bucket:   &fs.bucket,
-		Key:      fs.key(*fh.mpuKey),
-		UploadId: fh.mpuId,
-		MultipartUpload: &s3.CompletedMultipartUpload{
-			Parts: parts,
-		},
-	}
-
-	s3Log.Debug(params)
-
-	resp, err := fs.s3.CompleteMultipartUpload(params)
-	if err != nil {
-		return mapAwsError(err)
-	}
-
-	s3Log.Debug(resp)
 	fh.mpuId = nil
 
 	if *fh.mpuKey != *fh.inode.FullName() {

@@ -66,6 +66,7 @@ type Goofys struct {
 	sess      *session.Session
 	s3        *s3.S3
 	v2Signer  bool
+	gcs       bool
 	sseType   string
 	rootAttrs InodeAttributes
 
@@ -127,6 +128,10 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 	if flags.DebugS3 {
 		awsConfig.LogLevel = aws.LogLevel(aws.LogDebug | aws.LogDebugWithRequestErrors)
 		s3Log.Level = logrus.DebugLevel
+	}
+
+	if strings.HasSuffix(flags.Endpoint, "/storage.googleapis.com") {
+		fs.gcs = true
 	}
 
 	fs.awsConfig = awsConfig
