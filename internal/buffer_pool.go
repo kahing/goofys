@@ -175,6 +175,28 @@ func (mb MBuf) Init(h *BufferPool, size uint64, block bool) *MBuf {
 	return &mb
 }
 
+func (mb *MBuf) Len() (length int) {
+	for i := mb.rbuf; i < int(len(mb.buffers)); i++ {
+		var bufSize int
+		var start int
+		if i == mb.wbuf {
+			bufSize = mb.wp
+		} else {
+			bufSize = int(len(mb.buffers[i]))
+		}
+
+		if i == mb.rbuf {
+			start = mb.rp
+		} else {
+			start = 0
+		}
+
+		length += bufSize - start
+	}
+
+	return
+}
+
 // seek only seeks the reader
 func (mb *MBuf) Seek(offset int64, whence int) (int64, error) {
 	switch whence {

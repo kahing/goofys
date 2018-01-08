@@ -182,6 +182,19 @@ func (s *BufferTest) TestBufferWrite(t *C) {
 	t.Assert(diff, Equals, -1)
 }
 
+func (s *BufferTest) TestBufferLen(t *C) {
+	h := NewBufferPool(1000 * 1024 * 1024)
+
+	n := uint64(2*BUF_SIZE - 1)
+	mb := MBuf{}.Init(h, n, true)
+	t.Assert(len(mb.buffers), Equals, 2)
+
+	nwritten, err := io.Copy(mb, io.LimitReader(&SeqReader{}, int64(n)))
+	t.Assert(nwritten, Equals, int64(n))
+	t.Assert(err, IsNil)
+	t.Assert(mb.Len(), Equals, int(n))
+}
+
 func (s *BufferTest) TestBuffer(t *C) {
 	h := NewBufferPool(1000 * 1024 * 1024)
 
