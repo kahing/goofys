@@ -2138,7 +2138,7 @@ func (s *GoofysTest) TestDirMTime(t *C) {
 
 	attr2New, _ := dir2.GetAttributes()
 	// mtime should reflect that of the latest object
-	t.Assert(attr2New.Mtime, Equals, newfile.Attributes.Mtime)
+	t.Assert(attr2New.Mtime.Equal(newfile.Attributes.Mtime), Equals, true)
 	t.Assert(m2.Before(attr2New.Mtime), Equals, true)
 }
 
