@@ -881,7 +881,7 @@ func copyObjectMaybeMultipart(fs *Goofys, size int64, from string, to string, sr
 
 	from = fs.bucket + "/" + *fs.key(from)
 
-	if size > 5*1024*1024*1024 {
+	if !fs.gcs && size > 5*1024*1024*1024 {
 		return copyObjectMultipart(fs, size, from, to, "", srcEtag, metadata)
 	}
 
