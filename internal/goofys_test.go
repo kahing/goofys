@@ -902,10 +902,12 @@ func (s *GoofysTest) TestRename(t *C) {
 	err = root.Rename(from, root, to)
 	t.Assert(err, Equals, fuse.ENOENT)
 
-	// not really rename but can be used by rename
-	from, to = s.fs.bucket+"/file2", "new_file"
-	err = copyObjectMultipart(s.fs, int64(len("file2")), from, to, "", nil, nil)
-	t.Assert(err, IsNil)
+	if !hasEnv("GCS") {
+		// not really rename but can be used by rename
+		from, to = s.fs.bucket+"/file2", "new_file"
+		err = copyObjectMultipart(s.fs, int64(len("file2")), from, to, "", nil, nil)
+		t.Assert(err, IsNil)
+	}
 }
 
 func (s *GoofysTest) TestConcurrentRefDeref(t *C) {
@@ -1243,8 +1245,10 @@ func (s *GoofysTest) TestPutMimeType(t *C) {
 
 	resp, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &file})
 	t.Assert(err, IsNil)
-	if hasEnv("AWS") || hasEnv("GCS") {
+	if hasEnv("AWS") {
 		t.Assert(*resp.ContentType, Equals, "binary/octet-stream")
+	} else if hasEnv("GCS") {
+		t.Assert(*resp.ContentType, Equals, "application/octet-stream")
 	} else {
 		// workaround s3proxy https://github.com/andrewgaul/s3proxy/issues/179
 		t.Assert(*resp.ContentType, Equals, "application/unknown")
@@ -2138,7 +2142,8 @@ func (s *GoofysTest) TestDirMTime(t *C) {
 
 	attr2New, _ := dir2.GetAttributes()
 	// mtime should reflect that of the latest object
-	t.Assert(attr2New.Mtime.Equal(newfile.Attributes.Mtime), Equals, true)
+	// GCS can return nano second resolution so truncate to second for compare
+	t.Assert(attr2New.Mtime.Unix(), Equals, newfile.Attributes.Mtime.Unix())
 	t.Assert(m2.Before(attr2New.Mtime), Equals, true)
 }
 
