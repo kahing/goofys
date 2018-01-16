@@ -410,7 +410,7 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 			flags.MountPoint = flags.MountPointCreated
 		}
 
-		cacheArgs = append([]string{"--test"}, cacheArgs...)
+		cacheArgs = append([]string{"--test", "-f"}, cacheArgs...)
 
 		if flags.MountPointArg == flags.MountPoint {
 			cacheArgs = append(cacheArgs, "-ononempty")
