@@ -3,14 +3,13 @@ package goofys
 import (
 	. "github.com/kahing/goofys/internal"
 
+	"context"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"time"
-
-	"golang.org/x/net/context"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
