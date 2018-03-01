@@ -320,6 +320,10 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 	fs := dh.inode.fs
 
 	if offset == 0 {
+		// content from the cache expired (otherwise we would
+		// have returned from above, so remove all of it
+		dh.inode.dir.Children = nil
+
 		en = &DirHandleEntry{
 			Name:       aws.String("."),
 			Type:       fuseutil.DT_Directory,
