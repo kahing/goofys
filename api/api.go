@@ -38,6 +38,7 @@ type Config struct {
 	Region         string
 	RegionSet      bool
 	StorageClass   string
+	RequestPayer   bool
 	Profile        string
 	UseContentType bool
 	UseSSE         bool

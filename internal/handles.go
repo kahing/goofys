@@ -200,8 +200,7 @@ func (parent *Inode) removeChildUnlocked(inode *Inode) {
 	}
 	i := sort.Search(l, parent.findInodeFunc(*inode.Name, inode.isDir()))
 	if i >= l || *parent.dir.Children[i].Name != *inode.Name {
-		panic(fmt.Sprintf("%v.removeName(%v) but child not found: %v",
-			*parent.FullName(), *inode.Name, i))
+		return
 	}
 
 	copy(parent.dir.Children[i:], parent.dir.Children[i+1:])
@@ -373,6 +372,10 @@ func (parent *Inode) MkDir(
 		}
 	}
 
+	if fs.flags.RequestPayer {
+		params.RequestPayer = aws.String("requester")
+	}
+
 	_, err = fs.s3.PutObject(params)
 	if err != nil {
 		err = mapAwsError(err)
@@ -400,6 +403,10 @@ func isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
 		Delimiter: aws.String("/"),
 		MaxKeys:   aws.Int64(2),
 		Prefix:    fs.key(fullName),
+	}
+
+	if fs.flags.RequestPayer {
+		params.RequestPayer = aws.String("requester")
 	}
 
 	resp, err := fs.s3.ListObjects(params)
@@ -443,6 +450,10 @@ func (parent *Inode) RmDir(name string) (err error) {
 	params := &s3.DeleteObjectInput{
 		Bucket: &fs.bucket,
 		Key:    fs.key(fullName),
+	}
+
+	if fs.flags.RequestPayer {
+		params.RequestPayer = aws.String("requester")
 	}
 
 	_, err = fs.s3.DeleteObject(params)
@@ -511,6 +522,11 @@ func (inode *Inode) fillXattr() (err error) {
 		fs := inode.fs
 
 		params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: fs.key(fullName)}
+
+		if fs.flags.RequestPayer {
+			params.RequestPayer = aws.String("requester")
+		}
+
 		resp, err := fs.s3.HeadObject(params)
 		if err != nil {
 			err = mapAwsError(err)
@@ -752,6 +768,10 @@ func mpuCopyPart(fs *Goofys, from string, to string, mpuId string, bytes string,
 		PartNumber:        &part,
 	}
 
+	if fs.flags.RequestPayer {
+		params.RequestPayer = aws.String("requester")
+	}
+
 	s3Log.Debug(params)
 
 	resp, err := fs.s3.UploadPartCopy(params)
@@ -811,6 +831,10 @@ func copyObjectMultipart(fs *Goofys, size int64, from string, to string, mpuId s
 			Metadata:     metadata,
 		}
 
+		if fs.flags.RequestPayer {
+			params.RequestPayer = aws.String("requester")
+		}
+
 		if fs.flags.UseSSE {
 			params.ServerSideEncryption = &fs.sseType
 			if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
@@ -853,6 +877,10 @@ func copyObjectMultipart(fs *Goofys, size int64, from string, to string, mpuId s
 			},
 		}
 
+		if fs.flags.RequestPayer {
+			params.RequestPayer = aws.String("requester")
+		}
+
 		s3Log.Debug(params)
 
 		_, err := fs.s3.CompleteMultipartUpload(params)
@@ -869,6 +897,11 @@ func copyObjectMaybeMultipart(fs *Goofys, size int64, from string, to string, sr
 
 	if size == -1 || srcEtag == nil || metadata == nil {
 		params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: fs.key(from)}
+
+		if fs.flags.RequestPayer {
+			params.RequestPayer = aws.String("requester")
+		}
+
 		resp, err := fs.s3.HeadObject(params)
 		if err != nil {
 			return mapAwsError(err)
@@ -907,6 +940,10 @@ func copyObjectMaybeMultipart(fs *Goofys, size int64, from string, to string, sr
 		if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
 			params.SSEKMSKeyId = &fs.flags.KMSKeyID
 		}
+	}
+
+	if fs.flags.RequestPayer {
+		params.RequestPayer = aws.String("requester")
 	}
 
 	if fs.flags.ACL != "" {
@@ -1061,6 +1098,11 @@ func (parent *Inode) readDirFromCache(offset fuseops.DirOffset) (en *DirHandleEn
 
 func (parent *Inode) LookUpInodeNotDir(name string, c chan s3.HeadObjectOutput, errc chan error) {
 	params := &s3.HeadObjectInput{Bucket: &parent.fs.bucket, Key: parent.fs.key(name)}
+
+	if parent.fs.flags.RequestPayer {
+		params.RequestPayer = aws.String("requester")
+	}
+
 	resp, err := parent.fs.s3.HeadObject(params)
 	if err != nil {
 		errc <- mapAwsError(err)
@@ -1077,6 +1119,10 @@ func (parent *Inode) LookUpInodeDir(name string, c chan s3.ListObjectsOutput, er
 		Delimiter: aws.String("/"),
 		MaxKeys:   aws.Int64(1),
 		Prefix:    parent.fs.key(name + "/"),
+	}
+
+	if parent.fs.flags.RequestPayer {
+		params.RequestPayer = aws.String("requester")
 	}
 
 	resp, err := parent.fs.s3.ListObjects(params)
