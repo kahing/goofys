@@ -167,20 +167,8 @@ func (fh *FileHandle) mpuPartNoSpawn(buf *MBuf, part int, total int64, last bool
 			UploadId:   fh.mpuId,
 			Body:       buf,
 		}
-        	
-                if fs.flags.RequestPayer{
-		    params.RequestPayer = "RequestPayer"
-	        }
 
-		if fs.flags.RequestPayer {
-			params.RequestPayer = aws.String("requester")
-		}
-
-		if fs.flags.RequestPayer {
-			params.RequestPayer = aws.String("requester")
-		}
-
-		if fs.flags.RequestPayer {
+ 		if fs.flags.RequestPayer {
 			params.RequestPayer = aws.String("requester")
 		}
 
