@@ -46,8 +46,10 @@ type Config struct {
 	ACL            string
 
 	// Tuning
-	Cheap        bool
-	ExplicitDir  bool
+	Cheap       bool
+	ExplicitDir bool
+	MaxKeys     int64
+
 	StatCacheTTL time.Duration
 	TypeCacheTTL time.Duration
 

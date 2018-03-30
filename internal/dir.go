@@ -244,6 +244,7 @@ func (dh *DirHandle) listObjects(prefix string) (resp *s3.ListObjectsOutput, err
 			Bucket:    &fs.bucket,
 			Delimiter: aws.String("/"),
 			Marker:    dh.Marker,
+			MaxKeys:   aws.Int64((*fs.flags).MaxKeys),
 			Prefix:    &prefix,
 		}
 

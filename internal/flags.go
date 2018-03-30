@@ -204,6 +204,11 @@ func NewApp() (app *cli.App) {
 				Name:  "no-implicit-dir",
 				Usage: "Assume all directory objects (\"dir/\") exist (default: off)",
 			},
+			cli.Int64Flag{
+				Name:  "max-keys",
+				Value: int64(1000),
+				Usage: "Maximum number of keys returned per one connection in the response body",
+			},
 
 			cli.DurationFlag{
 				Name:  "stat-cache-ttl",
@@ -250,7 +255,7 @@ func NewApp() (app *cli.App) {
 		flagCategories[f] = "aws"
 	}
 
-	for _, f := range []string{"cheap", "no-implicit-dir", "stat-cache-ttl", "type-cache-ttl"} {
+	for _, f := range []string{"cheap", "no-implicit-dir", "max-keys", "stat-cache-ttl", "type-cache-ttl"} {
 		flagCategories[f] = "tuning"
 	}
 
@@ -295,6 +300,7 @@ type FlagStorage struct {
 	// Tuning
 	Cheap        bool
 	ExplicitDir  bool
+	MaxKeys      int64
 	StatCacheTTL time.Duration
 	TypeCacheTTL time.Duration
 
@@ -350,6 +356,7 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		// Tuning,
 		Cheap:        c.Bool("cheap"),
 		ExplicitDir:  c.Bool("no-implicit-dir"),
+		MaxKeys:      c.Int64("max-keys"),
 		StatCacheTTL: c.Duration("stat-cache-ttl"),
 		TypeCacheTTL: c.Duration("type-cache-ttl"),
 
