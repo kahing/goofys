@@ -73,7 +73,7 @@ func maxMemToUse(buffersNow uint64) uint64 {
 const CGROUP_PATH = "/proc/self/cgroup"
 const CGROUP_FOLDER_PREFIX = "/sys/fs/cgroup/memory" 
 const MEM_LIMIT_FILE_SUFFIX = "/memory.limit_in_bytes"
-const MEM_USAGE_FILE_SUFFIX = "/memory.usage_in_bytes"
+const MEM_USAGE_FILE_SUFFIX = "/memory.max_usage_in_bytes"
 
 func getCgroupAvailableMem() (retVal uint64) {
     //get the memory cgroup for self and send limit - usage for the cgroup
