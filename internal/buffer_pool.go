@@ -15,9 +15,14 @@
 package internal
 
 import (
+	"errors"
 	"io"
+	"io/ioutil"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/jacobsa/fuse"
@@ -45,17 +50,101 @@ func maxMemToUse(buffersNow uint64) uint64 {
 		panic(err)
 	}
 
-	log.Debugf("amount of available memory: %v", m.Available/1024/1024)
+	availableMem, err := getCgroupAvailableMem()
+	log.Debugf("amount of available memory from cgroup is: %v", availableMem/1024/1024)
+
+	if err != nil || availableMem < 0 || availableMem > m.Available {
+		availableMem = m.Available
+	}
+
+	log.Debugf("amount of available memory: %v", availableMem/1024/1024)
 
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 
 	log.Debugf("amount of allocated memory: %v %v", ms.Sys/1024/1024, ms.Alloc/1024/1024)
 
-	max := uint64(m.Available+ms.Sys) / 2
+	max := uint64(availableMem+ms.Sys) / 2
 	maxbuffers := MaxUInt64(max/BUF_SIZE, 1)
 	log.Debugf("using up to %v %vMB buffers, now is %v", maxbuffers, BUF_SIZE/1024/1024, buffersNow)
 	return maxbuffers
+}
+
+const CGROUP_PATH = "/proc/self/cgroup"
+const CGROUP_FOLDER_PREFIX = "/sys/fs/cgroup/memory"
+const MEM_LIMIT_FILE_SUFFIX = "/memory.limit_in_bytes"
+const MEM_USAGE_FILE_SUFFIX = "/memory.usage_in_bytes"
+
+func getCgroupAvailableMem() (retVal uint64, err error) {
+	//get the memory cgroup for self and send limit - usage for the cgroup
+
+	data, err := ioutil.ReadFile(CGROUP_PATH)
+	if err != nil {
+		log.Debugf("Unable to read file %s error: %s", CGROUP_PATH, err)
+		return 0, err
+	}
+
+	path, err := getMemoryCgroupPath(string(data))
+	if err != nil {
+		log.Debugf("Unable to get memory cgroup path")
+		return 0, err
+	}
+	log.Debugf("the memory cgroup path for the current process is %v", path)
+
+	mem_limit, err := readFileAndGetValue(filepath.Join(CGROUP_FOLDER_PREFIX, path, MEM_LIMIT_FILE_SUFFIX))
+	if err != nil {
+		log.Debugf("Unable to get memory limit from cgroup error: %v", err)
+		return 0, err
+	}
+
+	mem_usage, err := readFileAndGetValue(filepath.Join(CGROUP_FOLDER_PREFIX, path, MEM_USAGE_FILE_SUFFIX))
+	if err != nil {
+		log.Debugf("Unable to get memory usage from cgroup error: %v", err)
+		return 0, err
+	}
+
+	return (mem_limit - mem_usage), nil
+}
+
+func getMemoryCgroupPath(data string) (string, error) {
+
+	/*
+	   Content of /proc/self/cgroup
+
+	   11:hugetlb:/
+	   10:memory:/user.slice
+	   9:cpuset:/
+	   8:blkio:/user.slice
+	   7:perf_event:/
+	   6:net_prio,net_cls:/
+	   5:cpuacct,cpu:/user.slice
+	   4:devices:/user.slice
+	   3:freezer:/
+	   2:pids:/
+	   1:name=systemd:/user.slice/user-1000.slice/session-1759.scope
+	*/
+
+	dataArray := strings.Split(data, "\n")
+	for index := range dataArray {
+		kvArray := strings.Split(dataArray[index], ":")
+		if len(kvArray) == 3 {
+			if kvArray[1] == "memory" {
+				return kvArray[2], nil
+			}
+		}
+	}
+
+	return "", errors.New("Unable to get memory cgroup path")
+}
+
+func readFileAndGetValue(path string) (uint64, error) {
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		log.Debugf("Unable to read file %v error: %v", path, err)
+		return 0, err
+	}
+
+	return strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
 }
 
 func rounduUp(size uint64, pageSize int) int {
