@@ -257,3 +257,20 @@ func (s *BufferTest) TestIssue193(t *C) {
 
 	// readloop would have caused a panic
 }
+
+func (s *BufferTest) TestCGroupMemory(t *C) {
+	//test getMemoryCgroupPath()
+	test_input := `11:hugetlb:/
+                    10:memory:/user.slice
+                    9:cpuset:/
+                    8:blkio:/user.slice
+                    7:perf_event:/
+                    6:net_prio,net_cls:/
+                    5:cpuacct,cpu:/user.slice
+                    4:devices:/user.slice
+                    3:freezer:/
+                    2:pids:/
+                    1:name=systemd:/user.slice/user-1000.slice/session-1759.scope`
+	mem_path, _ := getMemoryCgroupPath(test_input)
+	t.Assert(mem_path, Equals, "/user.slice")
+}
