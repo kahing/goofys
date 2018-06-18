@@ -1,7 +1,7 @@
 package goofys
 
 import (
-	. "github.com/kahing/goofys/internal"
+	"github.com/kahing/goofys/internal"
 
 	"context"
 	"fmt"
@@ -178,3 +178,21 @@ func Mount(
 
 	return
 }
+
+// expose Goofys related functions and types for extending and mounting elsewhere
+var (
+	GetStdLogger      = internal.GetStdLogger
+	InitLoggers       = internal.InitLoggers
+	MassageMountFlags = internal.MassageMountFlags
+	GetLogger         = internal.GetLogger
+	NewGoofys         = internal.NewGoofys
+	NewLogger         = internal.NewLogger
+	TryUnmount        = internal.TryUnmount
+	MyUserAndGroup    = internal.MyUserAndGroup
+)
+
+type (
+	Goofys      = internal.Goofys
+	FlagStorage = internal.FlagStorage
+	LogHandle   = internal.LogHandle
+)
