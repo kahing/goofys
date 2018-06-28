@@ -83,6 +83,7 @@ func Mount(
 			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: 10 * time.Second,
 		},
+        Timeout: 30 * time.Second,
 	})
 
 	if len(flags.Profile) > 0 {
