@@ -2166,3 +2166,15 @@ func (s *GoofysTest) TestDirMTimeNoTTL(t *C) {
 	// setupDefaultEnv is before mounting
 	t.Assert(attr3.Mtime.Before(m2), Equals, true)
 }
+
+func (s *GoofysTest) TestIssue326(t *C) {
+	root := s.getRoot(t)
+	_, err := root.MkDir("folder@name.something")
+	t.Assert(err, IsNil)
+	_, err = root.MkDir("folder#1#")
+	t.Assert(err, IsNil)
+
+	s.readDirIntoCache(t, root.Id)
+	t.Assert(*root.dir.Children[7].Name, Equals, "folder#1#")
+	t.Assert(*root.dir.Children[8].Name, Equals, "folder@name.something")
+}
