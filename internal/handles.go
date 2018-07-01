@@ -200,7 +200,8 @@ func (parent *Inode) removeChildUnlocked(inode *Inode) {
 	}
 	i := sort.Search(l, parent.findInodeFunc(*inode.Name, inode.isDir()))
 	if i >= l || *parent.dir.Children[i].Name != *inode.Name {
-		return
+		panic(fmt.Sprintf("%v.removeName(%v) but child not found: %v",
+			*parent.FullName(), *inode.Name, i))
 	}
 
 	copy(parent.dir.Children[i:], parent.dir.Children[i+1:])
