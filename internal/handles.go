@@ -164,26 +164,19 @@ func (parent *Inode) findChildUnlockedFull(name string) (inode *Inode) {
 }
 
 func (parent *Inode) findChildUnlocked(name string, isDir bool) (inode *Inode) {
-	l := len(parent.dir.Children)
-	if l == 0 {
-		return
-	}
-	i := sort.Search(l, parent.findInodeFunc(name, isDir))
-	if i < l {
-		// found
-		if *parent.dir.Children[i].Name == name {
-			inode = parent.dir.Children[i]
-		}
+	i := parent.findChildIdxUnlocked(name, isDir)
+	if i >= 0 {
+		inode = parent.dir.Children[i]
 	}
 	return
 }
 
-func (parent *Inode) findChildIdxUnlocked(name string) int {
+func (parent *Inode) findChildIdxUnlocked(name string, isDir bool) int {
 	l := len(parent.dir.Children)
 	if l == 0 {
 		return -1
 	}
-	i := sort.Search(l, parent.findInodeFunc(name, true))
+	i := sort.Search(l, parent.findInodeFunc(name, isDir))
 	if i < l {
 		// found
 		if *parent.dir.Children[i].Name == name {
@@ -191,6 +184,19 @@ func (parent *Inode) findChildIdxUnlocked(name string) int {
 		}
 	}
 	return -1
+}
+
+func (parent *Inode) removeChildIdxUnlocked(i int) {
+	l := len(parent.dir.Children)
+	copy(parent.dir.Children[i:], parent.dir.Children[i+1:])
+	parent.dir.Children[l-1] = nil
+	parent.dir.Children = parent.dir.Children[:l-1]
+
+	if cap(parent.dir.Children)-len(parent.dir.Children) > 20 {
+		tmp := make([]*Inode, len(parent.dir.Children))
+		copy(tmp, parent.dir.Children)
+		parent.dir.Children = tmp
+	}
 }
 
 func (parent *Inode) removeChildUnlocked(inode *Inode) {
@@ -203,14 +209,24 @@ func (parent *Inode) removeChildUnlocked(inode *Inode) {
 		return
 	}
 
-	copy(parent.dir.Children[i:], parent.dir.Children[i+1:])
-	parent.dir.Children[l-1] = nil
-	parent.dir.Children = parent.dir.Children[:l-1]
+	parent.removeChildIdxUnlocked(i)
+}
 
-	if cap(parent.dir.Children)-len(parent.dir.Children) > 20 {
-		tmp := make([]*Inode, len(parent.dir.Children))
-		copy(tmp, parent.dir.Children)
-		parent.dir.Children = tmp
+func (parent *Inode) pruneOldChildren() {
+	parent.mu.Lock()
+	parent.pruneOldChildrenUnlocked(len(parent.dir.Children) - 1)
+	parent.mu.Unlock()
+}
+
+func (parent *Inode) pruneOldChildrenUnlocked(i int) {
+	// never prune 0 and 1 since they are . and ..
+	for j := i; j >= 2; j-- {
+		if expired(parent.dir.Children[j].AttrTime, parent.fs.flags.StatCacheTTL) {
+			fuseLog.Infof("pruning %v", *parent.dir.Children[j].Name)
+			parent.removeChildIdxUnlocked(j)
+		} else {
+			break
+		}
 	}
 }
 
@@ -229,16 +245,17 @@ func (parent *Inode) insertChild(inode *Inode) {
 	parent.insertChildUnlocked(inode)
 }
 
-func (parent *Inode) insertChildUnlocked(inode *Inode) {
+func (parent *Inode) insertChildUnlocked(inode *Inode) (i int) {
 	l := len(parent.dir.Children)
 	if l == 0 {
 		parent.dir.Children = []*Inode{inode}
 		return
 	}
 
-	i := sort.Search(l, parent.findInodeFunc(*inode.Name, inode.isDir()))
+	i = sort.Search(l, parent.findInodeFunc(*inode.Name, inode.isDir()))
 	if i == l {
 		// not found = new value is the biggest
+		i = len(parent.dir.Children)
 		parent.dir.Children = append(parent.dir.Children, inode)
 	} else {
 		if *parent.dir.Children[i].Name == *inode.Name {
@@ -249,6 +266,8 @@ func (parent *Inode) insertChildUnlocked(inode *Inode) {
 		copy(parent.dir.Children[i+1:], parent.dir.Children[i:])
 		parent.dir.Children[i] = inode
 	}
+
+	return
 }
 
 func (parent *Inode) LookUp(name string) (inode *Inode, err error) {

@@ -99,7 +99,7 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 			}
 		} else {
 			parent.dir.seqOpenDirScore = 0
-			parent.dir.lastOpenDirIdx = parent.findChildIdxUnlocked(*inode.Name)
+			parent.dir.lastOpenDirIdx = parent.findChildIdxUnlocked(*inode.Name, true)
 			if parent.dir.lastOpenDirIdx == -1 {
 				panic(fmt.Sprintf("%v is not under %v", *inode.Name, *parent.FullName()))
 			}
@@ -320,10 +320,6 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 	fs := dh.inode.fs
 
 	if offset == 0 {
-		// content from the cache expired (otherwise we would
-		// have returned from above, so remove all of it
-		dh.inode.dir.Children = nil
-
 		en = &DirHandleEntry{
 			Name:       aws.String("."),
 			Type:       fuseutil.DT_Directory,

@@ -589,7 +589,7 @@ func (fs *Goofys) allocateInodeId() (id fuseops.InodeID) {
 }
 
 func expired(cache time.Time, ttl time.Duration) bool {
-	return !cache.Add(ttl).After(time.Now())
+	return !cache.Add(ttl + time.Second).After(time.Now())
 }
 
 func (fs *Goofys) LookUpInode(
@@ -680,10 +680,11 @@ func (fs *Goofys) LookUpInode(
 
 // LOCKS_REQUIRED(fs.mu)
 // LOCKS_REQUIRED(parent.mu)
-func (fs *Goofys) insertInode(parent *Inode, inode *Inode) {
+func (fs *Goofys) insertInode(parent *Inode, inode *Inode) (i int) {
 	inode.Id = fs.allocateInodeId()
-	parent.insertChildUnlocked(inode)
+	i = parent.insertChildUnlocked(inode)
 	fs.inodes[inode.Id] = inode
+	return
 }
 
 // LOCKS_EXCLUDED(fs.mu)
@@ -739,8 +740,8 @@ func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) 
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
-	inode = parent.findChildUnlocked(*entry.Name, entry.Type == fuseutil.DT_Directory)
-	if inode == nil {
+	i := parent.findChildIdxUnlocked(*entry.Name, entry.Type == fuseutil.DT_Directory)
+	if i == -1 {
 		path := parent.getChildName(*entry.Name)
 		inode = NewInode(fs, parent, entry.Name, &path)
 		if entry.Type == fuseutil.DT_Directory {
@@ -761,8 +762,10 @@ func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) 
 		fs.mu.Lock()
 		defer fs.mu.Unlock()
 
-		fs.insertInode(parent, inode)
+		i = fs.insertInode(parent, inode)
 	} else {
+		inode = parent.dir.Children[i]
+
 		inode.mu.Lock()
 		defer inode.mu.Unlock()
 
@@ -776,6 +779,8 @@ func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) 
 		inode.Attributes.Mtime = entry.Attributes.Mtime
 		inode.AttrTime = time.Now()
 	}
+
+	parent.pruneOldChildrenUnlocked(i - 1)
 	return
 }
 
@@ -822,6 +827,7 @@ func (fs *Goofys) ReadDir(
 				inode.dir.DirTime = time.Now()
 				inode.Attributes.Mtime = inode.findChildMaxTime()
 			}
+			inode.pruneOldChildren()
 			break
 		}
 

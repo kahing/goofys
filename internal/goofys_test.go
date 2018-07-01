@@ -1130,6 +1130,7 @@ func (s *GoofysTest) TestBenchIO(t *C) {
 }
 
 func (s *GoofysTest) TestBenchFindTree(t *C) {
+	fuseLog.Level = logrus.DebugLevel
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
@@ -2204,4 +2205,50 @@ func (s *GoofysTest) TestStatCacheTTL(t *C) {
 	names, err := dh.Readdirnames(0)
 	t.Assert(err, IsNil)
 	t.Assert(names, DeepEquals, []string{})
+}
+
+func (s *GoofysTest) TestReadDirTwice(t *C) {
+	s.fs.flags.StatCacheTTL = 1 * time.Second
+	s.fs.flags.TypeCacheTTL = 1 * time.Second
+
+	s.readDirIntoCache(t, fuseops.RootInodeID)
+	time.Sleep(1 * time.Second)
+	s.readDirIntoCache(t, fuseops.RootInodeID)
+}
+
+func (s *GoofysTest) TestRmDirRf(t *C) {
+	s.readDirIntoCache(t, fuseops.RootInodeID)
+	root := s.getRoot(t)
+	t.Assert(len(root.dir.Children), Equals, 10)
+	t.Assert(*root.dir.Children[0].Name, Equals, ".")
+	t.Assert(*root.dir.Children[1].Name, Equals, "..")
+	t.Assert(*root.dir.Children[2].Name, Equals, "dir1")
+	t.Assert(*root.dir.Children[3].Name, Equals, "dir2")
+	t.Assert(*root.dir.Children[4].Name, Equals, "dir4")
+	t.Assert(*root.dir.Children[5].Name, Equals, "empty_dir")
+	t.Assert(*root.dir.Children[6].Name, Equals, "empty_dir2")
+	t.Assert(*root.dir.Children[7].Name, Equals, "file1")
+	t.Assert(*root.dir.Children[8].Name, Equals, "file2")
+	t.Assert(*root.dir.Children[9].Name, Equals, "zero")
+
+	dir, _ := s.LookUpInode(t, "empty_dir")
+
+	createOp := fuseops.CreateFileOp{
+		Parent: dir.Id,
+		Name:   "file1",
+	}
+
+	err := s.fs.CreateFile(s.ctx, &createOp)
+	t.Assert(err, IsNil)
+
+	err = s.fs.FlushFile(s.ctx, &fuseops.FlushFileOp{
+		Handle: createOp.Handle,
+		Inode:  createOp.Entry.Child,
+	})
+	t.Assert(err, IsNil)
+
+	err = s.fs.ReleaseFileHandle(s.ctx, &fuseops.ReleaseFileHandleOp{Handle: createOp.Handle})
+	t.Assert(err, IsNil)
+
+	s.readDirIntoCache(t, fuseops.RootInodeID)
 }
