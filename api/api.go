@@ -47,6 +47,8 @@ type Config struct {
 	UseKMS         bool
 	KMSKeyID       string
 	ACL            string
+	Subdomain      bool
+	UseSSL         bool
 
 	// Tuning
 	Cheap        bool
@@ -68,10 +70,11 @@ func Mount(
 
 	var flags FlagStorage
 	copier.Copy(&flags, config)
-
+	disableSSL := !flags.UseSSL
 	awsConfig := (&aws.Config{
-		Region: &flags.Region,
-		Logger: GetLogger("s3"),
+		Region:     &flags.Region,
+		Logger:     GetLogger("s3"),
+		DisableSSL: &disableSSL,
 		//LogLevel: aws.LogLevel(aws.LogDebug),
 	}).WithHTTPClient(&http.Client{
 		Transport: &http.Transport{
@@ -100,7 +103,7 @@ func Mount(
 		awsConfig.Endpoint = &flags.Endpoint
 	}
 
-	awsConfig.S3ForcePathStyle = aws.Bool(true)
+	awsConfig.S3ForcePathStyle = aws.Bool(!flags.Subdomain)
 
 	fs = NewGoofys(ctx, bucketName, awsConfig, &flags)
 	if fs == nil {
