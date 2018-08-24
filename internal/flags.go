@@ -307,7 +307,6 @@ type FlagStorage struct {
 	KMSKeyID       string
 	ACL            string
 	Subdomain      bool
-	UseSSL         bool
 
 	// Tuning
 	Cheap        bool
