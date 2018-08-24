@@ -48,7 +48,6 @@ type Config struct {
 	KMSKeyID       string
 	ACL            string
 	Subdomain      bool
-	UseSSL         bool
 
 	// Tuning
 	Cheap        bool
@@ -70,11 +69,9 @@ func Mount(
 
 	var flags FlagStorage
 	copier.Copy(&flags, config)
-	disableSSL := !flags.UseSSL
 	awsConfig := (&aws.Config{
-		Region:     &flags.Region,
-		Logger:     GetLogger("s3"),
-		DisableSSL: &disableSSL,
+		Region: &flags.Region,
+		Logger: GetLogger("s3"),
 		//LogLevel: aws.LogLevel(aws.LogDebug),
 	}).WithHTTPClient(&http.Client{
 		Transport: &http.Transport{

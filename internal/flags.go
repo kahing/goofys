@@ -200,11 +200,6 @@ func NewApp() (app *cli.App) {
 				Usage: "Enable subdomain mode of S3",
 			},
 
-			cli.BoolFlag{
-				Name:  "ssl",
-				Usage: "Use https mode to connect S3 Server",
-			},
-
 			/////////////////////////
 			// Tuning
 			/////////////////////////
@@ -390,7 +385,6 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		KMSKeyID:       c.String("sse-kms"),
 		ACL:            c.String("acl"),
 		Subdomain:      c.Bool("subdomain"),
-		UseSSL:         c.Bool("ssl"),
 
 		// Debugging,
 		DebugFuse:  c.Bool("debug_fuse"),
