@@ -153,6 +153,10 @@ func NewApp() (app *cli.App) {
 					"eu-central-1, ap-southeast-1, ap-southeast-2, ap-northeast-1, " +
 					"sa-east-1, cn-north-1",
 			},
+			cli.BoolFlag{
+				Name:  "requester-pays",
+				Usage: "Whether to allow access to requester-pays buckets (default: off)",
+			},
 
 			cli.StringFlag{
 				Name:  "storage-class",
@@ -251,7 +255,7 @@ func NewApp() (app *cli.App) {
 
 	flagCategories = map[string]string{}
 
-	for _, f := range []string{"region", "sse", "sse-kms", "storage-class", "acl"} {
+	for _, f := range []string{"region", "sse", "sse-kms", "storage-class", "acl", "requester-pays"} {
 		flagCategories[f] = "aws"
 	}
 
@@ -288,6 +292,7 @@ type FlagStorage struct {
 	// S3
 	Endpoint       string
 	Region         string
+	RequesterPays  bool
 	RegionSet      bool
 	StorageClass   string
 	Profile        string
@@ -364,6 +369,7 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		Endpoint:       c.String("endpoint"),
 		Region:         c.String("region"),
 		RegionSet:      c.IsSet("region"),
+		RequesterPays:  c.Bool("requester-pays"),
 		StorageClass:   c.String("storage-class"),
 		Profile:        c.String("profile"),
 		UseContentType: c.Bool("use-content-type"),

@@ -236,8 +236,19 @@ func addAcceptEncoding(req *request.Request) {
 	}
 }
 
+func addRequestPayer(req *request.Request) {
+	// "Requester Pays" is only applicable to these
+	// see https://docs.aws.amazon.com/AmazonS3/latest/dev/RequesterPaysBuckets.html
+	if req.HTTPRequest.Method == "GET" || req.HTTPRequest.Method == "HEAD" || req.HTTPRequest.Method == "POST" {
+		req.HTTPRequest.Header.Set("x-amz-request-payer", "requester")
+	}
+}
+
 func (fs *Goofys) newS3() *s3.S3 {
 	svc := s3.New(fs.sess)
+	if fs.flags != nil && fs.flags.RequesterPays {
+		svc.Handlers.Build.PushBack(addRequestPayer)
+	}
 	if fs.v2Signer {
 		svc.Handlers.Sign.Clear()
 		svc.Handlers.Sign.PushBack(SignV2)
