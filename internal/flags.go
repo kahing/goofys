@@ -217,6 +217,11 @@ func NewApp() (app *cli.App) {
 				Usage: "How long to cache name -> file/dir mappings in directory " +
 					"inodes.",
 			},
+			cli.DurationFlag{
+				Name:  "http-timeout",
+				Value: 30 * time.Second,
+				Usage: "Set the timeout on HTTP requests to S3",
+			},
 
 			/////////////////////////
 			// Debugging
@@ -250,7 +255,7 @@ func NewApp() (app *cli.App) {
 		flagCategories[f] = "aws"
 	}
 
-	for _, f := range []string{"cheap", "no-implicit-dir", "stat-cache-ttl", "type-cache-ttl"} {
+	for _, f := range []string{"cheap", "no-implicit-dir", "stat-cache-ttl", "type-cache-ttl", "http-timeout"} {
 		flagCategories[f] = "tuning"
 	}
 
@@ -297,6 +302,7 @@ type FlagStorage struct {
 	ExplicitDir  bool
 	StatCacheTTL time.Duration
 	TypeCacheTTL time.Duration
+	HTTPTimeout  time.Duration
 
 	// Debugging
 	DebugFuse  bool
@@ -352,6 +358,7 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		ExplicitDir:  c.Bool("no-implicit-dir"),
 		StatCacheTTL: c.Duration("stat-cache-ttl"),
 		TypeCacheTTL: c.Duration("type-cache-ttl"),
+		HTTPTimeout:  c.Duration("http-timeout"),
 
 		// S3
 		Endpoint:       c.String("endpoint"),
