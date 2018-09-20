@@ -50,6 +50,7 @@ type Config struct {
 	ExplicitDir  bool
 	StatCacheTTL time.Duration
 	TypeCacheTTL time.Duration
+	HTTPTimeout  time.Duration
 
 	// Debugging
 	DebugFuse  bool
@@ -83,7 +84,7 @@ func Mount(
 			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: 10 * time.Second,
 		},
-		Timeout: 30 * time.Second,
+		Timeout: flags.HTTPTimeout,
 	})
 
 	if len(flags.Profile) > 0 {
