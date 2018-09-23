@@ -39,6 +39,8 @@ type Config struct {
 	RegionSet      bool
 	StorageClass   string
 	RequesterPays  bool
+	AccessKey      string
+	SecretKey      string
 	Profile        string
 	UseContentType bool
 	UseSSE         bool
@@ -88,7 +90,9 @@ func Mount(
 		Timeout: flags.HTTPTimeout,
 	})
 
-	if len(flags.Profile) > 0 {
+	if config.AccessKey != "" {
+		awsConfig.Credentials = credentials.NewStaticCredentials(config.AccessKey, config.SecretKey, "")
+	} else if len(flags.Profile) > 0 {
 		awsConfig.Credentials = credentials.NewSharedCredentials("", flags.Profile)
 	}
 
