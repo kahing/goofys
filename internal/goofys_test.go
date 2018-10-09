@@ -117,7 +117,7 @@ func waitFor(t *C, addr string) (err error) {
 			conn.Close()
 			return
 		} else {
-			t.Log("Cound not connect: %v", err)
+			t.Logf("Cound not connect: %v", err)
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
