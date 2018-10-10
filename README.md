@@ -12,7 +12,7 @@ It's a Filey System instead of a File System because goofys strives
 for performance first and POSIX second. Particularly things that are
 difficult to support on S3 or would translate into more than one
 round-trip would either fail (random writes) or faked (no per-file
-permission). Goofys does not have a on disk data cache (checkout
+permission). Goofys does not have an on disk data cache (checkout
 [catfs](https://github.com/kahing/catfs)), and consistency model is
 close-to-open.
 
@@ -20,14 +20,14 @@ close-to-open.
 
 * On Linux, install via [pre-built binaries](http://bit.ly/goofys-latest). You may also need to install fuse-utils first.
 
-* On Mac OS X, install via [Homebrew](http://brew.sh/):
+* On macOS, install via [Homebrew](http://brew.sh/):
 
 ```ShellSession
 $ brew cask install osxfuse
 $ brew install goofys
 ```
 
-* Or build from source:
+* Or build from source with Go 1.9 or later:
 
 ```ShellSession
 $ export GOPATH=$HOME/work
@@ -65,8 +65,8 @@ Using `--stat-cache-ttl 1s --type-cache-ttl 1s` for goofys
 `-ostat_cache_expire=1` for s3fs to simulate cold runs. Detail for the
 benchmark can be found in
 [bench.sh](https://github.com/kahing/goofys/blob/master/bench/bench.sh). [Raw data](https://github.com/kahing/goofys/blob/master/bench/)
-is available as well. Test was run on an EC2 m4.16xlarge in us-west-2a
-connecting to a bucket in us-west-2. Units are seconds.
+is available as well. The test was run on an EC2 m4.16xlarge in us-west-2a
+connected to a bucket in us-west-2. Units are seconds.
 
 ![Benchmark result](/bench/bench.png?raw=true "Benchmark")
 
@@ -97,13 +97,13 @@ if `CACHE` is set to `true`, the read benchmarks ('Read 1GB' and 'Time to 1st by
 
 # License
 
-Copyright (C) 2015 - 2017 Ka-Hing Cheung
+Copyright (C) 2015 - 2018 Ka-Hing Cheung
 
 Licensed under the Apache License, Version 2.0
 
 # Current Status
 
-goofys has been tested under Linux and OS X.
+goofys has been tested under Linux and macOS.
 
 List of non-POSIX behaviors/limitations:
   * only sequential writes supported
@@ -115,7 +115,7 @@ List of non-POSIX behaviors/limitations:
   * `unlink` returns success even if file is not present
   * `fsync` is ignored, files are only flushed on `close`
 
-In addition to the items above, the following supportable but not yet implemented:
+In addition to the items above, the following are supportable but not yet implemented:
   * creating files larger than 1TB
 
 ## Compatibility with non-AWS S3
