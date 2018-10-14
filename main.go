@@ -16,6 +16,8 @@
 package main
 
 import (
+	"strconv"
+
 	goofys "github.com/kahing/goofys/api"
 	. "github.com/kahing/goofys/internal"
 
@@ -101,12 +103,11 @@ func kill(pid int, s os.Signal) (err error) {
 	return
 }
 
-// Mount the file system based on the supplied arguments, returning a
-// fuse.MountedFileSystem that can be joined to wait for unmounting.
-func mount(
-	ctx context.Context,
+func fuseMount(
+	dir string,
 	bucketName string,
-	flags *FlagStorage) (fs *Goofys, mfs *fuse.MountedFileSystem, err error) {
+	flags *FlagStorage,
+	ready chan error) (dev uintptr, err error) {
 
 	// XXX really silly copy here! in goofys.Mount we will copy it
 	// back to FlagStorage. But I don't see a easier way to expose
@@ -114,7 +115,25 @@ func mount(
 	var config goofys.Config
 	copier.Copy(&config, *flags)
 
-	return goofys.Mount(ctx, bucketName, &config)
+	return goofys.FuseMount(dir, bucketName, &config, ready)
+}
+
+// Start serving requests, returning a fuse.MountedFileSystem that can be joined
+// to wait for unmounting.
+func fuseServe(
+	ctx context.Context,
+	bucketName string,
+	dev uintptr,
+	flags *FlagStorage,
+	ready chan error) (fs *Goofys, mfs *fuse.MountedFileSystem, err error) {
+
+	// XXX really silly copy here! in goofys.Mount we will copy it
+	// back to FlagStorage. But I don't see a easier way to expose
+	// Config in the api package
+	var config goofys.Config
+	copier.Copy(&config, *flags)
+
+	return goofys.FuseServe(ctx, bucketName, dev, &config, ready)
 }
 
 func massagePath() {
@@ -173,6 +192,25 @@ func main() {
 			flags.Cleanup()
 		}()
 
+		// Mount the file system.
+		var dev uintptr
+		ready := make(chan error, 1)
+		fuseMounted, err := fuse.IsMounted(flags.MountPoint)
+		if !fuseMounted {
+			dev, err = fuseMount(flags.MountPoint, bucketName, flags, ready)
+			if err != nil {
+				return err
+			}
+			err = os.Setenv("GOOFYS_FUSE_FD", strconv.Itoa(int(dev)))
+			if err != nil {
+				return err
+			}
+		} else {
+			// XXX: We do Reborn() after starting FuseMount, so for OSX we need other way
+			// to safely wait for mount completion.
+			ready <- nil
+		}
+
 		if !flags.Foreground {
 			var wg sync.WaitGroup
 			waitForSignal(&wg)
@@ -201,19 +239,27 @@ func main() {
 				kill(os.Getpid(), syscall.SIGUSR1)
 				wg.Wait()
 				defer ctx.Release()
+
+				devFd, err := strconv.Atoi(os.Getenv("GOOFYS_FUSE_FD"))
+				if err != nil {
+					return err
+				}
+				dev = uintptr(devFd)
 			}
 
 		} else {
 			InitLoggers(!flags.Foreground)
 		}
 
-		// Mount the file system.
+		// Start the fuse server.
 		var mfs *fuse.MountedFileSystem
 		var fs *Goofys
-		fs, mfs, err = mount(
+		fs, mfs, err = fuseServe(
 			context.Background(),
 			bucketName,
-			flags)
+			dev,
+			flags,
+			ready)
 
 		if err != nil {
 			if !flags.Foreground {
