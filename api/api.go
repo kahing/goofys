@@ -89,7 +89,7 @@ func Mount(
 		Timeout: flags.HTTPTimeout,
 	})
 
-	if(config.AccessKey != "") {
+	if config.AccessKey != "" {
 		awsConfig.Credentials = credentials.NewStaticCredentials(config.AccessKey, config.SecretKey, "")
 	} else if len(flags.Profile) > 0 {
 		awsConfig.Credentials = credentials.NewSharedCredentials("", flags.Profile)
