@@ -1,8 +1,6 @@
 package goofys
 
 import (
-	"github.com/kahing/goofys/internal"
-
 	"context"
 	"fmt"
 	"net"
@@ -13,10 +11,10 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
-
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseutil"
 	"github.com/jinzhu/copier"
+	"github.com/kahing/goofys/internal"
 	"github.com/sirupsen/logrus"
 )
 
@@ -89,7 +87,7 @@ func Mount(
 		Timeout: flags.HTTPTimeout,
 	})
 
-	if(config.AccessKey != "") {
+	if config.AccessKey != "" {
 		awsConfig.Credentials = credentials.NewStaticCredentials(config.AccessKey, config.SecretKey, "")
 	} else if len(flags.Profile) > 0 {
 		awsConfig.Credentials = credentials.NewSharedCredentials("", flags.Profile)

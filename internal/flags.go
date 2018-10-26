@@ -155,6 +155,16 @@ func NewApp() (app *cli.App) {
 			},
 
 			cli.StringFlag{
+				Name:  "access-key",
+				Usage: "AWS access key id",
+			},
+
+			cli.StringFlag{
+				Name:  "secret-key",
+				Usage: "AWS secret access key",
+			},
+
+			cli.StringFlag{
 				Name:  "storage-class",
 				Value: "STANDARD",
 				Usage: "The type of storage to use when writing objects." +
@@ -251,7 +261,7 @@ func NewApp() (app *cli.App) {
 
 	flagCategories = map[string]string{}
 
-	for _, f := range []string{"region", "sse", "sse-kms", "storage-class", "acl"} {
+	for _, f := range []string{"region", "access-key", "secret-key", "sse", "sse-kms", "storage-class", "acl"} {
 		flagCategories[f] = "aws"
 	}
 
@@ -289,6 +299,8 @@ type FlagStorage struct {
 	Endpoint       string
 	Region         string
 	RegionSet      bool
+	AccessKey      string
+	SecretKey      string
 	StorageClass   string
 	Profile        string
 	UseContentType bool
@@ -364,6 +376,8 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		Endpoint:       c.String("endpoint"),
 		Region:         c.String("region"),
 		RegionSet:      c.IsSet("region"),
+		AccessKey:      c.String("access-key"),
+		SecretKey:      c.String("secret-key"),
 		StorageClass:   c.String("storage-class"),
 		Profile:        c.String("profile"),
 		UseContentType: c.Bool("use-content-type"),
