@@ -155,13 +155,15 @@ func NewApp() (app *cli.App) {
 			},
 
 			cli.StringFlag{
-				Name:  "access-key",
-				Usage: "AWS access key id",
+				Name:   "access-key",
+				Usage:  "AWS access key id",
+				EnvVar: "AWS_ACCESS_KEY_ID",
 			},
 
 			cli.StringFlag{
-				Name:  "secret-key",
-				Usage: "AWS secret access key",
+				Name:   "secret-key",
+				Usage:  "AWS secret access key",
+				EnvVar: "AWS_SECRET_ACCESS_KEY",
 			},
 
 			cli.StringFlag{
