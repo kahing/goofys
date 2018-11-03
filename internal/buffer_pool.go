@@ -21,9 +21,9 @@ import (
 	"sync"
 	"io/ioutil"
 	"strings"
-	"math"
 	"strconv"
 	"path/filepath"
+    "errors"
 
 	"github.com/jacobsa/fuse"
 	"github.com/shirou/gopsutil/mem"
@@ -50,10 +50,10 @@ func maxMemToUse(buffersNow uint64) uint64 {
 		panic(err)
 	}
 
-    availableMem := getCgroupAvailableMem()
+    availableMem, err := getCgroupAvailableMem()
 	log.Debugf("amount of available memory from cgroup is: %v", availableMem/1024/1024)
 
-    if(availableMem < 0 || availableMem > m.Available) {
+    if(err != nil || availableMem < 0 || availableMem > m.Available) {
         availableMem = m.Available
     }
 
@@ -73,43 +73,40 @@ func maxMemToUse(buffersNow uint64) uint64 {
 const CGROUP_PATH = "/proc/self/cgroup"
 const CGROUP_FOLDER_PREFIX = "/sys/fs/cgroup/memory" 
 const MEM_LIMIT_FILE_SUFFIX = "/memory.limit_in_bytes"
-const MEM_USAGE_FILE_SUFFIX = "/memory.max_usage_in_bytes"
+const MEM_USAGE_FILE_SUFFIX = "/memory.usage_in_bytes"
 
-func getCgroupAvailableMem() (retVal uint64) {
+func getCgroupAvailableMem() (retVal uint64, err error) {
     //get the memory cgroup for self and send limit - usage for the cgroup
 
-    //Return this value in error case
-    retVal = math.MaxUint64
- 
     data,err := ioutil.ReadFile(CGROUP_PATH)
     if err != nil {
         log.Debugf("Unable to read file %s error: %s", CGROUP_PATH, err)
-        return
+        return 0, err
     }
 
-    path := getMemoryCgroupPath(string(data)) 
-    if path == "" {
+    path, err := getMemoryCgroupPath(string(data)) 
+    if err != nil {
         log.Debugf("Unable to get memory cgroup path") 
-        return
+        return 0, err
     }
     log.Debugf("the memory cgroup path for the current process is %v", path)  
 
     mem_limit, err := readFileAndGetValue(filepath.Join(CGROUP_FOLDER_PREFIX, path,  MEM_LIMIT_FILE_SUFFIX))
     if err != nil {
         log.Debugf("Unable to get memory limit from cgroup error: %v", err)
-        return
+        return 0, err
     }
 
     mem_usage, err := readFileAndGetValue(filepath.Join(CGROUP_FOLDER_PREFIX, path, MEM_USAGE_FILE_SUFFIX))
     if err != nil {
         log.Debugf("Unable to get memory usage from cgroup error: %v", err)
-        return
+        return 0, err
     }
 
-    return (mem_limit - mem_usage)
+    return (mem_limit - mem_usage), nil 
 }
 
-func getMemoryCgroupPath(data string) string {
+func getMemoryCgroupPath(data string) (string, error) {
  
     /*
     Content of /proc/self/cgroup
@@ -132,12 +129,12 @@ func getMemoryCgroupPath(data string) string {
         kvArray := strings.Split(dataArray[index], ":")
         if len(kvArray) == 3 {
             if kvArray[1] == "memory" {
-                return kvArray[2]
+                return kvArray[2], nil
             }
         }
     }
 
-    return ""
+    return "", errors.New("Unable to get memory cgroup path")
 }
 
 

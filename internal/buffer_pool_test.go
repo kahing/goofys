@@ -271,6 +271,6 @@ func (s *BufferTest) TestCGroupMemory(t *C) {
                     3:freezer:/
                     2:pids:/
                     1:name=systemd:/user.slice/user-1000.slice/session-1759.scope`
-    mem_path := getMemoryCgroupPath(test_input)
+    mem_path, _ := getMemoryCgroupPath(test_input)
     t.Assert(mem_path, Equals, "/user.slice")
 }
