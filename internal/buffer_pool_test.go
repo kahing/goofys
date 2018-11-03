@@ -259,8 +259,8 @@ func (s *BufferTest) TestIssue193(t *C) {
 }
 
 func (s *BufferTest) TestCGroupMemory(t *C) {
-    //test getMemoryCgroupPath()
-    test_input :=  `11:hugetlb:/
+	//test getMemoryCgroupPath()
+	test_input := `11:hugetlb:/
                     10:memory:/user.slice
                     9:cpuset:/
                     8:blkio:/user.slice
@@ -271,6 +271,6 @@ func (s *BufferTest) TestCGroupMemory(t *C) {
                     3:freezer:/
                     2:pids:/
                     1:name=systemd:/user.slice/user-1000.slice/session-1759.scope`
-    mem_path, _ := getMemoryCgroupPath(test_input)
-    t.Assert(mem_path, Equals, "/user.slice")
+	mem_path, _ := getMemoryCgroupPath(test_input)
+	t.Assert(mem_path, Equals, "/user.slice")
 }
