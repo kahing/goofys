@@ -8,7 +8,7 @@ get-deps: s3proxy.jar
 	go get -t ./...
 
 build:
-	go build -ldflags "-X main.Version=`git rev-parse HEAD`"
+	go build -o dist/goofys -ldflags "-X main.Version=`git rev-parse HEAD`"
 
 install:
 	go install -ldflags "-X main.Version=`git rev-parse HEAD`"
