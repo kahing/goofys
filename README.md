@@ -18,9 +18,9 @@ close-to-open.
 
 # Installation
 
-* On Linux, install via [pre-built binaries](http://bit.ly/goofys-latest). You may also need to install fuse-utils first.
+* On Linux, install via [pre-built binaries](https://bit.ly/goofys-latest). You may also need to install fuse-utils first.
 
-* On macOS, install via [Homebrew](http://brew.sh/):
+* On macOS, install via [Homebrew](https://brew.sh/):
 
 ```ShellSession
 $ brew cask install osxfuse
