@@ -650,17 +650,17 @@ func (fs *Goofys) LookUpInode(
 		}
 
 		if inode == nil {
+			fs.mu.Lock()
 			parent.mu.Lock()
 			// check again if it's there, could have been
 			// added by another lookup or readdir
 			inode = parent.findChildUnlockedFull(op.Name)
 			if inode == nil {
-				fs.mu.Lock()
 				inode = newInode
 				fs.insertInode(parent, inode)
-				fs.mu.Unlock()
 			}
 			parent.mu.Unlock()
+			fs.mu.Unlock()
 		} else {
 			if newInode.Attributes.Mtime.IsZero() {
 				newInode.Attributes.Mtime = inode.Attributes.Mtime
