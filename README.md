@@ -130,7 +130,7 @@ goofys has been tested with the following non-AWS providers:
 * OpenStack Swift
 * S3Proxy
 * Minio (limited)
-* Wasabi (limited)
+* Wasabi 
 
 
 # References
