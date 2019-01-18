@@ -124,11 +124,14 @@ goofys has been tested with the following non-AWS providers:
 
 * Amplidata
 * DreamObjects (Ceph)
+* Digital Ocean Spaces (Ceph)
 * EMC Atmos
 * Google Cloud Storage
 * OpenStack Swift
 * S3Proxy
 * Minio (limited)
+* Wasabi (limited)
+
 
 # References
 
