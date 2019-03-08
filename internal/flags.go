@@ -191,6 +191,11 @@ func NewApp() (app *cli.App) {
 				Value: "",
 			},
 
+			cli.BoolFlag{
+				Name:  "use-vhost",
+				Usage: "Enable S3 virtual-hosted–style",
+			},
+
 			/////////////////////////
 			// Tuning
 			/////////////////////////
@@ -286,16 +291,17 @@ type FlagStorage struct {
 	Gid      uint32
 
 	// S3
-	Endpoint       string
-	Region         string
-	RegionSet      bool
-	StorageClass   string
-	Profile        string
-	UseContentType bool
-	UseSSE         bool
-	UseKMS         bool
-	KMSKeyID       string
-	ACL            string
+	Endpoint            string
+	Region              string
+	RegionSet           bool
+	StorageClass        string
+	Profile             string
+	UseContentType      bool
+	UseSSE              bool
+	UseKMS              bool
+	KMSKeyID            string
+	ACL                 string
+	UseVirtualHostStyle bool
 
 	// Tuning
 	Cheap        bool
@@ -361,16 +367,17 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		HTTPTimeout:  c.Duration("http-timeout"),
 
 		// S3
-		Endpoint:       c.String("endpoint"),
-		Region:         c.String("region"),
-		RegionSet:      c.IsSet("region"),
-		StorageClass:   c.String("storage-class"),
-		Profile:        c.String("profile"),
-		UseContentType: c.Bool("use-content-type"),
-		UseSSE:         c.Bool("sse"),
-		UseKMS:         c.IsSet("sse-kms"),
-		KMSKeyID:       c.String("sse-kms"),
-		ACL:            c.String("acl"),
+		Endpoint:            c.String("endpoint"),
+		Region:              c.String("region"),
+		RegionSet:           c.IsSet("region"),
+		StorageClass:        c.String("storage-class"),
+		Profile:             c.String("profile"),
+		UseContentType:      c.Bool("use-content-type"),
+		UseSSE:              c.Bool("sse"),
+		UseKMS:              c.IsSet("sse-kms"),
+		KMSKeyID:            c.String("sse-kms"),
+		ACL:                 c.String("acl"),
+		UseVirtualHostStyle: c.Bool("use-vhost"),
 
 		// Debugging,
 		DebugFuse:  c.Bool("debug_fuse"),

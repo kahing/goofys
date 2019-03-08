@@ -34,18 +34,19 @@ type Config struct {
 	Gid      uint32
 
 	// S3
-	Endpoint       string
-	Region         string
-	RegionSet      bool
-	StorageClass   string
-	AccessKey      string
-	SecretKey      string
-	Profile        string
-	UseContentType bool
-	UseSSE         bool
-	UseKMS         bool
-	KMSKeyID       string
-	ACL            string
+	Endpoint            string
+	Region              string
+	RegionSet           bool
+	StorageClass        string
+	AccessKey           string
+	SecretKey           string
+	Profile             string
+	UseContentType      bool
+	UseSSE              bool
+	UseKMS              bool
+	KMSKeyID            string
+	ACL                 string
+	UseVirtualHostStyle bool
 
 	// Tuning
 	Cheap        bool
@@ -99,7 +100,7 @@ func Mount(
 		awsConfig.Endpoint = &flags.Endpoint
 	}
 
-	awsConfig.S3ForcePathStyle = aws.Bool(true)
+	awsConfig.S3ForcePathStyle = aws.Bool(!flags.UseVirtualHostStyle)
 
 	fs = NewGoofys(ctx, bucketName, awsConfig, &flags)
 	if fs == nil {
