@@ -1,14 +1,10 @@
 language: go
 sudo: required
-dist: trusty
-addons:
-  apt_packages:
-   - openjdk-7-jre-headless
+dist: xenial
 env:
-- GO15VENDOREXPERIMENT=1
 install:
 - go get -t $(go list ./... | grep -v /vendor/)
 - mkdir /tmp/mnt
 - make
 go:
-  - 1.10.3
+  - 1.11.5
