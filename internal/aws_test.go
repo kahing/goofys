@@ -35,9 +35,11 @@ func (s *AwsTest) SetUpSuite(t *C) {
 		S3ForcePathStyle: aws.Bool(true),
 	}
 
+	flags := &FlagStorage{}
 	s.fs = &Goofys{
 		awsConfig: awsConfig,
 		sess:      session.New(awsConfig),
+		flags:     flags,
 	}
 
 	s.fs.s3 = s.fs.newS3()

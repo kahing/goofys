@@ -304,6 +304,12 @@ func (fs *Goofys) detectBucketLocationByHEAD() (err error, isAws bool) {
 		u.Host = endpoint.Host
 	}
 
+	if fs.flags.UseVirtualHostStyle {
+		u.Host = fmt.Sprintf("%s.%s", fs.bucket, u.Host)
+		u.Path = ""
+		s3Log.Debugf("Use vhost style: %v", u.String())
+	}
+
 	var req *http.Request
 	var resp *http.Response
 
