@@ -347,7 +347,7 @@ func (flags *FlagStorage) Cleanup() {
 	}
 }
 
-// Add the flags accepted by run to the supplied flag set, returning the
+// PopulateFlags adds the flags accepted by run to the supplied flag set, returning the
 // variables into which the flags will parse.
 func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 	flags := &FlagStorage{
