@@ -1168,7 +1168,7 @@ func (fs *Goofys) getMimeType(fileName string) (retMime *string) {
 	return
 }
 
-// return full name of the given inode
+// GetFullName returns full name of the given inode
 func (fs *Goofys) GetFullName(id fuseops.InodeID) *string {
 	fs.mu.Lock()
 	inode := fs.inodes[id]
