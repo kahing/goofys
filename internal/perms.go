@@ -21,7 +21,7 @@ import (
 	"strconv"
 )
 
-// Return the UID and GID of this process.
+// MyUserAndGroup returns the UID and GID of this process.
 func MyUserAndGroup() (uid int, gid int) {
 	// Ask for the current user.
 	user, err := user.Current()
