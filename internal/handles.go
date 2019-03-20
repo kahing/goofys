@@ -129,12 +129,14 @@ func (inode *Inode) errFuse(op string, args ...interface{}) {
 }
 
 func (inode *Inode) ToDir() {
-	inode.Attributes = InodeAttributes{
-		Size: 4096,
-		// Mtime intentionally not initialized
+	if inode.dir == nil {
+		inode.Attributes = InodeAttributes{
+			Size: 4096,
+			// Mtime intentionally not initialized
+		}
+		inode.dir = &DirInodeData{}
+		inode.KnownSize = &inode.fs.rootAttrs.Size
 	}
-	inode.dir = &DirInodeData{}
-	inode.KnownSize = &inode.fs.rootAttrs.Size
 }
 
 func (parent *Inode) findChild(name string) (inode *Inode) {
@@ -1009,6 +1011,7 @@ func (parent *Inode) insertSubTree(path string, obj *s3.Object, dirs map[*Inode]
 			// until we get to the leaf
 			dirs[inode] = false
 
+			inode.ToDir()
 			inode.addDotAndDotDot()
 			inode.insertSubTree(path, obj, dirs)
 		}
