@@ -750,6 +750,16 @@ func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) 
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
+	if entry.Type == fuseutil.DT_Directory {
+		// it's possible that both "a" and "a/b" exist, in
+		// which case we need to turn this file into a
+		// directory
+		inode = parent.findChildUnlocked(*entry.Name, false)
+		if inode != nil {
+			parent.removeChildUnlocked(inode)
+		}
+	}
+
 	inode = parent.findChildUnlocked(*entry.Name, entry.Type == fuseutil.DT_Directory)
 	if inode == nil {
 		path := parent.getChildName(*entry.Name)

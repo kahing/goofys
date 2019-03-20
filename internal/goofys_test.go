@@ -2178,3 +2178,48 @@ func (s *GoofysTest) TestIssue326(t *C) {
 	t.Assert(*root.dir.Children[7].Name, Equals, "folder#1#")
 	t.Assert(*root.dir.Children[8].Name, Equals, "folder@name.something")
 }
+
+func (s *GoofysTest) TestSlurpFileAndDir(t *C) {
+	prefix := "TestSlurpFileAndDir/"
+	// fileAndDir is both a file and a directory, and we are
+	// slurping them together as part of our listing optimization
+	blobs := []string{
+		prefix + "fileAndDir",
+		prefix + "fileAndDir/a",
+	}
+
+	for _, b := range blobs {
+		params := &s3.PutObjectInput{
+			Bucket: &s.fs.bucket,
+			Key:    &b,
+			Body:   bytes.NewReader([]byte("foo")),
+		}
+		_, err := s.s3.PutObject(params)
+		t.Assert(err, IsNil)
+	}
+
+	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+	s.fs.flags.StatCacheTTL = 1 * time.Minute
+
+	in, err := s.LookUpInode(t, prefix[0:len(prefix)-1])
+	t.Assert(err, IsNil)
+
+	s.getRoot(t).dir.seqOpenDirScore = 2
+	s.readDirIntoCache(t, in.Id)
+
+	in = in.findChild("fileAndDir")
+	t.Assert(in, NotNil)
+	t.Assert(in.dir, NotNil)
+
+	in = in.findChild("a")
+	t.Assert(in, NotNil)
+
+	// because of slurping we've decided that this is a directory,
+	// lookup must _not_ talk to S3 again because otherwise we may
+	// decide it's a file again because of S3 race
+	s.disableS3()
+	in, err = s.LookUpInode(t, prefix+"fileAndDir")
+	t.Assert(err, IsNil)
+
+	s.assertEntries(t, in, []string{"a"})
+}
