@@ -46,7 +46,9 @@ func maxMemToUse(buffersNow uint64) uint64 {
 	}
 
 	availableMem, err := getCgroupAvailableMem()
-	log.Debugf("amount of available memory from cgroup is: %v", availableMem/1024/1024)
+	if err != nil {
+		log.Debugf("amount of available memory from cgroup is: %v", availableMem/1024/1024)
+	}
 
 	if err != nil || availableMem < 0 || availableMem > m.Available {
 		availableMem = m.Available
