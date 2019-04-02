@@ -694,20 +694,25 @@ func (fs *Goofys) ForgetInode(
 	op *fuseops.ForgetInodeOp) (err error) {
 
 	fs.mu.Lock()
-
 	inode := fs.getInodeOrDie(op.Inode)
+	fs.mu.Unlock()
+
+	if inode.Parent != nil {
+		inode.Parent.mu.Lock()
+		defer inode.Parent.mu.Unlock()
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
 	stale := inode.DeRef(op.N)
 
 	if stale {
 		delete(fs.inodes, op.Inode)
 		fs.forgotCnt += 1
-		fs.mu.Unlock()
 
 		if inode.Parent != nil {
-			inode.Parent.removeChild(inode)
+			inode.Parent.removeChildUnlocked(inode)
 		}
-	} else {
-		fs.mu.Unlock()
 	}
 
 	return
@@ -977,10 +982,13 @@ func (fs *Goofys) CreateFile(
 
 	inode, fh := parent.Create(op.Name)
 
+	parent.mu.Lock()
+
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-
 	fs.insertInode(parent, inode)
+
+	parent.mu.Unlock()
 
 	op.Entry.Child = inode.Id
 	op.Entry.Attributes = inode.InflateAttributes()
@@ -1014,10 +1022,13 @@ func (fs *Goofys) MkDir(
 		return err
 	}
 
+	parent.mu.Lock()
+
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-
 	fs.insertInode(parent, inode)
+
+	parent.mu.Unlock()
 
 	op.Entry.Child = inode.Id
 	op.Entry.Attributes = inode.InflateAttributes()
