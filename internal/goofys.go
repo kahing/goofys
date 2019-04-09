@@ -63,7 +63,7 @@ type Goofys struct {
 
 	awsConfig *aws.Config
 	sess      *session.Session
-	s3        *s3.S3
+	s3        *S3Backend
 	v2Signer  bool
 	gcs       bool
 	sseType   string
@@ -177,6 +177,8 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 		}
 	}
 
+	fs.s3.aws = isAws
+
 	go fs.cleanUpOldMPU()
 
 	if flags.UseKMS {
@@ -236,7 +238,7 @@ func addAcceptEncoding(req *request.Request) {
 	}
 }
 
-func (fs *Goofys) newS3() *s3.S3 {
+func (fs *Goofys) newS3() *S3Backend {
 	svc := s3.New(fs.sess)
 	if fs.v2Signer {
 		svc.Handlers.Sign.Clear()
@@ -244,7 +246,7 @@ func (fs *Goofys) newS3() *s3.S3 {
 		svc.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
 	}
 	svc.Handlers.Sign.PushBack(addAcceptEncoding)
-	return svc
+	return &S3Backend{S3: svc}
 }
 
 // from https://stackoverflow.com/questions/22892120/how-to-generate-a-random-string-of-a-fixed-length-in-golang

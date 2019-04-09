@@ -397,14 +397,14 @@ func (parent *Inode) MkDir(
 func isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
 	fullName += "/"
 
-	params := &s3.ListObjectsInput{
+	params := &s3.ListObjectsV2Input{
 		Bucket:    &fs.bucket,
 		Delimiter: aws.String("/"),
 		MaxKeys:   aws.Int64(2),
 		Prefix:    fs.key(fullName),
 	}
 
-	resp, err := fs.s3.ListObjects(params)
+	resp, err := fs.s3.ListObjectsV2(params)
 	if err != nil {
 		return false, mapAwsError(err)
 	}
@@ -1074,15 +1074,15 @@ func (parent *Inode) LookUpInodeNotDir(name string, c chan s3.HeadObjectOutput, 
 	c <- *resp
 }
 
-func (parent *Inode) LookUpInodeDir(name string, c chan s3.ListObjectsOutput, errc chan error) {
-	params := &s3.ListObjectsInput{
+func (parent *Inode) LookUpInodeDir(name string, c chan s3.ListObjectsV2Output, errc chan error) {
+	params := &s3.ListObjectsV2Input{
 		Bucket:    &parent.fs.bucket,
 		Delimiter: aws.String("/"),
 		MaxKeys:   aws.Int64(1),
 		Prefix:    parent.fs.key(name + "/"),
 	}
 
-	resp, err := parent.fs.s3.ListObjects(params)
+	resp, err := parent.fs.s3.ListObjectsV2(params)
 	if err != nil {
 		errc <- mapAwsError(err)
 		return
@@ -1099,7 +1099,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 	errDirBlobChan := make(chan error, 1)
 	dirBlobChan := make(chan s3.HeadObjectOutput, 1)
 	var errDirChan chan error
-	var dirChan chan s3.ListObjectsOutput
+	var dirChan chan s3.ListObjectsV2Output
 
 	checking := 3
 	var checkErr [3]error
@@ -1113,7 +1113,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 		go parent.LookUpInodeNotDir(fullName+"/", dirBlobChan, errDirBlobChan)
 		if !parent.fs.flags.ExplicitDir {
 			errDirChan = make(chan error, 1)
-			dirChan = make(chan s3.ListObjectsOutput, 1)
+			dirChan = make(chan s3.ListObjectsV2Output, 1)
 			go parent.LookUpInodeDir(fullName, dirChan, errDirChan)
 		}
 	}
@@ -1194,7 +1194,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 				goto doneCase
 			} else if parent.fs.flags.Cheap {
 				errDirChan = make(chan error, 1)
-				dirChan = make(chan s3.ListObjectsOutput, 1)
+				dirChan = make(chan s3.ListObjectsV2Output, 1)
 				go parent.LookUpInodeDir(fullName, dirChan, errDirChan)
 			}
 			break
