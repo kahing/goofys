@@ -309,11 +309,11 @@ if [ "$t" = "" -o "$t" = "io" ]; then
 fi
 
 if [ "$t" = "" -o "$t" = "ls" ]; then
-    create_files_parallel 1000
+    create_files_parallel 2000
     for i in $(seq 1 $iter); do
-        run_test ls_files 1000
+        run_test ls_files 2000
     done
-    rm_files 1000
+    rm_files 2000
 fi
 
 if [ "$t" = "ls_create" ]; then

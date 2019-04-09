@@ -88,7 +88,7 @@ type GoofysTest struct {
 	fs        *Goofys
 	ctx       context.Context
 	awsConfig *aws.Config
-	s3        *s3.S3
+	s3        *S3Backend
 	sess      *session.Session
 	env       map[string]io.ReadSeeker
 }
@@ -175,7 +175,7 @@ func (s *GoofysTest) SetUpSuite(t *C) {
 }
 
 func (s *GoofysTest) deleteBucket(t *C) {
-	resp, err := s.s3.ListObjects(&s3.ListObjectsInput{Bucket: &s.fs.bucket})
+	resp, err := s.s3.ListObjectsV2(&s3.ListObjectsV2Input{Bucket: &s.fs.bucket})
 	t.Assert(err, IsNil)
 
 	if hasEnv("GCS") {
@@ -283,7 +283,7 @@ func (s *GoofysTest) setupDefaultEnv(t *C, public bool) (bucket string) {
 func (s *GoofysTest) SetUpTest(t *C) {
 	s.awsConfig = selectTestConfig(t)
 	s.sess = session.New(s.awsConfig)
-	s.s3 = s3.New(s.sess)
+	s.s3 = &S3Backend{S3: s3.New(s.sess), aws: hasEnv("AWS")}
 
 	if !hasEnv("MINIO") {
 		s.s3.Handlers.Sign.Clear()
@@ -1333,11 +1333,9 @@ func (s *GoofysTest) anonymous(t *C) {
 	s.fs.s3 = s.fs.newS3()
 }
 
-func (s *GoofysTest) disableS3() *s3.S3 {
+func (s *GoofysTest) disableS3() {
 	time.Sleep(1 * time.Second) // wait for any background goroutines to finish
-	s3 := s.fs.s3
 	s.fs.s3 = nil
-	return s3
 }
 
 func (s *GoofysTest) TestWriteAnonymous(t *C) {

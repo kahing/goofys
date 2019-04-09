@@ -130,7 +130,7 @@ func (p sortedDirents) Len() int           { return len(p) }
 func (p sortedDirents) Less(i, j int) bool { return *p[i].Name < *p[j].Name }
 func (p sortedDirents) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
-func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *s3.ListObjectsOutput, err error) {
+func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *s3.ListObjectsV2Output, err error) {
 	var marker *string
 	reqPrefix := prefix
 	inode := dh.inode
@@ -144,13 +144,13 @@ func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *s3.ListObjectsOutput
 		marker = fs.key(*dh.inode.FullName() + "/")
 	}
 
-	params := &s3.ListObjectsInput{
-		Bucket: &fs.bucket,
-		Prefix: &reqPrefix,
-		Marker: marker,
+	params := &s3.ListObjectsV2Input{
+		Bucket:     &fs.bucket,
+		Prefix:     &reqPrefix,
+		StartAfter: marker,
 	}
 
-	resp, err = fs.s3.ListObjects(params)
+	resp, err = fs.s3.ListObjectsV2(params)
 	if err != nil {
 		s3Log.Errorf("ListObjects %v = %v", params, err)
 		return
@@ -206,17 +206,17 @@ func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *s3.ListObjectsOutput
 	// we only return this response if we are totally done with listing this dir
 	if resp != nil {
 		resp.IsTruncated = aws.Bool(false)
-		resp.NextMarker = nil
+		resp.NextContinuationToken = nil
 	}
 
 	return
 }
 
-func (dh *DirHandle) listObjects(prefix string) (resp *s3.ListObjectsOutput, err error) {
+func (dh *DirHandle) listObjects(prefix string) (resp *s3.ListObjectsV2Output, err error) {
 	errSlurpChan := make(chan error, 1)
-	slurpChan := make(chan s3.ListObjectsOutput, 1)
+	slurpChan := make(chan s3.ListObjectsV2Output, 1)
 	errListChan := make(chan error, 1)
-	listChan := make(chan s3.ListObjectsOutput, 1)
+	listChan := make(chan s3.ListObjectsV2Output, 1)
 
 	fs := dh.inode.fs
 
@@ -240,14 +240,14 @@ func (dh *DirHandle) listObjects(prefix string) (resp *s3.ListObjectsOutput, err
 	}
 
 	listObjectsFlat := func() {
-		params := &s3.ListObjectsInput{
-			Bucket:    &fs.bucket,
-			Delimiter: aws.String("/"),
-			Marker:    dh.Marker,
-			Prefix:    &prefix,
+		params := &s3.ListObjectsV2Input{
+			Bucket:            &fs.bucket,
+			Delimiter:         aws.String("/"),
+			ContinuationToken: dh.Marker,
+			Prefix:            &prefix,
 		}
 
-		resp, err := fs.s3.ListObjects(params)
+		resp, err := fs.s3.ListObjectsV2(params)
 		if err != nil {
 			errListChan <- err
 		} else {
@@ -444,7 +444,7 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 		}
 
 		if *resp.IsTruncated {
-			dh.Marker = resp.NextMarker
+			dh.Marker = resp.NextContinuationToken
 		} else {
 			dh.Marker = nil
 		}

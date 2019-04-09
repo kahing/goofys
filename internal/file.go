@@ -353,7 +353,7 @@ func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 }
 
 type S3ReadBuffer struct {
-	s3     *s3.S3
+	s3     *S3Backend
 	offset uint64
 	size   uint32
 	buf    *Buffer
