@@ -20,7 +20,7 @@ set -o errexit
 set -o nounset
 
 if [ $# -lt 2 ]; then
-    echo "Usage: $0 <mount cmd> <dir>"
+    echo "Usage: $0 <mount cmd> <dir> [test name]"
     exit 1
 fi
 
