@@ -39,7 +39,10 @@ func InitLoggers(logToSyslog bool) {
 		var err error
 		syslogHook, err = logrus_syslog.NewSyslogHook("", "", syslog.LOG_DEBUG, "")
 		if err != nil {
-			panic("Unable to connect to local syslog daemon")
+			// we are the child process and we cannot connect to syslog,
+			// probably because we are in a container without syslog
+			// nothing much we can do here, printing to stderr doesn't work
+			return
 		}
 
 		for _, l := range loggers {
