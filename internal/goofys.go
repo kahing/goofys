@@ -257,7 +257,7 @@ func (fs *Goofys) newS3() *S3Backend {
 		svc.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
 	}
 	svc.Handlers.Sign.PushBack(addAcceptEncoding)
-	return &S3Backend{S3: svc}
+	return &S3Backend{fs: fs, S3: svc}
 }
 
 // from https://stackoverflow.com/questions/22892120/how-to-generate-a-random-string-of-a-fixed-length-in-golang
@@ -289,7 +289,7 @@ func RandStringBytesMaskImprSrc(n int) string {
 func (fs *Goofys) testBucket() (err error) {
 	randomObjectName := fs.key(RandStringBytesMaskImprSrc(32))
 
-	_, err = fs.s3.HeadObject(&s3.HeadObjectInput{Bucket: &fs.bucket, Key: randomObjectName})
+	_, err = fs.s3.HeadBlob(&HeadBlobInput{Key: *randomObjectName})
 	if err != nil {
 		err = mapAwsError(err)
 		if err == fuse.ENOENT {

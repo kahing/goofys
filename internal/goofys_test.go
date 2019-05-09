@@ -253,15 +253,15 @@ func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker,
 
 	// double check
 	for path := range env {
-		params := &s3.HeadObjectInput{Bucket: &bucket, Key: &path}
-		_, err := s.s3.HeadObject(params)
+		params := &HeadBlobInput{Key: path}
+		_, err := s.s3.HeadBlob(params)
 		t.Assert(err, IsNil)
 	}
 
 	t.Log("setupEnv done")
 }
 
-func (s *GoofysTest) setupDefaultEnv(t *C, public bool) (bucket string) {
+func (s *GoofysTest) setupDefaultEnv(t *C, public bool) {
 	s.env = map[string]io.ReadSeeker{
 		"file1":           nil,
 		"file2":           nil,
@@ -275,15 +275,27 @@ func (s *GoofysTest) setupDefaultEnv(t *C, public bool) (bucket string) {
 		"zero":            bytes.NewReader([]byte{}),
 	}
 
-	bucket = "goofys-test-" + RandStringBytesMaskImprSrc(16)
-	s.setupEnv(t, bucket, s.env, public)
-	return bucket
+	s.setupEnv(t, s.fs.bucket, s.env, public)
 }
 
 func (s *GoofysTest) SetUpTest(t *C) {
 	s.awsConfig = selectTestConfig(t)
 	s.sess = session.New(s.awsConfig)
-	s.s3 = &S3Backend{S3: s3.New(s.sess), aws: hasEnv("AWS")}
+
+	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
+	uid, gid := MyUserAndGroup()
+	flags := &FlagStorage{
+		StorageClass: "STANDARD",
+		DirMode:      0700,
+		FileMode:     0700,
+		Uid:          uint32(uid),
+		Gid:          uint32(gid),
+	}
+
+	s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
+	t.Assert(s.fs, NotNil)
+
+	s.s3 = &S3Backend{S3: s3.New(s.sess), fs: s.fs, aws: hasEnv("AWS")}
 
 	if !hasEnv("MINIO") {
 		s.s3.Handlers.Sign.Clear()
@@ -294,23 +306,13 @@ func (s *GoofysTest) SetUpTest(t *C) {
 	_, err := s.s3.ListBuckets(nil)
 	t.Assert(err, IsNil)
 
-	bucket := s.setupDefaultEnv(t, false)
+	s.setupDefaultEnv(t, false)
 
 	s.ctx = context.Background()
 
-	uid, gid := MyUserAndGroup()
-	flags := &FlagStorage{
-		StorageClass: "STANDARD",
-		DirMode:      0700,
-		FileMode:     0700,
-		Uid:          uint32(uid),
-		Gid:          uint32(gid),
-	}
 	if hasEnv("GCS") {
 		flags.Endpoint = "http://storage.googleapis.com"
 	}
-	s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
-	t.Assert(s.fs, NotNil)
 }
 
 func (s *GoofysTest) getRoot(t *C) (inode *Inode) {
@@ -676,9 +678,9 @@ func (s *GoofysTest) testWriteFileAt(t *C, fileName string, offset int64, size i
 	err := fh.FlushFile()
 	t.Assert(err, IsNil)
 
-	resp, err := s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &fileName})
+	resp, err := s.s3.HeadBlob(&HeadBlobInput{Key: fileName})
 	t.Assert(err, IsNil)
-	t.Assert(*resp.ContentLength, DeepEquals, size+offset)
+	t.Assert(resp.Size, Equals, uint64(size+offset))
 
 	fr := &FileHandleReader{s.fs, fh, offset}
 	diff, err := CompareReader(fr, io.LimitReader(&SeqReader{offset}, size))
@@ -806,7 +808,7 @@ func (s *GoofysTest) TestRenamePreserveMetadata(t *C) {
 	err = root.Rename(from, root, to)
 	t.Assert(err, IsNil)
 
-	resp, err := s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &to})
+	resp, err := s.s3.HeadBlob(&HeadBlobInput{Key: to})
 	t.Assert(err, IsNil)
 	t.Assert(resp.Metadata["Foo"], NotNil)
 	t.Assert(*resp.Metadata["Foo"], Equals, "bar")
@@ -881,10 +883,10 @@ func (s *GoofysTest) TestRename(t *C) {
 	err = root.Rename(from, root, to)
 	t.Assert(err, IsNil)
 
-	_, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &to})
+	_, err = s.s3.HeadBlob(&HeadBlobInput{Key: to})
 	t.Assert(err, IsNil)
 
-	_, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &from})
+	_, err = s.s3.HeadBlob(&HeadBlobInput{Key: from})
 	t.Assert(mapAwsError(err), Equals, fuse.ENOENT)
 
 	from, to = "file3", "new_file"
@@ -892,10 +894,10 @@ func (s *GoofysTest) TestRename(t *C) {
 	err = dir.Rename(from, root, to)
 	t.Assert(err, IsNil)
 
-	_, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &to})
+	_, err = s.s3.HeadBlob(&HeadBlobInput{Key: to})
 	t.Assert(err, IsNil)
 
-	_, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &from})
+	_, err = s.s3.HeadBlob(&HeadBlobInput{Key: from})
 	t.Assert(mapAwsError(err), Equals, fuse.ENOENT)
 
 	from, to = "no_such_file", "new_file"
@@ -1236,14 +1238,14 @@ func (s *GoofysTest) TestPutMimeType(t *C) {
 
 	s.testWriteFile(t, jpg, 0, 0)
 
-	resp, err := s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &jpg})
+	resp, err := s.s3.HeadBlob(&HeadBlobInput{Key: jpg})
 	t.Assert(err, IsNil)
 	t.Assert(*resp.ContentType, Equals, "image/jpeg")
 
 	err = root.Rename(jpg, root, file)
 	t.Assert(err, IsNil)
 
-	resp, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &file})
+	resp, err = s.s3.HeadBlob(&HeadBlobInput{Key: file})
 	t.Assert(err, IsNil)
 	if hasEnv("AWS") {
 		t.Assert(*resp.ContentType, Equals, "binary/octet-stream")
@@ -1257,7 +1259,7 @@ func (s *GoofysTest) TestPutMimeType(t *C) {
 	err = root.Rename(file, root, jpg2)
 	t.Assert(err, IsNil)
 
-	resp, err = s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: &jpg2})
+	resp, err = s.s3.HeadBlob(&HeadBlobInput{Key: jpg2})
 	t.Assert(err, IsNil)
 	t.Assert(*resp.ContentType, Equals, "image/jpeg")
 }
@@ -1320,9 +1322,9 @@ func (s *GoofysTest) anonymous(t *C) {
 	// delete the original bucket
 	s.deleteBucket(t)
 
-	bucket := s.setupDefaultEnv(t, true)
+	s.setupDefaultEnv(t, true)
 
-	s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, s.fs.flags)
+	s.fs = NewGoofys(context.Background(), s.fs.bucket, s.awsConfig, s.fs.flags)
 	t.Assert(s.fs, NotNil)
 
 	// should have auto-detected within NewGoofys, but doing this here to ensure
@@ -1469,8 +1471,8 @@ func (s *GoofysTest) TestIssue162(t *C) {
 	err = dir.Rename("l├â┬╢r 006.jpg", dir, "myfile.jpg")
 	t.Assert(err, IsNil)
 
-	resp, err := s.s3.HeadObject(&s3.HeadObjectInput{Bucket: &s.fs.bucket, Key: aws.String("dir1/myfile.jpg")})
-	t.Assert(*resp.ContentLength, Equals, int64(3))
+	resp, err := s.s3.HeadBlob(&HeadBlobInput{Key: "dir1/myfile.jpg"})
+	t.Assert(resp.Size, Equals, uint64(3))
 }
 
 func (s *GoofysTest) TestXAttrGet(t *C) {
