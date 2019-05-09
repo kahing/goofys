@@ -92,12 +92,19 @@ func (s *S3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	}, nil
 }
 
-func (s *S3Backend) ListBlobs(param *ListBlobInput) (*ListBlobOutput, error) {
+func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
+	var maxKeys *int64
+
+	if param.MaxKeys != nil {
+		maxKeys = aws.Int64(int64(*param.MaxKeys))
+	}
+
 	resp, err := s.ListObjectsV2(&s3.ListObjectsV2Input{
 		Bucket:            &s.fs.bucket,
-		Prefix:            &param.Prefix,
-		Delimiter:         &param.Delimiter,
-		MaxKeys:           aws.Int64(int64(param.MaxKeys)),
+		Prefix:            param.Prefix,
+		Delimiter:         param.Delimiter,
+		MaxKeys:           maxKeys,
+		StartAfter:        param.StartAfter,
 		ContinuationToken: param.ContinuationToken,
 	})
 	if err != nil {
@@ -120,9 +127,8 @@ func (s *S3Backend) ListBlobs(param *ListBlobInput) (*ListBlobOutput, error) {
 		})
 	}
 
-	return &ListBlobOutput{
+	return &ListBlobsOutput{
 		ContinuationToken:     param.ContinuationToken,
-		MaxKeys:               param.MaxKeys,
 		Prefixes:              prefixes,
 		Items:                 items,
 		NextContinuationToken: resp.NextContinuationToken,
