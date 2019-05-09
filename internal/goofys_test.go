@@ -175,14 +175,14 @@ func (s *GoofysTest) SetUpSuite(t *C) {
 }
 
 func (s *GoofysTest) deleteBucket(t *C) {
-	resp, err := s.s3.ListObjectsV2(&s3.ListObjectsV2Input{Bucket: &s.fs.bucket})
+	resp, err := s.s3.ListBlobs(&ListBlobsInput{})
 	t.Assert(err, IsNil)
 
 	if hasEnv("GCS") {
 		// GCS does not have multi-delete
 		var wg sync.WaitGroup
 
-		for _, o := range resp.Contents {
+		for _, o := range resp.Items {
 			wg.Add(1)
 			key := *o.Key
 			go func() {
@@ -196,13 +196,13 @@ func (s *GoofysTest) deleteBucket(t *C) {
 		}
 		wg.Wait()
 	} else {
-		num_objs := len(resp.Contents)
+		num_objs := len(resp.Items)
 
 		var items s3.Delete
 		var objs = make([]*s3.ObjectIdentifier, num_objs)
 
-		for i, o := range resp.Contents {
-			objs[i] = &s3.ObjectIdentifier{Key: aws.String(*o.Key)}
+		for i, o := range resp.Items {
+			objs[i] = &s3.ObjectIdentifier{Key: o.Key}
 		}
 
 		// Add list of objects to delete to Delete object

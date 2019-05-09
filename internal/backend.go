@@ -38,10 +38,11 @@ type HeadBlobOutput struct {
 	Metadata    map[string]*string
 }
 
-type ListBlobInput struct {
-	Prefix            string
-	Delimiter         string
-	MaxKeys           uint32
+type ListBlobsInput struct {
+	Prefix            *string
+	Delimiter         *string
+	MaxKeys           *uint32
+	StartAfter        *string // XXX: not supported by Azure
 	ContinuationToken *string
 }
 
@@ -49,9 +50,8 @@ type BlobPrefixOutput struct {
 	Prefix *string
 }
 
-type ListBlobOutput struct {
+type ListBlobsOutput struct {
 	ContinuationToken *string
-	MaxKeys           uint32
 
 	Prefixes              []BlobPrefixOutput
 	Items                 []BlobItemOutput
@@ -127,7 +127,7 @@ type MultipartExpireOutput struct {
 
 type StorageBackend interface {
 	HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error)
-	ListBlobs(param *ListBlobInput) (*ListBlobOutput, error)
+	ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error)
 	RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error)
 	GetBlob(param *GetBlobInput) (*GetBlobOutput, error)
 	PutBlob(param *PutBlobInput) (*PutBlobOutput, error)

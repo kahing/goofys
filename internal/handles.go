@@ -397,28 +397,27 @@ func (parent *Inode) MkDir(
 func isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
 	fullName += "/"
 
-	params := &s3.ListObjectsV2Input{
-		Bucket:    &fs.bucket,
+	params := &ListBlobsInput{
 		Delimiter: aws.String("/"),
-		MaxKeys:   aws.Int64(2),
+		MaxKeys:   PUInt32(2),
 		Prefix:    fs.key(fullName),
 	}
 
-	resp, err := fs.s3.ListObjectsV2(params)
+	resp, err := fs.s3.ListBlobs(params)
 	if err != nil {
 		return false, mapAwsError(err)
 	}
 
-	if len(resp.CommonPrefixes) > 0 || len(resp.Contents) > 1 {
+	if len(resp.Prefixes) > 0 || len(resp.Items) > 1 {
 		err = fuse.ENOTEMPTY
 		isDir = true
 		return
 	}
 
-	if len(resp.Contents) == 1 {
+	if len(resp.Items) == 1 {
 		isDir = true
 
-		if *resp.Contents[0].Key != *fs.key(fullName) {
+		if *resp.Items[0].Key != *fs.key(fullName) {
 			err = fuse.ENOTEMPTY
 		}
 	}
@@ -982,7 +981,7 @@ func sealPastDirs(dirs map[*Inode]bool, d *Inode) {
 	dirs[d] = false
 }
 
-func (parent *Inode) insertSubTree(path string, obj *s3.Object, dirs map[*Inode]bool) {
+func (parent *Inode) insertSubTree(path string, obj *BlobItemOutput, dirs map[*Inode]bool) {
 	fs := parent.fs
 	slash := strings.Index(path, "/")
 	if slash == -1 {
@@ -1073,17 +1072,16 @@ func (parent *Inode) LookUpInodeNotDir(name string, c chan HeadBlobOutput, errc 
 	c <- *resp
 }
 
-func (parent *Inode) LookUpInodeDir(name string, c chan s3.ListObjectsV2Output, errc chan error) {
-	params := &s3.ListObjectsV2Input{
-		Bucket:    &parent.fs.bucket,
+func (parent *Inode) LookUpInodeDir(name string, c chan ListBlobsOutput, errc chan error) {
+	params := &ListBlobsInput{
 		Delimiter: aws.String("/"),
-		MaxKeys:   aws.Int64(1),
+		MaxKeys:   PUInt32(1),
 		Prefix:    parent.fs.key(name + "/"),
 	}
 
-	resp, err := parent.fs.s3.ListObjectsV2(params)
+	resp, err := parent.fs.s3.ListBlobs(params)
 	if err != nil {
-		errc <- mapAwsError(err)
+		errc <- err
 		return
 	}
 
@@ -1098,7 +1096,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 	errDirBlobChan := make(chan error, 1)
 	dirBlobChan := make(chan HeadBlobOutput, 1)
 	var errDirChan chan error
-	var dirChan chan s3.ListObjectsV2Output
+	var dirChan chan ListBlobsOutput
 
 	checking := 3
 	var checkErr [3]error
@@ -1112,7 +1110,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 		go parent.LookUpInodeNotDir(fullName+"/", dirBlobChan, errDirBlobChan)
 		if !parent.fs.flags.ExplicitDir {
 			errDirChan = make(chan error, 1)
-			dirChan = make(chan s3.ListObjectsV2Output, 1)
+			dirChan = make(chan ListBlobsOutput, 1)
 			go parent.LookUpInodeDir(fullName, dirChan, errDirChan)
 		}
 	}
@@ -1141,12 +1139,12 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 			s3Log.Debugf("HEAD %v = %v", fullName, err)
 		case resp := <-dirChan:
 			err = nil
-			if len(resp.CommonPrefixes) != 0 || len(resp.Contents) != 0 {
+			if len(resp.Prefixes) != 0 || len(resp.Items) != 0 {
 				inode = NewInode(parent.fs, parent, &name, &fullName)
 				inode.ToDir()
-				if len(resp.Contents) != 0 && *resp.Contents[0].Key == name+"/" {
+				if len(resp.Items) != 0 && *resp.Items[0].Key == name+"/" {
 					// it's actually a dir blob
-					entry := resp.Contents[0]
+					entry := resp.Items[0]
 					if entry.ETag != nil {
 						inode.s3Metadata["etag"] = []byte(*entry.ETag)
 					}
@@ -1193,7 +1191,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 				goto doneCase
 			} else if parent.fs.flags.Cheap {
 				errDirChan = make(chan error, 1)
-				dirChan = make(chan s3.ListObjectsV2Output, 1)
+				dirChan = make(chan ListBlobsOutput, 1)
 				go parent.LookUpInodeDir(fullName, dirChan, errDirChan)
 			}
 			break

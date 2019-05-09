@@ -70,6 +70,10 @@ func MinUInt64(a, b uint64) uint64 {
 	}
 }
 
+func PUInt32(v uint32) *uint32 {
+	return &v
+}
+
 func xattrEscape(value []byte) (s string) {
 	for _, c := range value {
 		if c == '%' {

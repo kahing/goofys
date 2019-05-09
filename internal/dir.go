@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
 
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
@@ -130,7 +129,7 @@ func (p sortedDirents) Len() int           { return len(p) }
 func (p sortedDirents) Less(i, j int) bool { return *p[i].Name < *p[j].Name }
 func (p sortedDirents) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
-func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *s3.ListObjectsV2Output, err error) {
+func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *ListBlobsOutput, err error) {
 	var marker *string
 	reqPrefix := prefix
 	inode := dh.inode
@@ -144,30 +143,29 @@ func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *s3.ListObjectsV2Outp
 		marker = fs.key(*dh.inode.FullName() + "/")
 	}
 
-	params := &s3.ListObjectsV2Input{
-		Bucket:     &fs.bucket,
+	params := &ListBlobsInput{
 		Prefix:     &reqPrefix,
 		StartAfter: marker,
 	}
 
-	resp, err = fs.s3.ListObjectsV2(params)
+	resp, err = fs.s3.ListBlobs(params)
 	if err != nil {
 		s3Log.Errorf("ListObjects %v = %v", params, err)
 		return
 	}
 
-	num := len(resp.Contents)
+	num := len(resp.Items)
 	if num == 0 {
 		return
 	}
 
 	dirs := make(map[*Inode]bool)
-	for _, obj := range resp.Contents {
+	for _, obj := range resp.Items {
 		baseName := (*obj.Key)[len(reqPrefix):]
 
 		slash := strings.Index(baseName, "/")
 		if slash != -1 {
-			inode.insertSubTree(baseName, obj, dirs)
+			inode.insertSubTree(baseName, &obj, dirs)
 		}
 	}
 
@@ -178,14 +176,14 @@ func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *s3.ListObjectsV2Outp
 			continue
 		}
 
-		if sealed || !*resp.IsTruncated {
+		if sealed || !resp.IsTruncated {
 			d.dir.DirTime = time.Now()
 			d.Attributes.Mtime = d.findChildMaxTime()
 		}
 	}
 
-	if *resp.IsTruncated {
-		obj := resp.Contents[len(resp.Contents)-1]
+	if resp.IsTruncated {
+		obj := resp.Items[len(resp.Items)-1]
 		// if we are done listing prefix, we are good
 		if strings.HasPrefix(*obj.Key, prefix) {
 			// if we are done with all the slashes, then we are good
@@ -205,18 +203,18 @@ func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *s3.ListObjectsV2Outp
 
 	// we only return this response if we are totally done with listing this dir
 	if resp != nil {
-		resp.IsTruncated = aws.Bool(false)
+		resp.IsTruncated = false
 		resp.NextContinuationToken = nil
 	}
 
 	return
 }
 
-func (dh *DirHandle) listObjects(prefix string) (resp *s3.ListObjectsV2Output, err error) {
+func (dh *DirHandle) listObjects(prefix string) (resp *ListBlobsOutput, err error) {
 	errSlurpChan := make(chan error, 1)
-	slurpChan := make(chan s3.ListObjectsV2Output, 1)
+	slurpChan := make(chan ListBlobsOutput, 1)
 	errListChan := make(chan error, 1)
-	listChan := make(chan s3.ListObjectsV2Output, 1)
+	listChan := make(chan ListBlobsOutput, 1)
 
 	fs := dh.inode.fs
 
@@ -240,14 +238,13 @@ func (dh *DirHandle) listObjects(prefix string) (resp *s3.ListObjectsV2Output, e
 	}
 
 	listObjectsFlat := func() {
-		params := &s3.ListObjectsV2Input{
-			Bucket:            &fs.bucket,
+		params := &ListBlobsInput{
 			Delimiter:         aws.String("/"),
 			ContinuationToken: dh.Marker,
 			Prefix:            &prefix,
 		}
 
-		resp, err := fs.s3.ListObjectsV2(params)
+		resp, err := fs.s3.ListBlobs(params)
 		if err != nil {
 			errListChan <- err
 		} else {
@@ -281,7 +278,7 @@ func (dh *DirHandle) listObjects(prefix string) (resp *s3.ListObjectsV2Output, e
 	}
 }
 
-func objectToDirEntry(fs *Goofys, obj *s3.Object, name string, isDir bool) (en *DirHandleEntry) {
+func objectToDirEntry(fs *Goofys, obj *BlobItemOutput, name string, isDir bool) (en *DirHandleEntry) {
 	if isDir {
 		en = &DirHandleEntry{
 			Name:       &name,
@@ -293,7 +290,7 @@ func objectToDirEntry(fs *Goofys, obj *s3.Object, name string, isDir bool) (en *
 			Name: &name,
 			Type: fuseutil.DT_File,
 			Attributes: &InodeAttributes{
-				Size:  uint64(*obj.Size),
+				Size:  obj.Size,
 				Mtime: *obj.LastModified,
 			},
 			ETag:         obj.ETag,
@@ -369,14 +366,14 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 		s3Log.Debug(resp)
 		dh.mu.Lock()
 
-		dh.Entries = make([]*DirHandleEntry, 0, len(resp.CommonPrefixes)+len(resp.Contents))
+		dh.Entries = make([]*DirHandleEntry, 0, len(resp.Prefixes)+len(resp.Items))
 
 		// this is only returned for non-slurped responses
-		for _, dir := range resp.CommonPrefixes {
+		for _, dir := range resp.Prefixes {
 			// strip trailing /
 			dirName := (*dir.Prefix)[0 : len(*dir.Prefix)-1]
 			// strip previous prefix
-			dirName = dirName[len(*resp.Prefix):]
+			dirName = dirName[len(prefix):]
 			if len(dirName) == 0 {
 				continue
 			}
@@ -390,7 +387,7 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 		}
 
 		lastDir := ""
-		for _, obj := range resp.Contents {
+		for _, obj := range resp.Items {
 			if !strings.HasPrefix(*obj.Key, prefix) {
 				// other slurped objects that we cached
 				continue
@@ -405,7 +402,7 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 					continue
 				}
 				dh.Entries = append(dh.Entries,
-					objectToDirEntry(fs, obj, baseName, false))
+					objectToDirEntry(fs, &obj, baseName, false))
 			} else {
 				// this is a slurped up object which
 				// was already cached, unless it's a
@@ -443,7 +440,7 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 			en.Offset = fuseops.DirOffset(i+dh.BaseOffset) + 1 + 2
 		}
 
-		if *resp.IsTruncated {
+		if resp.IsTruncated {
 			dh.Marker = resp.NextContinuationToken
 		} else {
 			dh.Marker = nil
