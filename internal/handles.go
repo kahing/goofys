@@ -480,7 +480,7 @@ func (inode *Inode) isDir() bool {
 }
 
 // LOCKS_REQUIRED(inode.mu)
-func (inode *Inode) fillXattrFromHead(resp *s3.HeadObjectOutput) {
+func (inode *Inode) fillXattrFromHead(resp *HeadBlobOutput) {
 	inode.userMetadata = make(map[string][]byte)
 
 	if resp.ETag != nil {
@@ -512,8 +512,8 @@ func (inode *Inode) fillXattr() (err error) {
 		}
 		fs := inode.fs
 
-		params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: fs.key(fullName)}
-		resp, err := fs.s3.HeadObject(params)
+		params := &HeadBlobInput{Key: *fs.key(fullName)}
+		resp, err := fs.s3.HeadBlob(params)
 		if err != nil {
 			err = mapAwsError(err)
 			if err == fuse.ENOENT {
@@ -708,9 +708,8 @@ func (parent *Inode) Rename(from string, newParent *Inode, to string) (err error
 	}
 
 	if fromIsDir && !toIsDir {
-		_, err = fs.s3.HeadObject(&s3.HeadObjectInput{
-			Bucket: &fs.bucket,
-			Key:    fs.key(toFullName),
+		_, err = fs.s3.HeadBlob(&HeadBlobInput{
+			Key: *fs.key(toFullName),
 		})
 		if err == nil {
 			return fuse.ENOTDIR
@@ -870,13 +869,13 @@ func copyObjectMultipart(fs *Goofys, size int64, from string, to string, mpuId s
 func copyObjectMaybeMultipart(fs *Goofys, size int64, from string, to string, srcEtag *string, metadata map[string]*string) (err error) {
 
 	if size == -1 || srcEtag == nil || metadata == nil {
-		params := &s3.HeadObjectInput{Bucket: &fs.bucket, Key: fs.key(from)}
-		resp, err := fs.s3.HeadObject(params)
+		params := &HeadBlobInput{Key: *fs.key(from)}
+		resp, err := fs.s3.HeadBlob(params)
 		if err != nil {
 			return mapAwsError(err)
 		}
 
-		size = *resp.ContentLength
+		size = int64(resp.Size)
 		metadata = resp.Metadata
 		srcEtag = resp.ETag
 	}
@@ -1062,9 +1061,9 @@ func (parent *Inode) readDirFromCache(offset fuseops.DirOffset) (en *DirHandleEn
 	return
 }
 
-func (parent *Inode) LookUpInodeNotDir(name string, c chan s3.HeadObjectOutput, errc chan error) {
-	params := &s3.HeadObjectInput{Bucket: &parent.fs.bucket, Key: parent.fs.key(name)}
-	resp, err := parent.fs.s3.HeadObject(params)
+func (parent *Inode) LookUpInodeNotDir(name string, c chan HeadBlobOutput, errc chan error) {
+	params := &HeadBlobInput{Key: *parent.fs.key(name)}
+	resp, err := parent.fs.s3.HeadBlob(params)
 	if err != nil {
 		errc <- mapAwsError(err)
 		return
@@ -1095,9 +1094,9 @@ func (parent *Inode) LookUpInodeDir(name string, c chan s3.ListObjectsV2Output, 
 // returned inode has nil Id
 func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *Inode, err error) {
 	errObjectChan := make(chan error, 1)
-	objectChan := make(chan s3.HeadObjectOutput, 1)
+	objectChan := make(chan HeadBlobOutput, 1)
 	errDirBlobChan := make(chan error, 1)
-	dirBlobChan := make(chan s3.HeadObjectOutput, 1)
+	dirBlobChan := make(chan HeadBlobOutput, 1)
 	var errDirChan chan error
 	var dirChan chan s3.ListObjectsV2Output
 
@@ -1125,7 +1124,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 			// XXX/TODO if both object and object/ exists, return dir
 			inode = NewInode(parent.fs, parent, &name, &fullName)
 			inode.Attributes = InodeAttributes{
-				Size:  uint64(aws.Int64Value(resp.ContentLength)),
+				Size:  resp.Size,
 				Mtime: *resp.LastModified,
 			}
 

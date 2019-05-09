@@ -15,11 +15,135 @@
 package internal
 
 import (
+	"io"
+	"syscall"
+	"time"
+
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
+type HeadBlobInput struct {
+	Key string
+}
+
+type BlobItemOutput struct {
+	Key          *string
+	ETag         *string
+	LastModified *time.Time
+	Size         uint64
+	StorageClass *string
+}
+
+type HeadBlobOutput struct {
+	BlobItemOutput
+
+	ContentType *string
+	Metadata    map[string]*string
+}
+
+type ListBlobInput struct {
+	Prefix            string
+	Delimiter         string
+	MaxKeys           uint32
+	ContinuationToken *string
+}
+
+type BlobPrefixOutput struct {
+	Prefix *string
+}
+
+type ListBlobOutput struct {
+	ContinuationToken *string
+	MaxKeys           uint32
+
+	Prefixes              []BlobPrefixOutput
+	Items                 []BlobItemOutput
+	NextContinuationToken *string
+	IsTruncated           bool
+}
+
+type RenameBlobInput struct {
+	Source      string
+	Destination string
+}
+
+type RenameBlobOutput struct {
+}
+
+type GetBlobInput struct {
+	Key     string
+	Start   uint64
+	Count   uint64
+	IfMatch *string
+}
+
+type GetBlobOutput struct {
+	HeadBlobOutput
+
+	Body io.ReadCloser
+}
+
+type PutBlobInput struct {
+	Key      string
+	Metadata map[string]*string
+
+	Body io.ReadSeeker
+}
+
+type PutBlobOutput struct {
+	ETag *string
+}
+
+type MultipartBlobBeginInput struct {
+	Key      string
+	Metadata map[string]*string
+}
+
+type MultipartBlobCommitInput struct {
+	Key *string
+
+	Metadata map[string]*string
+	UploadId *string
+
+	Parts []*string
+}
+
+type MultipartBlobAddInput struct {
+	Commit     *MultipartBlobCommitInput
+	PartNumber uint64
+
+	Body io.ReadSeeker
+}
+
+type MultipartBlobAddOutput struct {
+}
+
+type MultipartBlobCommitOutput struct {
+	ETag *string
+}
+
+type MultipartExpireInput struct {
+}
+
+type MultipartExpireOutput struct {
+}
+
+type StorageBackend interface {
+	HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error)
+	ListBlobs(param *ListBlobInput) (*ListBlobOutput, error)
+	RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error)
+	GetBlob(param *GetBlobInput) (*GetBlobOutput, error)
+	PutBlob(param *PutBlobInput) (*PutBlobOutput, error)
+	MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlobCommitInput, error)
+	MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error)
+	MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error)
+	MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error)
+}
+
 type S3Backend struct {
 	*s3.S3
+	fs *Goofys
 
 	aws bool
 }
@@ -66,3 +190,77 @@ func (s *S3Backend) ListObjectsV2(params *s3.ListObjectsV2Input) (*s3.ListObject
 		return &v2Objs, nil
 	}
 }
+
+func (s *S3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
+	resp, err := s.S3.HeadObject(&s3.HeadObjectInput{
+		Bucket: &s.fs.bucket,
+		Key:    &param.Key,
+	})
+	if err != nil {
+		return nil, mapAwsError(err)
+	}
+	return &HeadBlobOutput{
+		BlobItemOutput: BlobItemOutput{
+			Key:          &param.Key,
+			ETag:         resp.ETag,
+			LastModified: resp.LastModified,
+			Size:         uint64(*resp.ContentLength),
+			StorageClass: resp.StorageClass,
+		},
+		ContentType: resp.ContentType,
+		Metadata:    resp.Metadata,
+	}, nil
+}
+
+func (s *S3Backend) ListBlobs(param *ListBlobInput) (*ListBlobOutput, error) {
+	resp, err := s.ListObjectsV2(&s3.ListObjectsV2Input{
+		Bucket:            &s.fs.bucket,
+		Prefix:            &param.Prefix,
+		Delimiter:         &param.Delimiter,
+		MaxKeys:           aws.Int64(int64(param.MaxKeys)),
+		ContinuationToken: param.ContinuationToken,
+	})
+	if err != nil {
+		return nil, mapAwsError(err)
+	}
+
+	prefixes := make([]BlobPrefixOutput, 0)
+	items := make([]BlobItemOutput, 0)
+
+	for _, p := range resp.CommonPrefixes {
+		prefixes = append(prefixes, BlobPrefixOutput{Prefix: p.Prefix})
+	}
+	for _, i := range resp.Contents {
+		items = append(items, BlobItemOutput{
+			Key:          i.Key,
+			ETag:         i.ETag,
+			LastModified: i.LastModified,
+			Size:         uint64(*i.Size),
+			StorageClass: i.StorageClass,
+		})
+	}
+
+	return &ListBlobOutput{
+		ContinuationToken:     param.ContinuationToken,
+		MaxKeys:               param.MaxKeys,
+		Prefixes:              prefixes,
+		Items:                 items,
+		NextContinuationToken: resp.NextContinuationToken,
+		IsTruncated:           *resp.IsTruncated,
+	}, nil
+}
+
+func (s *S3Backend) RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error) {
+	return nil, syscall.ENOTSUP
+}
+
+/*
+func (s *S3Backend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
+
+}
+*/
+// PutBlob(param *PutBlobInput) (*PutBlobOutput, error)
+// MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlobCommitInput, error)
+// MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error)
+// MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error)
+// MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error)
