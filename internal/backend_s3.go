@@ -16,6 +16,7 @@ package internal
 
 import (
 	"fmt"
+	"net/url"
 	"syscall"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -385,7 +386,7 @@ func (s *S3Backend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 		Key:          &param.Key,
 		Metadata:     param.Metadata,
 		Body:         param.Body,
-		StorageClass: param.StorageClass,
+		StorageClass: &s.fs.flags.StorageClass,
 		ContentType:  param.ContentType,
 	}
 
@@ -410,7 +411,67 @@ func (s *S3Backend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 	}, nil
 }
 
-// MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlobCommitInput, error)
+func (s *S3Backend) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlobCommitInput, error) {
+	mpu := s3.CreateMultipartUploadInput{
+		Bucket:       &s.fs.bucket,
+		Key:          &param.Key,
+		StorageClass: &s.fs.flags.StorageClass,
+		ContentType:  param.ContentType,
+	}
+
+	if s.fs.flags.UseSSE {
+		mpu.ServerSideEncryption = &s.fs.sseType
+		if s.fs.flags.UseKMS && s.fs.flags.KMSKeyID != "" {
+			mpu.SSEKMSKeyId = &s.fs.flags.KMSKeyID
+		}
+	}
+
+	if s.fs.flags.ACL != "" {
+		mpu.ACL = &s.fs.flags.ACL
+	}
+
+	if !s.fs.gcs {
+		resp, err := s.CreateMultipartUpload(&mpu)
+		if err != nil {
+			s3Log.Errorf("CreateMultipartUpload %v = %v", param.Key, err)
+			return nil, mapAwsError(err)
+		}
+
+		return &MultipartBlobCommitInput{
+			Key:      &param.Key,
+			Metadata: param.Metadata,
+			UploadId: resp.UploadId,
+			Parts:    make([]*string, 10000), // at most 10K parts
+		}, nil
+	} else {
+		req, _ := s.CreateMultipartUploadRequest(&mpu)
+		// get rid of ?uploads=
+		req.HTTPRequest.URL.RawQuery = ""
+		req.HTTPRequest.Header.Set("x-goog-resumable", "start")
+
+		err := req.Send()
+		if err != nil {
+			s3Log.Errorf("CreateMultipartUpload %v = %v", param.Key, err)
+			return nil, mapAwsError(err)
+		}
+
+		location := req.HTTPResponse.Header.Get("Location")
+		_, err = url.Parse(location)
+		if err != nil {
+			s3Log.Errorf("CreateMultipartUpload %v = %v", param.Key, err)
+			return nil, mapAwsError(err)
+		}
+
+		return &MultipartBlobCommitInput{
+			Key:      &param.Key,
+			Metadata: param.Metadata,
+			UploadId: &location,
+			Parts:    make([]*string, 10000), // at most 10K parts
+		}, nil
+	}
+
+}
+
 // MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error)
 // MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error)
 // MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error)
