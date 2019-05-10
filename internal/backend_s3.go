@@ -17,6 +17,8 @@ package internal
 import (
 	"fmt"
 	"net/url"
+	"strconv"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -472,6 +474,74 @@ func (s *S3Backend) MultipartBlobBegin(param *MultipartBlobBeginInput) (*Multipa
 
 }
 
-// MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error)
+func (s *S3Backend) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error) {
+	en := &param.Commit.Parts[param.PartNumber-1]
+
+	if !s.fs.gcs {
+		params := s3.UploadPartInput{
+			Bucket:     &s.fs.bucket,
+			Key:        param.Commit.Key,
+			PartNumber: aws.Int64(int64(param.PartNumber)),
+			UploadId:   param.Commit.UploadId,
+			Body:       param.Body,
+		}
+
+		s3Log.Debug(params)
+
+		resp, err := s.UploadPart(&params)
+		if err != nil {
+			return nil, mapAwsError(err)
+		}
+
+		if *en != nil {
+			panic(fmt.Sprintf("etags for part %v already set: %v", param.PartNumber, **en))
+		}
+		*en = resp.ETag
+	} else {
+		// the mpuId serves as authentication token so
+		// technically we don't need to sign this anymore and
+		// can just use a plain HTTP request, but going
+		// through aws-sdk-go anyway to get retry handling
+		params := &s3.PutObjectInput{
+			Bucket: &s.fs.bucket,
+			Key:    param.Commit.Key,
+			Body:   param.Body,
+		}
+
+		s3Log.Debug(params)
+
+		req, _ := s.PutObjectRequest(params)
+		req.HTTPRequest.URL, _ = url.Parse(*param.Commit.UploadId)
+
+		atomic.AddUint64(&param.Commit.Size, param.Size)
+
+		start := param.Commit.Size - param.Size
+		end := param.Commit.Size - 1
+		var size string
+		if param.Last {
+			size = strconv.FormatUint(param.Commit.Size, 10)
+		} else {
+			size = "*"
+		}
+
+		contentRange := fmt.Sprintf("bytes %v-%v/%v", start, end, size)
+
+		req.HTTPRequest.Header.Set("Content-Length", strconv.FormatUint(param.Size, 10))
+		req.HTTPRequest.Header.Set("Content-Range", contentRange)
+
+		err := req.Send()
+		if err != nil {
+			// status indicating that we need more parts to finish this
+			if req.HTTPResponse.StatusCode == 308 {
+				err = nil
+			} else {
+				return nil, mapAwsError(err)
+			}
+		}
+	}
+
+	return &MultipartBlobAddOutput{}, nil
+}
+
 // MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error)
 // MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error)
