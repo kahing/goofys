@@ -179,7 +179,7 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 
 	fs.s3.aws = isAws
 
-	go fs.cleanUpOldMPU()
+	go fs.s3.MultipartExpire(&MultipartExpireInput{})
 
 	if flags.UseKMS {
 		//SSE header string for KMS server-side encryption (SSE-KMS)
@@ -373,36 +373,6 @@ func (fs *Goofys) detectBucketLocationByHEAD() (err error, isAws bool) {
 	}
 
 	return
-}
-
-func (fs *Goofys) cleanUpOldMPU() {
-	mpu, err := fs.s3.ListMultipartUploads(&s3.ListMultipartUploadsInput{Bucket: &fs.bucket})
-	if err != nil {
-		mapAwsError(err)
-		return
-	}
-	s3Log.Debug(mpu)
-
-	now := time.Now()
-	for _, upload := range mpu.Uploads {
-		expireTime := upload.Initiated.Add(48 * time.Hour)
-
-		if !expireTime.After(now) {
-			params := &s3.AbortMultipartUploadInput{
-				Bucket:   &fs.bucket,
-				Key:      upload.Key,
-				UploadId: upload.UploadId,
-			}
-			resp, err := fs.s3.AbortMultipartUpload(params)
-			s3Log.Debug(resp)
-
-			if mapAwsError(err) == syscall.EACCES {
-				break
-			}
-		} else {
-			s3Log.Debugf("Keeping MPU Key=%v Id=%v", *upload.Key, *upload.UploadId)
-		}
-	}
 }
 
 func (fs *Goofys) SigUsr1() {
