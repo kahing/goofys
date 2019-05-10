@@ -578,9 +578,9 @@ func (s *GoofysTest) TestCreateFiles(t *C) {
 	err := fh.FlushFile()
 	t.Assert(err, IsNil)
 
-	resp, err := s.s3.GetObject(&s3.GetObjectInput{Bucket: &s.fs.bucket, Key: &fileName})
+	resp, err := s.s3.GetBlob(&GetBlobInput{Key: fileName})
 	t.Assert(err, IsNil)
-	t.Assert(*resp.ContentLength, DeepEquals, int64(0))
+	t.Assert(resp.HeadBlobOutput.Size, DeepEquals, uint64(0))
 	defer resp.Body.Close()
 
 	_, err = s.getRoot(t).LookUp(fileName)
@@ -598,9 +598,9 @@ func (s *GoofysTest) TestCreateFiles(t *C) {
 	err = fh.FlushFile()
 	t.Assert(err, IsNil)
 
-	resp, err = s.s3.GetObject(&s3.GetObjectInput{Bucket: &s.fs.bucket, Key: &fileName})
+	resp, err = s.s3.GetBlob(&GetBlobInput{Key: fileName})
 	t.Assert(err, IsNil)
-	t.Assert(*resp.ContentLength, Equals, int64(1))
+	t.Assert(resp.HeadBlobOutput.Size, Equals, uint64(1))
 	defer resp.Body.Close()
 }
 
@@ -611,7 +611,7 @@ func (s *GoofysTest) TestUnlink(t *C) {
 	t.Assert(err, IsNil)
 
 	// make sure that it's gone from s3
-	_, err = s.s3.GetObject(&s3.GetObjectInput{Bucket: &s.fs.bucket, Key: &fileName})
+	_, err = s.s3.GetBlob(&GetBlobInput{Key: fileName})
 	t.Assert(mapAwsError(err), Equals, fuse.ENOENT)
 }
 
