@@ -140,6 +140,9 @@ type MultipartBlobCommitOutput struct {
 	ETag *string
 }
 
+type MultipartBlobAbortOutput struct {
+}
+
 type MultipartExpireInput struct {
 }
 
@@ -155,6 +158,7 @@ type StorageBackend interface {
 	PutBlob(param *PutBlobInput) (*PutBlobOutput, error)
 	MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlobCommitInput, error)
 	MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error)
+	MultipartBlobAbort(param *MultipartBlobCommitInput) (*MultipartBlobAbortOutput, error)
 	MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error)
 	MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error)
 }
