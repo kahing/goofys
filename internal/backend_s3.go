@@ -341,11 +341,44 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 	return &CopyBlobOutput{}, nil
 }
 
-/*
 func (s *S3Backend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
+	get := s3.GetObjectInput{
+		Bucket: &s.fs.bucket,
+		Key:    &param.Key,
+	}
 
+	if param.Start != 0 || param.Count != 0 {
+		var bytes string
+		if param.Count != 0 {
+			bytes = fmt.Sprintf("bytes=%v-%v", param.Start, param.Start+param.Count-1)
+		} else {
+			bytes = fmt.Sprintf("bytes=%v-", param.Start)
+		}
+		get.Range = &bytes
+	}
+	// TODO handle IfMatch
+
+	resp, err := s.GetObject(&get)
+	if err != nil {
+		return nil, mapAwsError(err)
+	}
+
+	return &GetBlobOutput{
+		HeadBlobOutput: HeadBlobOutput{
+			BlobItemOutput: BlobItemOutput{
+				Key:          &param.Key,
+				ETag:         resp.ETag,
+				LastModified: resp.LastModified,
+				Size:         uint64(*resp.ContentLength),
+				StorageClass: resp.StorageClass,
+			},
+			ContentType: resp.ContentType,
+			Metadata:    resp.Metadata,
+		},
+		Body: resp.Body,
+	}, nil
 }
-*/
+
 // PutBlob(param *PutBlobInput) (*PutBlobOutput, error)
 // MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlobCommitInput, error)
 // MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error)

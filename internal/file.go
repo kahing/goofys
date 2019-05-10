@@ -371,19 +371,13 @@ func (b S3ReadBuffer) Init(fh *FileHandle, offset uint64, size uint32) *S3ReadBu
 	}
 
 	b.buf = Buffer{}.Init(mbuf, func() (io.ReadCloser, error) {
-		params := &s3.GetObjectInput{
-			Bucket: &fs.bucket,
-			Key:    fs.key(*fh.inode.FullName()),
-		}
-
-		bytes := fmt.Sprintf("bytes=%v-%v", offset, offset+uint64(size)-1)
-		params.Range = &bytes
-
-		req, resp := fs.s3.GetObjectRequest(params)
-
-		err := req.Send()
+		resp, err := fs.s3.GetBlob(&GetBlobInput{
+			Key:   *fs.key(*fh.inode.FullName()),
+			Start: offset,
+			Count: uint64(size),
+		})
 		if err != nil {
-			return nil, mapAwsError(err)
+			return nil, err
 		}
 
 		return resp.Body, nil
@@ -640,21 +634,12 @@ func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, e
 	fs := fh.inode.fs
 
 	if fh.reader == nil {
-		params := &s3.GetObjectInput{
-			Bucket: &fs.bucket,
-			Key:    fs.key(*fh.inode.FullName()),
-		}
-
-		if offset != 0 {
-			bytes := fmt.Sprintf("bytes=%v-", offset)
-			params.Range = &bytes
-		}
-
-		req, resp := fs.s3.GetObjectRequest(params)
-
-		err = req.Send()
+		resp, err := fs.s3.GetBlob(&GetBlobInput{
+			Key:   *fs.key(*fh.inode.FullName()),
+			Start: uint64(offset),
+		})
 		if err != nil {
-			return bytesRead, mapAwsError(err)
+			return bytesRead, err
 		}
 
 		fh.reader = resp.Body
