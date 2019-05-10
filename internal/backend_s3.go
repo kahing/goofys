@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -587,4 +588,35 @@ func (s *S3Backend) MultipartBlobCommit(param *MultipartBlobCommitInput) (*Multi
 	}
 }
 
-// MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error)
+func (s *S3Backend) MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error) {
+	mpu, err := s.ListMultipartUploads(&s3.ListMultipartUploadsInput{
+		Bucket: &s.fs.bucket,
+	})
+	if err != nil {
+		return nil, mapAwsError(err)
+	}
+	s3Log.Debug(mpu)
+
+	now := time.Now()
+	for _, upload := range mpu.Uploads {
+		expireTime := upload.Initiated.Add(48 * time.Hour)
+
+		if !expireTime.After(now) {
+			params := &s3.AbortMultipartUploadInput{
+				Bucket:   &s.fs.bucket,
+				Key:      upload.Key,
+				UploadId: upload.UploadId,
+			}
+			resp, err := s.AbortMultipartUpload(params)
+			s3Log.Debug(resp)
+
+			if mapAwsError(err) == syscall.EACCES {
+				break
+			}
+		} else {
+			s3Log.Debugf("Keeping MPU Key=%v Id=%v", *upload.Key, *upload.UploadId)
+		}
+	}
+
+	return &MultipartExpireOutput{}, nil
+}
