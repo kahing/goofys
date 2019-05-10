@@ -93,10 +93,9 @@ type GetBlobOutput struct {
 }
 
 type PutBlobInput struct {
-	Key          string
-	Metadata     map[string]*string
-	StorageClass *string
-	ContentType  *string
+	Key         string
+	Metadata    map[string]*string
+	ContentType *string
 
 	Body io.ReadSeeker
 }
@@ -106,9 +105,9 @@ type PutBlobOutput struct {
 }
 
 type MultipartBlobBeginInput struct {
-	Key          string
-	Metadata     map[string]*string
-	StorageClass *string
+	Key         string
+	Metadata    map[string]*string
+	ContentType *string
 }
 
 type MultipartBlobCommitInput struct {

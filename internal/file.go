@@ -32,14 +32,13 @@ import (
 type FileHandle struct {
 	inode *Inode
 
-	mpuKey    *string
+	mpuName   *string
 	dirty     bool
 	writeInit sync.Once
 	mpuWG     sync.WaitGroup
-	etags     []*string
 
 	mu              sync.Mutex
-	mpuId           *string
+	mpuId           *MultipartBlobCommitInput
 	nextWriteOffset int64
 	lastPartId      int
 
@@ -79,64 +78,23 @@ func (fh *FileHandle) initMPU() {
 		fh.mpuWG.Done()
 	}()
 
-	fh.mpuKey = fh.inode.FullName()
 	fs := fh.inode.fs
 
-	params := &s3.CreateMultipartUploadInput{
-		Bucket:       &fs.bucket,
-		Key:          fs.key(*fh.mpuKey),
-		StorageClass: &fs.flags.StorageClass,
-		ContentType:  fs.getMimeType(*fh.inode.FullName()),
-	}
+	fh.mpuName = fh.inode.FullName()
 
-	if fs.flags.UseSSE {
-		params.ServerSideEncryption = &fs.sseType
-		if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
-			params.SSEKMSKeyId = &fs.flags.KMSKeyID
-		}
-	}
+	resp, err := fs.s3.MultipartBlobBegin(&MultipartBlobBeginInput{
+		Key:         *fs.key(*fh.mpuName),
+		ContentType: fs.getMimeType(*fh.mpuName),
+	})
 
-	if fs.flags.ACL != "" {
-		params.ACL = &fs.flags.ACL
-	}
+	fh.mu.Lock()
+	defer fh.mu.Unlock()
 
-	if !fs.gcs {
-		resp, err := fs.s3.CreateMultipartUpload(params)
-
-		fh.mu.Lock()
-		defer fh.mu.Unlock()
-
-		if err != nil {
-			fh.lastWriteError = mapAwsError(err)
-			s3Log.Errorf("CreateMultipartUpload %v = %v", *fh.mpuKey, err)
-		}
-
-		s3Log.Debug(resp)
-
-		fh.mpuId = resp.UploadId
+	if err != nil {
+		fh.lastWriteError = mapAwsError(err)
 	} else {
-		req, _ := fs.s3.CreateMultipartUploadRequest(params)
-		// get rid of ?uploads=
-		req.HTTPRequest.URL.RawQuery = ""
-		req.HTTPRequest.Header.Set("x-goog-resumable", "start")
-
-		err := req.Send()
-		if err != nil {
-			fh.lastWriteError = mapAwsError(err)
-			s3Log.Errorf("CreateMultipartUpload %v = %v", *fh.mpuKey, err)
-		}
-
-		location := req.HTTPResponse.Header.Get("Location")
-		_, err = url.Parse(location)
-		if err != nil {
-			fh.lastWriteError = mapAwsError(err)
-			s3Log.Errorf("CreateMultipartUpload %v = %v", *fh.mpuKey, err)
-		}
-
-		fh.mpuId = &location
+		fh.mpuId = resp
 	}
-
-	fh.etags = make([]*string, 10000) // at most 10K parts
 
 	return
 }
@@ -153,14 +111,14 @@ func (fh *FileHandle) mpuPartNoSpawn(buf *MBuf, part int, total int64, last bool
 		return errors.New(fmt.Sprintf("invalid part number: %v", part))
 	}
 
-	en := &fh.etags[part-1]
+	en := &fh.mpuId.Parts[part-1]
 
 	if !fs.gcs {
 		params := &s3.UploadPartInput{
 			Bucket:     &fs.bucket,
 			Key:        fs.key(*fh.inode.FullName()),
 			PartNumber: aws.Int64(int64(part)),
-			UploadId:   fh.mpuId,
+			UploadId:   fh.mpuId.UploadId,
 			Body:       buf,
 		}
 
@@ -189,7 +147,7 @@ func (fh *FileHandle) mpuPartNoSpawn(buf *MBuf, part int, total int64, last bool
 		s3Log.Debug(params)
 
 		req, _ := fs.s3.PutObjectRequest(params)
-		req.HTTPRequest.URL, _ = url.Parse(*fh.mpuId)
+		req.HTTPRequest.URL, _ = url.Parse(*fh.mpuId.UploadId)
 
 		bufSize := buf.Len()
 		start := total - int64(bufSize)
@@ -680,10 +638,9 @@ func (fh *FileHandle) flushSmallFile() (err error) {
 	defer fs.replicators.Return(1)
 
 	_, err = fs.s3.PutBlob(&PutBlobInput{
-		Key:          *fs.key(*fh.inode.FullName()),
-		Body:         buf,
-		StorageClass: &storageClass,
-		ContentType:  fs.getMimeType(*fh.inode.FullName()),
+		Key:         *fs.key(*fh.inode.FullName()),
+		Body:        buf,
+		ContentType: fs.getMimeType(*fh.inode.FullName()),
 	})
 	if err != nil {
 		fh.lastWriteError = err
@@ -724,7 +681,7 @@ func (fh *FileHandle) FlushFile() (err error) {
 					params := &s3.AbortMultipartUploadInput{
 						Bucket:   &fs.bucket,
 						Key:      fs.key(*fh.inode.FullName()),
-						UploadId: fh.mpuId,
+						UploadId: fh.mpuId.UploadId,
 					}
 
 					fh.mpuId = nil
@@ -777,15 +734,15 @@ func (fh *FileHandle) FlushFile() (err error) {
 		parts := make([]*s3.CompletedPart, nParts)
 		for i := 0; i < nParts; i++ {
 			parts[i] = &s3.CompletedPart{
-				ETag:       fh.etags[i],
+				ETag:       fh.mpuId.Parts[i],
 				PartNumber: aws.Int64(int64(i + 1)),
 			}
 		}
 
 		params := &s3.CompleteMultipartUploadInput{
 			Bucket:   &fs.bucket,
-			Key:      fs.key(*fh.mpuKey),
-			UploadId: fh.mpuId,
+			Key:      fh.mpuId.Key,
+			UploadId: fh.mpuId.UploadId,
 			MultipartUpload: &s3.CompletedMultipartUpload{
 				Parts: parts,
 			},
@@ -805,9 +762,9 @@ func (fh *FileHandle) FlushFile() (err error) {
 
 	fh.mpuId = nil
 
-	if *fh.mpuKey != *fh.inode.FullName() {
+	if *fh.mpuName != *fh.inode.FullName() {
 		// the file was renamed
-		err = renameObject(fs, PUInt64(uint64(fh.nextWriteOffset)), *fh.mpuKey, *fh.inode.FullName())
+		err = renameObject(fs, PUInt64(uint64(fh.nextWriteOffset)), *fh.mpuName, *fh.inode.FullName())
 	}
 
 	return
