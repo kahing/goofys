@@ -21,8 +21,6 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/aws/aws-sdk-go/service/s3"
-
 	"github.com/jacobsa/fuse"
 )
 
@@ -620,15 +618,8 @@ func (fh *FileHandle) FlushFile() (err error) {
 		if err != nil {
 			if fh.mpuId != nil {
 				go func() {
-					params := &s3.AbortMultipartUploadInput{
-						Bucket:   &fs.bucket,
-						Key:      fs.key(*fh.inode.FullName()),
-						UploadId: fh.mpuId.UploadId,
-					}
-
+					_, _ = fs.s3.MultipartBlobAbort(fh.mpuId)
 					fh.mpuId = nil
-					resp, _ := fs.s3.AbortMultipartUpload(params)
-					s3Log.Debug(resp)
 				}()
 			}
 

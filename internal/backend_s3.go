@@ -588,6 +588,19 @@ func (s *S3Backend) MultipartBlobCommit(param *MultipartBlobCommitInput) (*Multi
 	}
 }
 
+func (s *S3Backend) MultipartBlobAbort(param *MultipartBlobCommitInput) (*MultipartBlobAbortOutput, error) {
+	mpu := s3.AbortMultipartUploadInput{
+		Bucket:   &s.fs.bucket,
+		Key:      param.Key,
+		UploadId: param.UploadId,
+	}
+	_, err := s.AbortMultipartUpload(&mpu)
+	if err != nil {
+		return nil, mapAwsError(err)
+	}
+	return &MultipartBlobAbortOutput{}, nil
+}
+
 func (s *S3Backend) MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error) {
 	mpu, err := s.ListMultipartUploads(&s3.ListMultipartUploadsInput{
 		Bucket: &s.fs.bucket,
