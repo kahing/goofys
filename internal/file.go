@@ -18,8 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
-	"strconv"
 	"sync"
 	"syscall"
 
@@ -40,7 +38,7 @@ type FileHandle struct {
 	mu              sync.Mutex
 	mpuId           *MultipartBlobCommitInput
 	nextWriteOffset int64
-	lastPartId      int
+	lastPartId      uint32
 
 	poolHandle *BufferPool
 	buf        *MBuf
@@ -99,7 +97,7 @@ func (fh *FileHandle) initMPU() {
 	return
 }
 
-func (fh *FileHandle) mpuPartNoSpawn(buf *MBuf, part int, total int64, last bool) (err error) {
+func (fh *FileHandle) mpuPartNoSpawn(buf *MBuf, part uint32, total int64, last bool) (err error) {
 	fs := fh.inode.fs
 
 	fs.replicators.Take(1, true)
@@ -111,73 +109,18 @@ func (fh *FileHandle) mpuPartNoSpawn(buf *MBuf, part int, total int64, last bool
 		return errors.New(fmt.Sprintf("invalid part number: %v", part))
 	}
 
-	en := &fh.mpuId.Parts[part-1]
-
-	if !fs.gcs {
-		params := &s3.UploadPartInput{
-			Bucket:     &fs.bucket,
-			Key:        fs.key(*fh.inode.FullName()),
-			PartNumber: aws.Int64(int64(part)),
-			UploadId:   fh.mpuId.UploadId,
-			Body:       buf,
-		}
-
-		s3Log.Debug(params)
-
-		resp, err := fs.s3.UploadPart(params)
-		if err != nil {
-			return mapAwsError(err)
-		}
-
-		if *en != nil {
-			panic(fmt.Sprintf("etags for part %v already set: %v", part, **en))
-		}
-		*en = resp.ETag
-	} else {
-		// the mpuId serves as authentication token so
-		// technically we don't need to sign this anymore and
-		// can just use a plain HTTP request, but going
-		// through aws-sdk-go anyway to get retry handling
-		params := &s3.PutObjectInput{
-			Bucket: &fs.bucket,
-			Key:    fs.key(*fh.inode.FullName()),
-			Body:   buf,
-		}
-
-		s3Log.Debug(params)
-
-		req, _ := fs.s3.PutObjectRequest(params)
-		req.HTTPRequest.URL, _ = url.Parse(*fh.mpuId.UploadId)
-
-		bufSize := buf.Len()
-		start := total - int64(bufSize)
-		end := total - 1
-		var size string
-		if last {
-			size = strconv.FormatInt(total, 10)
-		} else {
-			size = "*"
-		}
-
-		contentRange := fmt.Sprintf("bytes %v-%v/%v", start, end, size)
-
-		req.HTTPRequest.Header.Set("Content-Length", strconv.Itoa(bufSize))
-		req.HTTPRequest.Header.Set("Content-Range", contentRange)
-
-		err = req.Send()
-		if err != nil {
-			if req.HTTPResponse.StatusCode == 308 {
-				err = nil
-			} else {
-				return mapAwsError(err)
-			}
-		}
-	}
+	_, err = fs.s3.MultipartBlobAdd(&MultipartBlobAddInput{
+		Commit:     fh.mpuId,
+		PartNumber: part,
+		Body:       buf,
+		Size:       uint64(buf.Len()),
+		Last:       last,
+	})
 
 	return
 }
 
-func (fh *FileHandle) mpuPart(buf *MBuf, part int, total int64) {
+func (fh *FileHandle) mpuPart(buf *MBuf, part uint32, total int64) {
 	defer func() {
 		fh.mpuWG.Done()
 	}()
@@ -732,7 +675,7 @@ func (fh *FileHandle) FlushFile() (err error) {
 
 	if !fs.gcs {
 		parts := make([]*s3.CompletedPart, nParts)
-		for i := 0; i < nParts; i++ {
+		for i := uint32(0); i < nParts; i++ {
 			parts[i] = &s3.CompletedPart{
 				ETag:       fh.mpuId.Parts[i],
 				PartNumber: aws.Int64(int64(i + 1)),

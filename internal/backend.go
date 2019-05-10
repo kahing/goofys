@@ -115,15 +115,18 @@ type MultipartBlobCommitInput struct {
 
 	Metadata map[string]*string
 	UploadId *string
-
-	Parts []*string
+	Parts    []*string
+	Size     uint64
 }
 
 type MultipartBlobAddInput struct {
 	Commit     *MultipartBlobCommitInput
-	PartNumber uint64
+	PartNumber uint32
 
 	Body io.ReadSeeker
+
+	Size uint64 // GCS wants to know part size
+	Last bool   // GCS needs to know if this part is the last one
 }
 
 type MultipartBlobAddOutput struct {
