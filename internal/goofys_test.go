@@ -238,16 +238,15 @@ func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker,
 			}
 		}
 
-		params := &s3.PutObjectInput{
-			Bucket: &bucket,
-			Key:    &path,
-			Body:   r,
+		params := &PutBlobInput{
+			Key:  path,
+			Body: r,
 			Metadata: map[string]*string{
 				"name": aws.String(path + "+/#%00"),
 			},
 		}
 
-		_, err := s.s3.PutObject(params)
+		_, err := s.s3.PutBlob(params)
 		t.Assert(err, IsNil)
 	}
 
@@ -1457,12 +1456,11 @@ func (s *GoofysTest) TestIssue156(t *C) {
 }
 
 func (s *GoofysTest) TestIssue162(t *C) {
-	params := &s3.PutObjectInput{
-		Bucket: &s.fs.bucket,
-		Key:    aws.String("dir1/l├â┬╢r 006.jpg"),
-		Body:   bytes.NewReader([]byte("foo")),
+	params := &PutBlobInput{
+		Key:  "dir1/l├â┬╢r 006.jpg",
+		Body: bytes.NewReader([]byte("foo")),
 	}
-	_, err := s.s3.PutObject(params)
+	_, err := s.s3.PutBlob(params)
 	t.Assert(err, IsNil)
 
 	dir, err := s.LookUpInode(t, "dir1")
@@ -1923,12 +1921,11 @@ func (s *GoofysTest) TestDirMtimeLs(t *C) {
 	m1 := attr.Mtime
 	time.Sleep(time.Second)
 
-	params := &s3.PutObjectInput{
-		Bucket: &s.fs.bucket,
-		Key:    aws.String("newfile"),
-		Body:   bytes.NewReader([]byte("foo")),
+	params := &PutBlobInput{
+		Key:  "newfile",
+		Body: bytes.NewReader([]byte("foo")),
 	}
-	_, err := s.s3.PutObject(params)
+	_, err := s.s3.PutBlob(params)
 	t.Assert(err, IsNil)
 
 	s.readDirIntoCache(t, fuseops.RootInodeID)
@@ -2127,12 +2124,11 @@ func (s *GoofysTest) TestDirMTime(t *C) {
 
 	time.Sleep(time.Second)
 
-	params := &s3.PutObjectInput{
-		Bucket: &s.fs.bucket,
-		Key:    aws.String("dir2/newfile"),
-		Body:   bytes.NewReader([]byte("foo")),
+	params := &PutBlobInput{
+		Key:  "dir2/newfile",
+		Body: bytes.NewReader([]byte("foo")),
 	}
-	_, err = s.s3.PutObject(params)
+	_, err = s.s3.PutBlob(params)
 	t.Assert(err, IsNil)
 
 	s.readDirIntoCache(t, dir2.Id)
@@ -2189,12 +2185,11 @@ func (s *GoofysTest) TestSlurpFileAndDir(t *C) {
 	}
 
 	for _, b := range blobs {
-		params := &s3.PutObjectInput{
-			Bucket: &s.fs.bucket,
-			Key:    &b,
-			Body:   bytes.NewReader([]byte("foo")),
+		params := &PutBlobInput{
+			Key:  b,
+			Body: bytes.NewReader([]byte("foo")),
 		}
-		_, err := s.s3.PutObject(params)
+		_, err := s.s3.PutBlob(params)
 		t.Assert(err, IsNil)
 	}
 
