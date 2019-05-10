@@ -15,6 +15,7 @@
 package internal
 
 import (
+	"fmt"
 	"syscall"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -138,6 +139,206 @@ func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 
 func (s *S3Backend) RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error) {
 	return nil, syscall.ENOTSUP
+}
+
+func (s *S3Backend) mpuCopyPart(from string, to string, mpuId string, bytes string, part int64,
+	sem semaphore, srcEtag *string, etag **string, errout *error) {
+
+	defer sem.P(1)
+
+	// XXX use CopySourceIfUnmodifiedSince to ensure that
+	// we are copying from the same object
+	params := &s3.UploadPartCopyInput{
+		Bucket:            &s.fs.bucket,
+		Key:               &to,
+		CopySource:        aws.String(pathEscape(from)),
+		UploadId:          &mpuId,
+		CopySourceRange:   &bytes,
+		CopySourceIfMatch: srcEtag,
+		PartNumber:        &part,
+	}
+
+	s3Log.Debug(params)
+
+	resp, err := s.fs.s3.UploadPartCopy(params)
+	if err != nil {
+		s3Log.Errorf("UploadPartCopy %v = %v", params, err)
+		*errout = mapAwsError(err)
+		return
+	}
+
+	*etag = resp.CopyPartResult.ETag
+	return
+}
+
+func sizeToParts(size int64) (int, int64) {
+	const MAX_S3_MPU_SIZE = 5 * 1024 * 1024 * 1024 * 1024
+	if size > MAX_S3_MPU_SIZE {
+		panic(fmt.Sprintf("object size: %v exceeds maximum S3 MPU size: %v", size, MAX_S3_MPU_SIZE))
+	}
+
+	// Use the maximum number of parts to allow the most server-side copy
+	// parallelism.
+	const MAX_PARTS = 10 * 1000
+	const MIN_PART_SIZE = 50 * 1024 * 1024
+	partSize := MaxInt64(size/(MAX_PARTS-1), MIN_PART_SIZE)
+
+	nParts := int(size / partSize)
+	if size%partSize != 0 {
+		nParts++
+	}
+
+	return nParts, partSize
+}
+
+func (s *S3Backend) mpuCopyParts(size int64, from string, to string, mpuId string,
+	srcEtag *string, etags []*string, partSize int64, err *error) {
+
+	rangeFrom := int64(0)
+	rangeTo := int64(0)
+
+	MAX_CONCURRENCY := MinInt(100, len(etags))
+	sem := make(semaphore, MAX_CONCURRENCY)
+	sem.P(MAX_CONCURRENCY)
+
+	for i := int64(1); rangeTo < size; i++ {
+		rangeFrom = rangeTo
+		rangeTo = i * partSize
+		if rangeTo > size {
+			rangeTo = size
+		}
+		bytes := fmt.Sprintf("bytes=%v-%v", rangeFrom, rangeTo-1)
+
+		sem.V(1)
+		go s.mpuCopyPart(from, to, mpuId, bytes, i, sem, srcEtag, &etags[i-1], err)
+	}
+}
+
+func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuId string,
+	srcEtag *string, metadata map[string]*string) (err error) {
+	nParts, partSize := sizeToParts(size)
+	etags := make([]*string, nParts)
+
+	if mpuId == "" {
+		params := &s3.CreateMultipartUploadInput{
+			Bucket:       &s.fs.bucket,
+			Key:          &to,
+			StorageClass: &s.fs.flags.StorageClass,
+			ContentType:  s.fs.getMimeType(to),
+			Metadata:     metadata,
+		}
+
+		if s.fs.flags.UseSSE {
+			params.ServerSideEncryption = &s.fs.sseType
+			if s.fs.flags.UseKMS && s.fs.flags.KMSKeyID != "" {
+				params.SSEKMSKeyId = &s.fs.flags.KMSKeyID
+			}
+		}
+
+		if s.fs.flags.ACL != "" {
+			params.ACL = &s.fs.flags.ACL
+		}
+
+		resp, err := s.CreateMultipartUpload(params)
+		if err != nil {
+			return mapAwsError(err)
+		}
+
+		mpuId = *resp.UploadId
+	}
+
+	s.mpuCopyParts(size, from, to, mpuId, srcEtag, etags, partSize, &err)
+
+	if err != nil {
+		return
+	} else {
+		parts := make([]*s3.CompletedPart, nParts)
+		for i := 0; i < nParts; i++ {
+			parts[i] = &s3.CompletedPart{
+				ETag:       etags[i],
+				PartNumber: aws.Int64(int64(i + 1)),
+			}
+		}
+
+		params := &s3.CompleteMultipartUploadInput{
+			Bucket:   &s.fs.bucket,
+			Key:      &to,
+			UploadId: &mpuId,
+			MultipartUpload: &s3.CompletedMultipartUpload{
+				Parts: parts,
+			},
+		}
+
+		s3Log.Debug(params)
+
+		_, err := s.CompleteMultipartUpload(params)
+		if err != nil {
+			s3Log.Errorf("Complete MPU %v = %v", params, err)
+			return mapAwsError(err)
+		}
+	}
+
+	return
+}
+
+func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
+	if param.Size == nil || param.ETag == nil || param.Metadata == nil {
+		params := &HeadBlobInput{Key: param.Source}
+		resp, err := s.HeadBlob(params)
+		if err != nil {
+			return nil, err
+		}
+
+		param.Size = &resp.Size
+		param.Metadata = resp.Metadata
+		param.ETag = resp.ETag
+	}
+
+	from := s.fs.bucket + "/" + param.Source
+
+	if !s.fs.gcs && *param.Size > 5*1024*1024*1024 {
+		err := s.copyObjectMultipart(int64(*param.Size), from, param.Destination, "", param.ETag, param.Metadata)
+		if err != nil {
+			return nil, err
+		}
+		return &CopyBlobOutput{}, nil
+	}
+
+	storageClass := s.fs.flags.StorageClass
+	if *param.Size < 128*1024 && storageClass == "STANDARD_IA" {
+		storageClass = "STANDARD"
+	}
+
+	params := &s3.CopyObjectInput{
+		Bucket:            &s.fs.bucket,
+		CopySource:        aws.String(pathEscape(from)),
+		Key:               &param.Destination,
+		StorageClass:      &storageClass,
+		ContentType:       s.fs.getMimeType(param.Destination),
+		Metadata:          param.Metadata,
+		MetadataDirective: aws.String(s3.MetadataDirectiveReplace),
+	}
+
+	s3Log.Debug(params)
+
+	if s.fs.flags.UseSSE {
+		params.ServerSideEncryption = &s.fs.sseType
+		if s.fs.flags.UseKMS && s.fs.flags.KMSKeyID != "" {
+			params.SSEKMSKeyId = &s.fs.flags.KMSKeyID
+		}
+	}
+
+	if s.fs.flags.ACL != "" {
+		params.ACL = &s.fs.flags.ACL
+	}
+
+	_, err := s.CopyObject(params)
+	if err != nil {
+		s3Log.Errorf("CopyObject %v = %v", params, err)
+		return nil, mapAwsError(err)
+	}
+
+	return &CopyBlobOutput{}, nil
 }
 
 /*

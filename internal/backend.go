@@ -67,6 +67,18 @@ type RenameBlobInput struct {
 type RenameBlobOutput struct {
 }
 
+type CopyBlobInput struct {
+	Source      string
+	Destination string
+
+	Size     *uint64
+	ETag     *string
+	Metadata map[string]*string
+}
+
+type CopyBlobOutput struct {
+}
+
 type GetBlobInput struct {
 	Key     string
 	Start   uint64
@@ -129,6 +141,7 @@ type StorageBackend interface {
 	HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error)
 	ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error)
 	RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error)
+	CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error)
 	GetBlob(param *GetBlobInput) (*GetBlobOutput, error)
 	PutBlob(param *PutBlobInput) (*PutBlobOutput, error)
 	MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlobCommitInput, error)

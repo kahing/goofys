@@ -907,7 +907,7 @@ func (s *GoofysTest) TestRename(t *C) {
 	if !hasEnv("GCS") {
 		// not really rename but can be used by rename
 		from, to = s.fs.bucket+"/file2", "new_file"
-		err = copyObjectMultipart(s.fs, int64(len("file2")), from, to, "", nil, nil)
+		err = s.fs.s3.copyObjectMultipart(int64(len("file2")), from, to, "", nil, nil)
 		t.Assert(err, IsNil)
 	}
 }
