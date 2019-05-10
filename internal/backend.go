@@ -116,7 +116,11 @@ type MultipartBlobCommitInput struct {
 	Metadata map[string]*string
 	UploadId *string
 	Parts    []*string
-	Size     uint64
+	NumParts uint32
+
+	// for GCS
+	Size uint64
+	ETag *string
 }
 
 type MultipartBlobAddInput struct {

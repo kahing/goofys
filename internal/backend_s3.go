@@ -476,6 +476,7 @@ func (s *S3Backend) MultipartBlobBegin(param *MultipartBlobBeginInput) (*Multipa
 
 func (s *S3Backend) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error) {
 	en := &param.Commit.Parts[param.PartNumber-1]
+	atomic.AddUint32(&param.Commit.NumParts, 1)
 
 	if !s.fs.gcs {
 		params := s3.UploadPartInput{
@@ -510,7 +511,7 @@ func (s *S3Backend) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBl
 
 		s3Log.Debug(params)
 
-		req, _ := s.PutObjectRequest(params)
+		req, resp := s.PutObjectRequest(params)
 		req.HTTPRequest.URL, _ = url.Parse(*param.Commit.UploadId)
 
 		atomic.AddUint64(&param.Commit.Size, param.Size)
@@ -538,10 +539,52 @@ func (s *S3Backend) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBl
 				return nil, mapAwsError(err)
 			}
 		}
+
+		if param.Last {
+			param.Commit.ETag = resp.ETag
+		}
 	}
 
 	return &MultipartBlobAddOutput{}, nil
 }
 
-// MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error)
+func (s *S3Backend) MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error) {
+	if !s.fs.gcs {
+		parts := make([]*s3.CompletedPart, param.NumParts)
+		for i := uint32(0); i < param.NumParts; i++ {
+			parts[i] = &s3.CompletedPart{
+				ETag:       param.Parts[i],
+				PartNumber: aws.Int64(int64(i + 1)),
+			}
+		}
+
+		mpu := s3.CompleteMultipartUploadInput{
+			Bucket:   &s.fs.bucket,
+			Key:      param.Key,
+			UploadId: param.UploadId,
+			MultipartUpload: &s3.CompletedMultipartUpload{
+				Parts: parts,
+			},
+		}
+
+		s3Log.Debug(mpu)
+
+		resp, err := s.CompleteMultipartUpload(&mpu)
+		if err != nil {
+			return nil, mapAwsError(err)
+		}
+
+		s3Log.Debug(resp)
+
+		return &MultipartBlobCommitOutput{
+			ETag: resp.ETag,
+		}, nil
+	} else {
+		// nothing, we already uploaded last part
+		return &MultipartBlobCommitOutput{
+			ETag: param.ETag,
+		}, nil
+	}
+}
+
 // MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error)

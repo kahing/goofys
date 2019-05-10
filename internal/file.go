@@ -21,7 +21,6 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 
 	"github.com/jacobsa/fuse"
@@ -673,34 +672,9 @@ func (fh *FileHandle) FlushFile() (err error) {
 		}
 	}
 
-	if !fs.gcs {
-		parts := make([]*s3.CompletedPart, nParts)
-		for i := uint32(0); i < nParts; i++ {
-			parts[i] = &s3.CompletedPart{
-				ETag:       fh.mpuId.Parts[i],
-				PartNumber: aws.Int64(int64(i + 1)),
-			}
-		}
-
-		params := &s3.CompleteMultipartUploadInput{
-			Bucket:   &fs.bucket,
-			Key:      fh.mpuId.Key,
-			UploadId: fh.mpuId.UploadId,
-			MultipartUpload: &s3.CompletedMultipartUpload{
-				Parts: parts,
-			},
-		}
-
-		s3Log.Debug(params)
-
-		resp, err := fs.s3.CompleteMultipartUpload(params)
-		if err != nil {
-			return mapAwsError(err)
-		}
-
-		s3Log.Debug(resp)
-	} else {
-		// nothing, we already uploaded last part
+	_, err = fs.s3.MultipartBlobCommit(fh.mpuId)
+	if err != nil {
+		return
 	}
 
 	fh.mpuId = nil
