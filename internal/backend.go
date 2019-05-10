@@ -59,6 +59,20 @@ type ListBlobsOutput struct {
 	IsTruncated           bool
 }
 
+type DeleteBlobInput struct {
+	Key string
+}
+
+type DeleteBlobOutput struct {
+}
+
+type DeleteBlobsInput struct {
+	Items []string
+}
+
+type DeleteBlobsOutput struct {
+}
+
 type RenameBlobInput struct {
 	Source      string
 	Destination string
@@ -152,6 +166,8 @@ type MultipartExpireOutput struct {
 type StorageBackend interface {
 	HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error)
 	ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error)
+	DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error)
+	DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error)
 	RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error)
 	CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error)
 	GetBlob(param *GetBlobInput) (*GetBlobOutput, error)

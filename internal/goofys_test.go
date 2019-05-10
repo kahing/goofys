@@ -178,38 +178,13 @@ func (s *GoofysTest) deleteBucket(t *C) {
 	resp, err := s.s3.ListBlobs(&ListBlobsInput{})
 	t.Assert(err, IsNil)
 
-	if hasEnv("GCS") {
-		// GCS does not have multi-delete
-		var wg sync.WaitGroup
-
-		for _, o := range resp.Items {
-			wg.Add(1)
-			key := *o.Key
-			go func() {
-				_, err = s.s3.DeleteObject(&s3.DeleteObjectInput{
-					Bucket: &s.fs.bucket,
-					Key:    &key,
-				})
-				wg.Done()
-				t.Assert(err, IsNil)
-			}()
-		}
-		wg.Wait()
-	} else {
-		num_objs := len(resp.Items)
-
-		var items s3.Delete
-		var objs = make([]*s3.ObjectIdentifier, num_objs)
-
-		for i, o := range resp.Items {
-			objs[i] = &s3.ObjectIdentifier{Key: o.Key}
-		}
-
-		// Add list of objects to delete to Delete object
-		items.SetObjects(objs)
-		_, err = s.s3.DeleteObjects(&s3.DeleteObjectsInput{Bucket: &s.fs.bucket, Delete: &items})
-		t.Assert(err, IsNil)
+	keys := make([]string, 0)
+	for _, o := range resp.Items {
+		keys = append(keys, *o.Key)
 	}
+
+	_, err = s.s3.DeleteBlobs(&DeleteBlobsInput{Items: keys})
+	t.Assert(err, IsNil)
 
 	s.s3.DeleteBucket(&s3.DeleteBucketInput{Bucket: &s.fs.bucket})
 }
