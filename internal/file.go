@@ -676,31 +676,16 @@ func (fh *FileHandle) flushSmallFile() (err error) {
 		storageClass = "STANDARD"
 	}
 
-	params := &s3.PutObjectInput{
-		Bucket:       &fs.bucket,
-		Key:          fs.key(*fh.inode.FullName()),
-		Body:         buf,
-		StorageClass: &storageClass,
-		ContentType:  fs.getMimeType(*fh.inode.FullName()),
-	}
-
-	if fs.flags.UseSSE {
-		params.ServerSideEncryption = &fs.sseType
-		if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
-			params.SSEKMSKeyId = &fs.flags.KMSKeyID
-		}
-	}
-
-	if fs.flags.ACL != "" {
-		params.ACL = &fs.flags.ACL
-	}
-
 	fs.replicators.Take(1, true)
 	defer fs.replicators.Return(1)
 
-	_, err = fs.s3.PutObject(params)
+	_, err = fs.s3.PutBlob(&PutBlobInput{
+		Key:          *fs.key(*fh.inode.FullName()),
+		Body:         buf,
+		StorageClass: &storageClass,
+		ContentType:  fs.getMimeType(*fh.inode.FullName()),
+	})
 	if err != nil {
-		err = mapAwsError(err)
 		fh.lastWriteError = err
 	}
 	return

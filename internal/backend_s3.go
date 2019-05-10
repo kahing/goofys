@@ -379,7 +379,37 @@ func (s *S3Backend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 	}, nil
 }
 
-// PutBlob(param *PutBlobInput) (*PutBlobOutput, error)
+func (s *S3Backend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
+	put := &s3.PutObjectInput{
+		Bucket:       &s.fs.bucket,
+		Key:          &param.Key,
+		Metadata:     param.Metadata,
+		Body:         param.Body,
+		StorageClass: param.StorageClass,
+		ContentType:  param.ContentType,
+	}
+
+	if s.fs.flags.UseSSE {
+		put.ServerSideEncryption = &s.fs.sseType
+		if s.fs.flags.UseKMS && s.fs.flags.KMSKeyID != "" {
+			put.SSEKMSKeyId = &s.fs.flags.KMSKeyID
+		}
+	}
+
+	if s.fs.flags.ACL != "" {
+		put.ACL = &s.fs.flags.ACL
+	}
+
+	resp, err := s.PutObject(put)
+	if err != nil {
+		return nil, mapAwsError(err)
+	}
+
+	return &PutBlobOutput{
+		ETag: resp.ETag,
+	}, nil
+}
+
 // MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlobCommitInput, error)
 // MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error)
 // MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error)
