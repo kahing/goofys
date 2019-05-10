@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
 
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
@@ -303,17 +302,12 @@ func (parent *Inode) Unlink(name string) (err error) {
 
 	fullName := parent.getChildName(name)
 
-	params := &s3.DeleteObjectInput{
-		Bucket: &parent.fs.bucket,
-		Key:    parent.fs.key(fullName),
-	}
-
-	resp, err := parent.fs.s3.DeleteObject(params)
+	_, err = parent.fs.s3.DeleteBlob(&DeleteBlobInput{
+		Key: *parent.fs.key(fullName),
+	})
 	if err != nil {
-		return mapAwsError(err)
+		return
 	}
-
-	s3Log.Debug(resp)
 
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
@@ -433,14 +427,13 @@ func (parent *Inode) RmDir(name string) (err error) {
 
 	fullName += "/"
 
-	params := &s3.DeleteObjectInput{
-		Bucket: &fs.bucket,
-		Key:    fs.key(fullName),
+	params := DeleteBlobInput{
+		Key: *fs.key(fullName),
 	}
 
-	_, err = fs.s3.DeleteObject(params)
+	_, err = fs.s3.DeleteBlob(&params)
 	if err != nil {
-		return mapAwsError(err)
+		return
 	}
 
 	// we know this entry is gone
@@ -746,16 +739,13 @@ func renameObject(fs *Goofys, size *uint64, fromFullName string, toFullName stri
 		return
 	}
 
-	delParams := &s3.DeleteObjectInput{
-		Bucket: &fs.bucket,
-		Key:    fs.key(fromFullName),
-	}
-
-	_, err = fs.s3.DeleteObject(delParams)
+	_, err = fs.s3.DeleteBlob(&DeleteBlobInput{
+		Key: *fs.key(fromFullName),
+	})
 	if err != nil {
-		return mapAwsError(err)
+		return
 	}
-	s3Log.Debugf("Deleted %v", delParams)
+	s3Log.Debugf("Deleted %v", fromFullName)
 
 	return
 }

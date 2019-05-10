@@ -141,6 +141,63 @@ func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 	}, nil
 }
 
+func (s *S3Backend) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error) {
+	_, err := s.DeleteObject(&s3.DeleteObjectInput{
+		Bucket: &s.fs.bucket,
+		Key:    &param.Key,
+	})
+	if err != nil {
+		return nil, mapAwsError(err)
+	}
+	return &DeleteBlobOutput{}, nil
+}
+
+func (s *S3Backend) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error) {
+	if s.fs.gcs {
+		// GCS does not have multi-delete
+		var wg sync.WaitGroup
+		var overallErr error
+
+		for _, key := range param.Items {
+			wg.Add(1)
+			go func() {
+				_, err := s.DeleteBlob(&DeleteBlobInput{
+					Key: key,
+				})
+				if err != nil {
+					overallErr = err
+				}
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+		if overallErr != nil {
+			return nil, mapAwsError(overallErr)
+		}
+	} else {
+		num_objs := len(param.Items)
+
+		var items s3.Delete
+		var objs = make([]*s3.ObjectIdentifier, num_objs)
+
+		for i, k := range param.Items {
+			objs[i] = &s3.ObjectIdentifier{Key: &k}
+		}
+
+		// Add list of objects to delete to Delete object
+		items.SetObjects(objs)
+		_, err := s.DeleteObjects(&s3.DeleteObjectsInput{
+			Bucket: &s.fs.bucket,
+			Delete: &items,
+		})
+		if err != nil {
+			return nil, mapAwsError(err)
+		}
+	}
+
+	return &DeleteBlobsOutput{}, nil
+}
+
 func (s *S3Backend) RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error) {
 	return nil, syscall.ENOTSUP
 }
