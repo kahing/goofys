@@ -574,9 +574,13 @@ func convertMetadata(meta map[string][]byte) (metadata map[string]*string) {
 
 // LOCKS_REQUIRED(inode.mu)
 func (inode *Inode) updateXattr() (err error) {
-	err = copyObjectMaybeMultipart(inode.fs, int64(inode.Attributes.Size),
-		*inode.FullName(), *inode.FullName(),
-		aws.String(string(inode.s3Metadata["etag"])), convertMetadata(inode.userMetadata))
+	_, err = inode.fs.s3.CopyBlob(&CopyBlobInput{
+		Source:      *inode.FullName(),
+		Destination: *inode.FullName(),
+		Size:        &inode.Attributes.Size,
+		ETag:        aws.String(string(inode.s3Metadata["etag"])),
+		Metadata:    convertMetadata(inode.userMetadata),
+	})
 	return
 }
 
@@ -689,7 +693,7 @@ func (parent *Inode) Rename(from string, newParent *Inode, to string) (err error
 	fromFullName := parent.getChildName(from)
 	fs := parent.fs
 
-	var size int64
+	var size *uint64
 	var fromIsDir bool
 	var toIsDir bool
 
@@ -722,211 +726,32 @@ func (parent *Inode) Rename(from string, newParent *Inode, to string) (err error
 		return syscall.EISDIR
 	}
 
-	size = int64(-1)
 	if fromIsDir {
 		fromFullName += "/"
 		toFullName += "/"
-		size = 0
+		size = PUInt64(0)
 	}
 
 	err = renameObject(fs, size, fromFullName, toFullName)
 	return
 }
 
-func mpuCopyPart(fs *Goofys, from string, to string, mpuId string, bytes string, part int64,
-	wg *sync.WaitGroup, srcEtag *string, etag **string, errout *error) {
-
-	defer func() {
-		wg.Done()
-	}()
-
-	// XXX use CopySourceIfUnmodifiedSince to ensure that
-	// we are copying from the same object
-	params := &s3.UploadPartCopyInput{
-		Bucket:            &fs.bucket,
-		Key:               fs.key(to),
-		CopySource:        aws.String(pathEscape(from)),
-		UploadId:          &mpuId,
-		CopySourceRange:   &bytes,
-		CopySourceIfMatch: srcEtag,
-		PartNumber:        &part,
-	}
-
-	s3Log.Debug(params)
-
-	resp, err := fs.s3.UploadPartCopy(params)
-	if err != nil {
-		s3Log.Errorf("UploadPartCopy %v = %v", params, err)
-		*errout = mapAwsError(err)
+func renameObject(fs *Goofys, size *uint64, fromFullName string, toFullName string) (err error) {
+	_, err = fs.s3.RenameBlob(&RenameBlobInput{
+		Source:      *fs.key(fromFullName),
+		Destination: *fs.key(toFullName),
+	})
+	if err != nil && err != syscall.ENOTSUP {
 		return
 	}
 
-	*etag = resp.CopyPartResult.ETag
-	return
-}
-
-func sizeToParts(size int64) int {
-	const PART_SIZE = 5 * 1024 * 1024 * 1024
-
-	nParts := int(size / PART_SIZE)
-	if size%PART_SIZE != 0 {
-		nParts++
-	}
-	return nParts
-}
-
-func mpuCopyParts(fs *Goofys, size int64, from string, to string, mpuId string,
-	wg *sync.WaitGroup, srcEtag *string, etags []*string, err *error) {
-
-	const PART_SIZE = 5 * 1024 * 1024 * 1024
-
-	rangeFrom := int64(0)
-	rangeTo := int64(0)
-
-	for i := int64(1); rangeTo < size; i++ {
-		rangeFrom = rangeTo
-		rangeTo = i * PART_SIZE
-		if rangeTo > size {
-			rangeTo = size
-		}
-		bytes := fmt.Sprintf("bytes=%v-%v", rangeFrom, rangeTo-1)
-
-		wg.Add(1)
-		go mpuCopyPart(fs, from, to, mpuId, bytes, i, wg, srcEtag, &etags[i-1], err)
-	}
-}
-
-func copyObjectMultipart(fs *Goofys, size int64, from string, to string, mpuId string,
-	srcEtag *string, metadata map[string]*string) (err error) {
-	var wg sync.WaitGroup
-	nParts := sizeToParts(size)
-	etags := make([]*string, nParts)
-
-	if mpuId == "" {
-		params := &s3.CreateMultipartUploadInput{
-			Bucket:       &fs.bucket,
-			Key:          fs.key(to),
-			StorageClass: &fs.flags.StorageClass,
-			ContentType:  fs.getMimeType(to),
-			Metadata:     metadata,
-		}
-
-		if fs.flags.UseSSE {
-			params.ServerSideEncryption = &fs.sseType
-			if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
-				params.SSEKMSKeyId = &fs.flags.KMSKeyID
-			}
-		}
-
-		if fs.flags.ACL != "" {
-			params.ACL = &fs.flags.ACL
-		}
-
-		resp, err := fs.s3.CreateMultipartUpload(params)
-		if err != nil {
-			return mapAwsError(err)
-		}
-
-		mpuId = *resp.UploadId
-	}
-
-	mpuCopyParts(fs, size, from, to, mpuId, &wg, srcEtag, etags, &err)
-	wg.Wait()
-
+	_, err = fs.s3.CopyBlob(&CopyBlobInput{
+		Source:      *fs.key(fromFullName),
+		Destination: *fs.key(toFullName),
+		Size:        size,
+	})
 	if err != nil {
 		return
-	} else {
-		parts := make([]*s3.CompletedPart, nParts)
-		for i := 0; i < nParts; i++ {
-			parts[i] = &s3.CompletedPart{
-				ETag:       etags[i],
-				PartNumber: aws.Int64(int64(i + 1)),
-			}
-		}
-
-		params := &s3.CompleteMultipartUploadInput{
-			Bucket:   &fs.bucket,
-			Key:      fs.key(to),
-			UploadId: &mpuId,
-			MultipartUpload: &s3.CompletedMultipartUpload{
-				Parts: parts,
-			},
-		}
-
-		s3Log.Debug(params)
-
-		_, err := fs.s3.CompleteMultipartUpload(params)
-		if err != nil {
-			s3Log.Errorf("Complete MPU %v = %v", params, err)
-			return mapAwsError(err)
-		}
-	}
-
-	return
-}
-
-func copyObjectMaybeMultipart(fs *Goofys, size int64, from string, to string, srcEtag *string, metadata map[string]*string) (err error) {
-
-	if size == -1 || srcEtag == nil || metadata == nil {
-		params := &HeadBlobInput{Key: *fs.key(from)}
-		resp, err := fs.s3.HeadBlob(params)
-		if err != nil {
-			return mapAwsError(err)
-		}
-
-		size = int64(resp.Size)
-		metadata = resp.Metadata
-		srcEtag = resp.ETag
-	}
-
-	from = fs.bucket + "/" + *fs.key(from)
-
-	if !fs.gcs && size > 5*1024*1024*1024 {
-		return copyObjectMultipart(fs, size, from, to, "", srcEtag, metadata)
-	}
-
-	storageClass := fs.flags.StorageClass
-	if size < 128*1024 && storageClass == "STANDARD_IA" {
-		storageClass = "STANDARD"
-	}
-
-	params := &s3.CopyObjectInput{
-		Bucket:            &fs.bucket,
-		CopySource:        aws.String(pathEscape(from)),
-		Key:               fs.key(to),
-		StorageClass:      &storageClass,
-		ContentType:       fs.getMimeType(to),
-		Metadata:          metadata,
-		MetadataDirective: aws.String(s3.MetadataDirectiveReplace),
-	}
-
-	s3Log.Debug(params)
-
-	if fs.flags.UseSSE {
-		params.ServerSideEncryption = &fs.sseType
-		if fs.flags.UseKMS && fs.flags.KMSKeyID != "" {
-			params.SSEKMSKeyId = &fs.flags.KMSKeyID
-		}
-	}
-
-	if fs.flags.ACL != "" {
-		params.ACL = &fs.flags.ACL
-	}
-
-	resp, err := fs.s3.CopyObject(params)
-	if err != nil {
-		s3Log.Errorf("CopyObject %v = %v", params, err)
-		err = mapAwsError(err)
-	}
-	s3Log.Debug(resp)
-
-	return
-}
-
-func renameObject(fs *Goofys, size int64, fromFullName string, toFullName string) (err error) {
-	err = copyObjectMaybeMultipart(fs, size, fromFullName, toFullName, nil, nil)
-	if err != nil {
-		return err
 	}
 
 	delParams := &s3.DeleteObjectInput{
