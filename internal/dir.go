@@ -148,7 +148,7 @@ func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *ListBlobsOutput, err
 		StartAfter: marker,
 	}
 
-	resp, err = fs.s3.ListBlobs(params)
+	resp, err = fs.cloud.ListBlobs(params)
 	if err != nil {
 		s3Log.Errorf("ListObjects %v = %v", params, err)
 		return
@@ -244,7 +244,7 @@ func (dh *DirHandle) listObjects(prefix string) (resp *ListBlobsOutput, err erro
 			Prefix:            &prefix,
 		}
 
-		resp, err := fs.s3.ListBlobs(params)
+		resp, err := fs.cloud.ListBlobs(params)
 		if err != nil {
 			errListChan <- err
 		} else {

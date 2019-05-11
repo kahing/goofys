@@ -55,7 +55,7 @@ type Goofys struct {
 	umask uint32
 
 	awsConfig *aws.Config
-	s3        StorageBackend
+	cloud     StorageBackend
 	v2Signer  bool
 	gcs       bool
 	sseType   string
@@ -130,15 +130,15 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 		s3Log.Level = logrus.DebugLevel
 	}
 
-	fs.s3 = NewS3(fs, bucket, awsConfig, flags)
+	fs.cloud = NewS3(fs, bucket, awsConfig, flags)
 
-	err := fs.s3.Init()
+	err := fs.cloud.Init()
 	if err != nil {
 		log.Errorf("Unable to access '%v': %v", fs.bucket, err)
 		return nil
 	}
 
-	go fs.s3.MultipartExpire(&MultipartExpireInput{})
+	go fs.cloud.MultipartExpire(&MultipartExpireInput{})
 
 	now := time.Now()
 	fs.rootAttrs = InodeAttributes{

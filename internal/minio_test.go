@@ -44,8 +44,8 @@ func (s *MinioTest) SetUpSuite(t *C) {
 		awsConfig: awsConfig,
 	}
 
-	s.fs.s3 = NewS3(s.fs, "", awsConfig, &FlagStorage{})
-	if s3, ok := s.fs.s3.(*S3Backend); ok {
+	s.fs.cloud = NewS3(s.fs, "", awsConfig, &FlagStorage{})
+	if s3, ok := s.fs.cloud.(*S3Backend); ok {
 		_, err := s3.ListBuckets(nil)
 		t.Assert(err, IsNil)
 

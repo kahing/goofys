@@ -38,11 +38,11 @@ func (s *AwsTest) SetUpSuite(t *C) {
 		awsConfig: awsConfig,
 	}
 
-	s.fs.s3 = NewS3(s.fs, "", awsConfig, &FlagStorage{})
+	s.fs.cloud = NewS3(s.fs, "", awsConfig, &FlagStorage{})
 }
 
 func (s *AwsTest) TestRegionDetection(t *C) {
-	if s3, ok := s.fs.s3.(*S3Backend); ok {
+	if s3, ok := s.fs.cloud.(*S3Backend); ok {
 		s3.bucket = "goofys-eu-west-1.kahing.xyz"
 
 		err, isAws := s3.detectBucketLocationByHEAD()
@@ -55,7 +55,7 @@ func (s *AwsTest) TestRegionDetection(t *C) {
 }
 
 func (s *AwsTest) TestBucket404(t *C) {
-	if s3, ok := s.fs.s3.(*S3Backend); ok {
+	if s3, ok := s.fs.cloud.(*S3Backend); ok {
 		s3.bucket = RandStringBytesMaskImprSrc(64)
 
 		err, isAws := s3.detectBucketLocationByHEAD()
