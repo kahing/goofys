@@ -772,12 +772,10 @@ func (s *GoofysTest) TestRenamePreserveMetadata(t *C) {
 	metadata := make(map[string]*string)
 	metadata["foo"] = aws.String("bar")
 
-	_, err := s.s3.CopyObject(&s3.CopyObjectInput{
-		Bucket:            &s.fs.bucket,
-		CopySource:        aws.String(s.fs.bucket + "/" + from),
-		Key:               &from,
-		Metadata:          metadata,
-		MetadataDirective: aws.String(s3.MetadataDirectiveReplace),
+	_, err := s.s3.CopyBlob(&CopyBlobInput{
+		Source:      from,
+		Destination: from,
+		Metadata:    metadata,
 	})
 	t.Assert(err, IsNil)
 

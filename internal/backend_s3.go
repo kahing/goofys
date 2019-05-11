@@ -586,7 +586,9 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 		}
 
 		param.Size = &resp.Size
-		param.Metadata = resp.Metadata
+		if param.Metadata == nil {
+			param.Metadata = resp.Metadata
+		}
 		param.ETag = resp.ETag
 	}
 
