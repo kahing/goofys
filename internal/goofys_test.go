@@ -39,8 +39,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/corehandlers"
 	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
 
 	"github.com/kahing/go-xattr"
 
@@ -89,7 +87,6 @@ type GoofysTest struct {
 	ctx       context.Context
 	awsConfig *aws.Config
 	cloud     *S3Backend
-	sess      *session.Session
 	env       map[string]io.ReadSeeker
 }
 
@@ -186,7 +183,7 @@ func (s *GoofysTest) deleteBucket(t *C) {
 	_, err = s.cloud.DeleteBlobs(&DeleteBlobsInput{Items: keys})
 	t.Assert(err, IsNil)
 
-	_, err = s.cloud.DeleteBucket(&s3.DeleteBucketInput{Bucket: &s.fs.bucket})
+	_, err = s.cloud.RemoveBucket(&RemoveBucketInput{})
 	t.Assert(err, IsNil)
 }
 
@@ -195,14 +192,12 @@ func (s *GoofysTest) TearDownSuite(t *C) {
 }
 
 func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker, public bool) {
-	param := s3.CreateBucketInput{
-		Bucket: &bucket,
-		//ACL: aws.String(s3.BucketCannedACLPrivate),
-	}
 	if public {
-		param.ACL = aws.String("public-read")
+		if s3, ok := s.fs.cloud.(*S3Backend); ok {
+			s3.flags.ACL = "public-read"
+		}
 	}
-	_, err := s.cloud.CreateBucket(&param)
+	_, err := s.cloud.MakeBucket(&MakeBucketInput{})
 	t.Assert(err, IsNil)
 
 	for path, r := range env {
@@ -255,7 +250,6 @@ func (s *GoofysTest) setupDefaultEnv(t *C, public bool) {
 
 func (s *GoofysTest) SetUpTest(t *C) {
 	s.awsConfig = selectTestConfig(t)
-	s.sess = session.New(s.awsConfig)
 
 	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
 	uid, gid := MyUserAndGroup()
