@@ -74,10 +74,9 @@ func (fh *FileHandle) initMPU() {
 	}()
 
 	fs := fh.inode.fs
-
 	fh.mpuName = fh.inode.FullName()
 
-	resp, err := fs.s3.MultipartBlobBegin(&MultipartBlobBeginInput{
+	resp, err := fs.cloud.MultipartBlobBegin(&MultipartBlobBeginInput{
 		Key:         *fs.key(*fh.mpuName),
 		ContentType: fs.getMimeType(*fh.mpuName),
 	})
@@ -106,7 +105,7 @@ func (fh *FileHandle) mpuPartNoSpawn(buf *MBuf, part uint32, total int64, last b
 		return errors.New(fmt.Sprintf("invalid part number: %v", part))
 	}
 
-	_, err = fs.s3.MultipartBlobAdd(&MultipartBlobAddInput{
+	_, err = fs.cloud.MultipartBlobAdd(&MultipartBlobAddInput{
 		Commit:     fh.mpuId,
 		PartNumber: part,
 		Body:       buf,
@@ -259,7 +258,7 @@ type S3ReadBuffer struct {
 
 func (b S3ReadBuffer) Init(fh *FileHandle, offset uint64, size uint32) *S3ReadBuffer {
 	fs := fh.inode.fs
-	b.s3 = fs.s3
+	b.s3 = fs.cloud
 	b.offset = offset
 	b.size = size
 
@@ -269,7 +268,7 @@ func (b S3ReadBuffer) Init(fh *FileHandle, offset uint64, size uint32) *S3ReadBu
 	}
 
 	b.buf = Buffer{}.Init(mbuf, func() (io.ReadCloser, error) {
-		resp, err := fs.s3.GetBlob(&GetBlobInput{
+		resp, err := fs.cloud.GetBlob(&GetBlobInput{
 			Key:   *fs.key(*fh.inode.FullName()),
 			Start: offset,
 			Count: uint64(size),
@@ -532,7 +531,7 @@ func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, e
 	fs := fh.inode.fs
 
 	if fh.reader == nil {
-		resp, err := fs.s3.GetBlob(&GetBlobInput{
+		resp, err := fs.cloud.GetBlob(&GetBlobInput{
 			Key:   *fs.key(*fh.inode.FullName()),
 			Start: uint64(offset),
 		})
@@ -577,7 +576,7 @@ func (fh *FileHandle) flushSmallFile() (err error) {
 	fs.replicators.Take(1, true)
 	defer fs.replicators.Return(1)
 
-	_, err = fs.s3.PutBlob(&PutBlobInput{
+	_, err = fs.cloud.PutBlob(&PutBlobInput{
 		Key:         *fs.key(*fh.inode.FullName()),
 		Body:        buf,
 		ContentType: fs.getMimeType(*fh.inode.FullName()),
@@ -618,7 +617,7 @@ func (fh *FileHandle) FlushFile() (err error) {
 		if err != nil {
 			if fh.mpuId != nil {
 				go func() {
-					_, _ = fs.s3.MultipartBlobAbort(fh.mpuId)
+					_, _ = fs.cloud.MultipartBlobAbort(fh.mpuId)
 					fh.mpuId = nil
 				}()
 			}
@@ -663,7 +662,7 @@ func (fh *FileHandle) FlushFile() (err error) {
 		}
 	}
 
-	_, err = fs.s3.MultipartBlobCommit(fh.mpuId)
+	_, err = fs.cloud.MultipartBlobCommit(fh.mpuId)
 	if err != nil {
 		return
 	}

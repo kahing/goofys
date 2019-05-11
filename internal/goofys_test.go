@@ -88,7 +88,7 @@ type GoofysTest struct {
 	fs        *Goofys
 	ctx       context.Context
 	awsConfig *aws.Config
-	s3        *S3Backend
+	cloud     *S3Backend
 	sess      *session.Session
 	env       map[string]io.ReadSeeker
 }
@@ -175,7 +175,7 @@ func (s *GoofysTest) SetUpSuite(t *C) {
 }
 
 func (s *GoofysTest) deleteBucket(t *C) {
-	resp, err := s.s3.ListBlobs(&ListBlobsInput{})
+	resp, err := s.cloud.ListBlobs(&ListBlobsInput{})
 	t.Assert(err, IsNil)
 
 	keys := make([]string, 0)
@@ -183,10 +183,10 @@ func (s *GoofysTest) deleteBucket(t *C) {
 		keys = append(keys, *o.Key)
 	}
 
-	_, err = s.s3.DeleteBlobs(&DeleteBlobsInput{Items: keys})
+	_, err = s.cloud.DeleteBlobs(&DeleteBlobsInput{Items: keys})
 	t.Assert(err, IsNil)
 
-	_, err = s.s3.DeleteBucket(&s3.DeleteBucketInput{Bucket: &s.fs.bucket})
+	_, err = s.cloud.DeleteBucket(&s3.DeleteBucketInput{Bucket: &s.fs.bucket})
 	t.Assert(err, IsNil)
 }
 
@@ -202,7 +202,7 @@ func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker,
 	if public {
 		param.ACL = aws.String("public-read")
 	}
-	_, err := s.s3.CreateBucket(&param)
+	_, err := s.cloud.CreateBucket(&param)
 	t.Assert(err, IsNil)
 
 	for path, r := range env {
@@ -222,14 +222,14 @@ func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker,
 			},
 		}
 
-		_, err := s.s3.PutBlob(params)
+		_, err := s.cloud.PutBlob(params)
 		t.Assert(err, IsNil)
 	}
 
 	// double check
 	for path := range env {
 		params := &HeadBlobInput{Key: path}
-		_, err := s.s3.HeadBlob(params)
+		_, err := s.cloud.HeadBlob(params)
 		t.Assert(err, IsNil)
 	}
 
@@ -270,16 +270,16 @@ func (s *GoofysTest) SetUpTest(t *C) {
 	s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
 	t.Assert(s.fs, NotNil)
 
-	s.s3 = NewS3(s.fs, bucket, s.awsConfig, flags)
-	s.s3.aws = hasEnv("AWS")
+	s.cloud = NewS3(s.fs, bucket, s.awsConfig, flags)
+	s.cloud.aws = hasEnv("AWS")
 
 	if !hasEnv("MINIO") {
-		s.s3.Handlers.Sign.Clear()
-		s.s3.Handlers.Sign.PushBack(SignV2)
-		s.s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
+		s.cloud.Handlers.Sign.Clear()
+		s.cloud.Handlers.Sign.PushBack(SignV2)
+		s.cloud.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
 	}
 
-	_, err := s.s3.ListBuckets(nil)
+	_, err := s.cloud.ListBuckets(nil)
 	t.Assert(err, IsNil)
 
 	s.setupDefaultEnv(t, false)
@@ -554,7 +554,7 @@ func (s *GoofysTest) TestCreateFiles(t *C) {
 	err := fh.FlushFile()
 	t.Assert(err, IsNil)
 
-	resp, err := s.s3.GetBlob(&GetBlobInput{Key: fileName})
+	resp, err := s.cloud.GetBlob(&GetBlobInput{Key: fileName})
 	t.Assert(err, IsNil)
 	t.Assert(resp.HeadBlobOutput.Size, DeepEquals, uint64(0))
 	defer resp.Body.Close()
@@ -574,7 +574,7 @@ func (s *GoofysTest) TestCreateFiles(t *C) {
 	err = fh.FlushFile()
 	t.Assert(err, IsNil)
 
-	resp, err = s.s3.GetBlob(&GetBlobInput{Key: fileName})
+	resp, err = s.cloud.GetBlob(&GetBlobInput{Key: fileName})
 	t.Assert(err, IsNil)
 	t.Assert(resp.HeadBlobOutput.Size, Equals, uint64(1))
 	defer resp.Body.Close()
@@ -587,7 +587,7 @@ func (s *GoofysTest) TestUnlink(t *C) {
 	t.Assert(err, IsNil)
 
 	// make sure that it's gone from s3
-	_, err = s.s3.GetBlob(&GetBlobInput{Key: fileName})
+	_, err = s.cloud.GetBlob(&GetBlobInput{Key: fileName})
 	t.Assert(mapAwsError(err), Equals, fuse.ENOENT)
 }
 
@@ -654,7 +654,7 @@ func (s *GoofysTest) testWriteFileAt(t *C, fileName string, offset int64, size i
 	err := fh.FlushFile()
 	t.Assert(err, IsNil)
 
-	resp, err := s.s3.HeadBlob(&HeadBlobInput{Key: fileName})
+	resp, err := s.cloud.HeadBlob(&HeadBlobInput{Key: fileName})
 	t.Assert(err, IsNil)
 	t.Assert(resp.Size, Equals, uint64(size+offset))
 
@@ -772,7 +772,7 @@ func (s *GoofysTest) TestRenamePreserveMetadata(t *C) {
 	metadata := make(map[string]*string)
 	metadata["foo"] = aws.String("bar")
 
-	_, err := s.s3.CopyBlob(&CopyBlobInput{
+	_, err := s.cloud.CopyBlob(&CopyBlobInput{
 		Source:      from,
 		Destination: from,
 		Metadata:    metadata,
@@ -782,7 +782,7 @@ func (s *GoofysTest) TestRenamePreserveMetadata(t *C) {
 	err = root.Rename(from, root, to)
 	t.Assert(err, IsNil)
 
-	resp, err := s.s3.HeadBlob(&HeadBlobInput{Key: to})
+	resp, err := s.cloud.HeadBlob(&HeadBlobInput{Key: to})
 	t.Assert(err, IsNil)
 	t.Assert(resp.Metadata["Foo"], NotNil)
 	t.Assert(*resp.Metadata["Foo"], Equals, "bar")
@@ -857,10 +857,10 @@ func (s *GoofysTest) TestRename(t *C) {
 	err = root.Rename(from, root, to)
 	t.Assert(err, IsNil)
 
-	_, err = s.s3.HeadBlob(&HeadBlobInput{Key: to})
+	_, err = s.cloud.HeadBlob(&HeadBlobInput{Key: to})
 	t.Assert(err, IsNil)
 
-	_, err = s.s3.HeadBlob(&HeadBlobInput{Key: from})
+	_, err = s.cloud.HeadBlob(&HeadBlobInput{Key: from})
 	t.Assert(mapAwsError(err), Equals, fuse.ENOENT)
 
 	from, to = "file3", "new_file"
@@ -868,17 +868,17 @@ func (s *GoofysTest) TestRename(t *C) {
 	err = dir.Rename(from, root, to)
 	t.Assert(err, IsNil)
 
-	_, err = s.s3.HeadBlob(&HeadBlobInput{Key: to})
+	_, err = s.cloud.HeadBlob(&HeadBlobInput{Key: to})
 	t.Assert(err, IsNil)
 
-	_, err = s.s3.HeadBlob(&HeadBlobInput{Key: from})
+	_, err = s.cloud.HeadBlob(&HeadBlobInput{Key: from})
 	t.Assert(mapAwsError(err), Equals, fuse.ENOENT)
 
 	from, to = "no_such_file", "new_file"
 	err = root.Rename(from, root, to)
 	t.Assert(err, Equals, fuse.ENOENT)
 
-	if s3, ok := s.fs.s3.(*S3Backend); ok {
+	if s3, ok := s.fs.cloud.(*S3Backend); ok {
 		if !hasEnv("GCS") {
 			// not really rename but can be used by rename
 			from, to = s.fs.bucket+"/file2", "new_file"
@@ -1214,14 +1214,14 @@ func (s *GoofysTest) TestPutMimeType(t *C) {
 
 	s.testWriteFile(t, jpg, 0, 0)
 
-	resp, err := s.s3.HeadBlob(&HeadBlobInput{Key: jpg})
+	resp, err := s.cloud.HeadBlob(&HeadBlobInput{Key: jpg})
 	t.Assert(err, IsNil)
 	t.Assert(*resp.ContentType, Equals, "image/jpeg")
 
 	err = root.Rename(jpg, root, file)
 	t.Assert(err, IsNil)
 
-	resp, err = s.s3.HeadBlob(&HeadBlobInput{Key: file})
+	resp, err = s.cloud.HeadBlob(&HeadBlobInput{Key: file})
 	t.Assert(err, IsNil)
 	if hasEnv("AWS") {
 		t.Assert(*resp.ContentType, Equals, "binary/octet-stream")
@@ -1235,7 +1235,7 @@ func (s *GoofysTest) TestPutMimeType(t *C) {
 	err = root.Rename(file, root, jpg2)
 	t.Assert(err, IsNil)
 
-	resp, err = s.s3.HeadBlob(&HeadBlobInput{Key: jpg2})
+	resp, err = s.cloud.HeadBlob(&HeadBlobInput{Key: jpg2})
 	t.Assert(err, IsNil)
 	t.Assert(*resp.ContentType, Equals, "image/jpeg")
 }
@@ -1307,12 +1307,12 @@ func (s *GoofysTest) anonymous(t *C) {
 	// we are using anonymous credentials
 	s.fs.awsConfig = selectTestConfig(t)
 	s.fs.awsConfig.Credentials = credentials.AnonymousCredentials
-	s.fs.s3 = NewS3(s.fs, s.fs.bucket, s.fs.awsConfig, s.fs.flags)
+	s.fs.cloud = NewS3(s.fs, s.fs.bucket, s.fs.awsConfig, s.fs.flags)
 }
 
 func (s *GoofysTest) disableS3() {
 	time.Sleep(1 * time.Second) // wait for any background goroutines to finish
-	s.fs.s3 = nil
+	s.fs.cloud = nil
 }
 
 func (s *GoofysTest) TestWriteAnonymous(t *C) {
@@ -1436,7 +1436,7 @@ func (s *GoofysTest) TestIssue162(t *C) {
 		Key:  "dir1/l├â┬╢r 006.jpg",
 		Body: bytes.NewReader([]byte("foo")),
 	}
-	_, err := s.s3.PutBlob(params)
+	_, err := s.cloud.PutBlob(params)
 	t.Assert(err, IsNil)
 
 	dir, err := s.LookUpInode(t, "dir1")
@@ -1445,7 +1445,7 @@ func (s *GoofysTest) TestIssue162(t *C) {
 	err = dir.Rename("l├â┬╢r 006.jpg", dir, "myfile.jpg")
 	t.Assert(err, IsNil)
 
-	resp, err := s.s3.HeadBlob(&HeadBlobInput{Key: "dir1/myfile.jpg"})
+	resp, err := s.cloud.HeadBlob(&HeadBlobInput{Key: "dir1/myfile.jpg"})
 	t.Assert(resp.Size, Equals, uint64(3))
 }
 
@@ -1901,7 +1901,7 @@ func (s *GoofysTest) TestDirMtimeLs(t *C) {
 		Key:  "newfile",
 		Body: bytes.NewReader([]byte("foo")),
 	}
-	_, err := s.s3.PutBlob(params)
+	_, err := s.cloud.PutBlob(params)
 	t.Assert(err, IsNil)
 
 	s.readDirIntoCache(t, fuseops.RootInodeID)
@@ -1942,7 +1942,7 @@ func (s *GoofysTest) TestRead403(t *C) {
 	t.Assert(err, IsNil)
 
 	s.fs.awsConfig.Credentials = credentials.AnonymousCredentials
-	s.fs.s3 = NewS3(s.fs, s.fs.bucket, s.fs.awsConfig, s.fs.flags)
+	s.fs.cloud = NewS3(s.fs, s.fs.bucket, s.fs.awsConfig, s.fs.flags)
 
 	// fake enable read-ahead
 	fh.seqReadAmount = uint64(READAHEAD_CHUNK)
@@ -2103,7 +2103,7 @@ func (s *GoofysTest) TestDirMTime(t *C) {
 		Key:  "dir2/newfile",
 		Body: bytes.NewReader([]byte("foo")),
 	}
-	_, err = s.s3.PutBlob(params)
+	_, err = s.cloud.PutBlob(params)
 	t.Assert(err, IsNil)
 
 	s.readDirIntoCache(t, dir2.Id)
@@ -2164,7 +2164,7 @@ func (s *GoofysTest) TestSlurpFileAndDir(t *C) {
 			Key:  b,
 			Body: bytes.NewReader([]byte("foo")),
 		}
-		_, err := s.s3.PutBlob(params)
+		_, err := s.cloud.PutBlob(params)
 		t.Assert(err, IsNil)
 	}
 
