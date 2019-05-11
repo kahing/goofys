@@ -21,12 +21,12 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 type MinioTest struct {
 	fs *Goofys
+	s3 *S3Backend
 }
 
 var _ = Suite(&MinioTest{})
@@ -42,18 +42,23 @@ func (s *MinioTest) SetUpSuite(t *C) {
 
 	s.fs = &Goofys{
 		awsConfig: awsConfig,
-		sess:      session.New(awsConfig),
 	}
 
-	s.fs.s3 = s.fs.newS3()
-	_, err := s.fs.s3.ListBuckets(nil)
-	t.Assert(err, IsNil)
+	s.fs.s3 = NewS3(s.fs, "", awsConfig, &FlagStorage{})
+	if s3, ok := s.fs.s3.(*S3Backend); ok {
+		_, err := s3.ListBuckets(nil)
+		t.Assert(err, IsNil)
+
+		s.s3 = s3
+	} else {
+		t.Skip("only for S3")
+	}
 }
 
 func (s *MinioTest) SetUpTest(t *C) {
 	bucket := RandStringBytesMaskImprSrc(32)
 
-	_, err := s.fs.s3.CreateBucket(&s3.CreateBucketInput{
+	_, err := s.s3.CreateBucket(&s3.CreateBucketInput{
 		Bucket: &bucket,
 	})
 	t.Assert(err, IsNil)

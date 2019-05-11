@@ -18,7 +18,6 @@ import (
 	. "gopkg.in/check.v1"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
 
 	"github.com/jacobsa/fuse"
 )
@@ -37,25 +36,32 @@ func (s *AwsTest) SetUpSuite(t *C) {
 
 	s.fs = &Goofys{
 		awsConfig: awsConfig,
-		sess:      session.New(awsConfig),
 	}
 
-	s.fs.s3 = s.fs.newS3()
+	s.fs.s3 = NewS3(s.fs, "", awsConfig, &FlagStorage{})
 }
 
 func (s *AwsTest) TestRegionDetection(t *C) {
-	s.fs.bucket = "goofys-eu-west-1.kahing.xyz"
+	if s3, ok := s.fs.s3.(*S3Backend); ok {
+		s3.bucket = "goofys-eu-west-1.kahing.xyz"
 
-	err, isAws := s.fs.detectBucketLocationByHEAD()
-	t.Assert(err, IsNil)
-	t.Assert(*s.fs.awsConfig.Region, Equals, "eu-west-1")
-	t.Assert(isAws, Equals, true)
+		err, isAws := s3.detectBucketLocationByHEAD()
+		t.Assert(err, IsNil)
+		t.Assert(*s3.awsConfig.Region, Equals, "eu-west-1")
+		t.Assert(isAws, Equals, true)
+	} else {
+		t.Skip("only for S3")
+	}
 }
 
 func (s *AwsTest) TestBucket404(t *C) {
-	s.fs.bucket = RandStringBytesMaskImprSrc(64)
+	if s3, ok := s.fs.s3.(*S3Backend); ok {
+		s3.bucket = RandStringBytesMaskImprSrc(64)
 
-	err, isAws := s.fs.detectBucketLocationByHEAD()
-	t.Assert(err, Equals, fuse.ENOENT)
-	t.Assert(isAws, Equals, true)
+		err, isAws := s3.detectBucketLocationByHEAD()
+		t.Assert(err, Equals, fuse.ENOENT)
+		t.Assert(isAws, Equals, true)
+	} else {
+		t.Skip("only for S3")
+	}
 }

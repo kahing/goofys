@@ -16,21 +16,245 @@ package internal
 
 import (
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/corehandlers"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+
+	"github.com/jacobsa/fuse"
 )
 
 type S3Backend struct {
 	*s3.S3
+	session *session.Session
+
 	fs *Goofys
 
-	aws bool
+	bucket    string
+	awsConfig *aws.Config
+	flags     *FlagStorage
+	sseType   string
+
+	aws      bool
+	gcs      bool
+	v2Signer bool
+}
+
+func NewS3(fs *Goofys, bucket string, awsConfig *aws.Config, flags *FlagStorage) *S3Backend {
+	s := &S3Backend{
+		session:   session.New(awsConfig),
+		fs:        fs,
+		bucket:    bucket,
+		awsConfig: awsConfig,
+		flags:     flags,
+		gcs:       strings.HasSuffix(flags.Endpoint, "/storage.googleapis.com"),
+	}
+
+	if flags.DebugS3 {
+		awsConfig.LogLevel = aws.LogLevel(aws.LogDebug | aws.LogDebugWithRequestErrors)
+	}
+
+	if flags.UseKMS {
+		//SSE header string for KMS server-side encryption (SSE-KMS)
+		s.sseType = s3.ServerSideEncryptionAwsKms
+	} else if flags.UseSSE {
+		//SSE header string for non-KMS server-side encryption (SSE-S3)
+		s.sseType = s3.ServerSideEncryptionAes256
+	}
+
+	s.newS3(s.session)
+	return s
+}
+
+func addAcceptEncoding(req *request.Request) {
+	if req.HTTPRequest.Method == "GET" {
+		// we need "Accept-Encoding: identity" so that objects
+		// with content-encoding won't be automatically
+		// deflated, but we don't want to sign it because GCS
+		// doesn't like it
+		req.HTTPRequest.Header.Set("Accept-Encoding", "identity")
+	}
+}
+
+func (s *S3Backend) newS3(sess *session.Session) {
+	s.session = sess
+	s.S3 = s3.New(sess)
+	if s.v2Signer {
+		s.S3.Handlers.Sign.Clear()
+		s.S3.Handlers.Sign.PushBack(SignV2)
+		s.S3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
+	}
+	s.S3.Handlers.Sign.PushBack(addAcceptEncoding)
+}
+
+func (s *S3Backend) detectBucketLocationByHEAD() (err error, isAws bool) {
+	u := url.URL{
+		Scheme: "https",
+		Host:   "s3.amazonaws.com",
+		Path:   s.bucket,
+	}
+
+	if s.awsConfig.Endpoint != nil {
+		endpoint, err := url.Parse(*s.awsConfig.Endpoint)
+		if err != nil {
+			return err, false
+		}
+
+		u.Scheme = endpoint.Scheme
+		u.Host = endpoint.Host
+	}
+
+	var req *http.Request
+	var resp *http.Response
+
+	req, err = http.NewRequest("HEAD", u.String(), nil)
+	if err != nil {
+		return
+	}
+
+	allowFails := 3
+	for i := 0; i < allowFails; i++ {
+		resp, err = http.DefaultTransport.RoundTrip(req)
+		if err != nil {
+			return
+		}
+		if resp.StatusCode < 500 {
+			break
+		} else if resp.StatusCode == 503 && resp.Status == "503 Slow Down" {
+			time.Sleep(time.Duration(i+1) * time.Second)
+			// allow infinite retries for 503 slow down
+			allowFails += 1
+		}
+	}
+
+	region := resp.Header["X-Amz-Bucket-Region"]
+	server := resp.Header["Server"]
+
+	s3Log.Debugf("HEAD %v = %v %v", u.String(), resp.StatusCode, region)
+	if region == nil {
+		for k, v := range resp.Header {
+			s3Log.Debugf("%v = %v", k, v)
+		}
+	}
+	if server != nil && server[0] == "AmazonS3" {
+		isAws = true
+	}
+
+	switch resp.StatusCode {
+	case 200:
+		// note that this only happen if the bucket is in us-east-1
+		if len(s.flags.Profile) == 0 {
+			s.awsConfig.Credentials = credentials.AnonymousCredentials
+			s3Log.Infof("anonymous bucket detected")
+		}
+	case 400:
+		err = fuse.EINVAL
+	case 403:
+		err = syscall.EACCES
+	case 404:
+		err = fuse.ENOENT
+	case 405:
+		err = syscall.ENOTSUP
+	default:
+		err = awserr.New(strconv.Itoa(resp.StatusCode), resp.Status, nil)
+	}
+
+	if len(region) != 0 {
+		if region[0] != *s.awsConfig.Region {
+			s3Log.Infof("Switching from region '%v' to '%v'",
+				*s.awsConfig.Region, region[0])
+			s.awsConfig.Region = &region[0]
+		}
+
+		// we detected a region, this is aws, the error is irrelevant
+		err = nil
+	}
+
+	return
+}
+
+func (s *S3Backend) testBucket() (err error) {
+	randomObjectName := s.fs.key(RandStringBytesMaskImprSrc(32))
+
+	_, err = s.HeadBlob(&HeadBlobInput{Key: *randomObjectName})
+	if err != nil {
+		err = mapAwsError(err)
+		if err == fuse.ENOENT {
+			err = nil
+		}
+	}
+
+	return
+}
+
+func (s *S3Backend) fallbackV2Signer() (err error) {
+	if s.v2Signer {
+		return fuse.EINVAL
+	}
+
+	s3Log.Infoln("Falling back to v2 signer")
+	s.v2Signer = true
+	s.newS3(s.session)
+	return
+}
+
+func (s *S3Backend) Init() error {
+	var isAws bool
+	var err error
+
+	if !s.flags.RegionSet {
+		err, isAws = s.detectBucketLocationByHEAD()
+		if err == nil {
+			// we detected a region header, this is probably AWS S3,
+			// or we can use anonymous access, or both
+			s.newS3(session.New(s.awsConfig))
+			s.aws = isAws
+		} else if err == fuse.ENOENT {
+			log.Errorf("bucket %v does not exist", s.bucket)
+			return nil
+		} else {
+			// this is NOT AWS, we expect the request to fail with 403 if this is not
+			// an anonymous bucket
+			if err != syscall.EACCES {
+				log.Errorf("Unable to access '%v': %v", s.bucket, err)
+			}
+		}
+	}
+
+	// try again with the credential to make sure
+	err = mapAwsError(s.testBucket())
+	if err != nil {
+		if !isAws {
+			// EMC returns 403 because it doesn't support v4 signing
+			// swift3, ceph-s3 returns 400
+			// Amplidata just gives up and return 500
+			if err == syscall.EACCES || err == fuse.EINVAL || err == syscall.EAGAIN {
+				err = s.fallbackV2Signer()
+				if err != nil {
+					return err
+				}
+				err = mapAwsError(s.testBucket())
+			}
+		}
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (s *S3Backend) ListObjectsV2(params *s3.ListObjectsV2Input) (*s3.ListObjectsV2Output, error) {
@@ -78,7 +302,7 @@ func (s *S3Backend) ListObjectsV2(params *s3.ListObjectsV2Input) (*s3.ListObject
 
 func (s *S3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	resp, err := s.S3.HeadObject(&s3.HeadObjectInput{
-		Bucket: &s.fs.bucket,
+		Bucket: &s.bucket,
 		Key:    &param.Key,
 	})
 	if err != nil {
@@ -105,7 +329,7 @@ func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 	}
 
 	resp, err := s.ListObjectsV2(&s3.ListObjectsV2Input{
-		Bucket:            &s.fs.bucket,
+		Bucket:            &s.bucket,
 		Prefix:            param.Prefix,
 		Delimiter:         param.Delimiter,
 		MaxKeys:           maxKeys,
@@ -143,7 +367,7 @@ func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 
 func (s *S3Backend) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error) {
 	_, err := s.DeleteObject(&s3.DeleteObjectInput{
-		Bucket: &s.fs.bucket,
+		Bucket: &s.bucket,
 		Key:    &param.Key,
 	})
 	if err != nil {
@@ -153,7 +377,7 @@ func (s *S3Backend) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error
 }
 
 func (s *S3Backend) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error) {
-	if s.fs.gcs {
+	if s.gcs {
 		// GCS does not have multi-delete
 		var wg sync.WaitGroup
 		var overallErr error
@@ -180,14 +404,14 @@ func (s *S3Backend) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, er
 		var items s3.Delete
 		var objs = make([]*s3.ObjectIdentifier, num_objs)
 
-		for i, k := range param.Items {
-			objs[i] = &s3.ObjectIdentifier{Key: &k}
+		for i, _ := range param.Items {
+			objs[i] = &s3.ObjectIdentifier{Key: &param.Items[i]}
 		}
 
 		// Add list of objects to delete to Delete object
 		items.SetObjects(objs)
 		_, err := s.DeleteObjects(&s3.DeleteObjectsInput{
-			Bucket: &s.fs.bucket,
+			Bucket: &s.bucket,
 			Delete: &items,
 		})
 		if err != nil {
@@ -210,7 +434,7 @@ func (s *S3Backend) mpuCopyPart(from string, to string, mpuId string, bytes stri
 	// XXX use CopySourceIfUnmodifiedSince to ensure that
 	// we are copying from the same object
 	params := &s3.UploadPartCopyInput{
-		Bucket:            &s.fs.bucket,
+		Bucket:            &s.bucket,
 		Key:               &to,
 		CopySource:        aws.String(pathEscape(from)),
 		UploadId:          &mpuId,
@@ -221,7 +445,7 @@ func (s *S3Backend) mpuCopyPart(from string, to string, mpuId string, bytes stri
 
 	s3Log.Debug(params)
 
-	resp, err := s.fs.s3.UploadPartCopy(params)
+	resp, err := s.UploadPartCopy(params)
 	if err != nil {
 		s3Log.Errorf("UploadPartCopy %v = %v", params, err)
 		*errout = mapAwsError(err)
@@ -282,22 +506,22 @@ func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuI
 
 	if mpuId == "" {
 		params := &s3.CreateMultipartUploadInput{
-			Bucket:       &s.fs.bucket,
+			Bucket:       &s.bucket,
 			Key:          &to,
-			StorageClass: &s.fs.flags.StorageClass,
+			StorageClass: &s.flags.StorageClass,
 			ContentType:  s.fs.getMimeType(to),
 			Metadata:     metadata,
 		}
 
-		if s.fs.flags.UseSSE {
-			params.ServerSideEncryption = &s.fs.sseType
-			if s.fs.flags.UseKMS && s.fs.flags.KMSKeyID != "" {
-				params.SSEKMSKeyId = &s.fs.flags.KMSKeyID
+		if s.flags.UseSSE {
+			params.ServerSideEncryption = &s.sseType
+			if s.flags.UseKMS && s.flags.KMSKeyID != "" {
+				params.SSEKMSKeyId = &s.flags.KMSKeyID
 			}
 		}
 
-		if s.fs.flags.ACL != "" {
-			params.ACL = &s.fs.flags.ACL
+		if s.flags.ACL != "" {
+			params.ACL = &s.flags.ACL
 		}
 
 		resp, err := s.CreateMultipartUpload(params)
@@ -322,7 +546,7 @@ func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuI
 		}
 
 		params := &s3.CompleteMultipartUploadInput{
-			Bucket:   &s.fs.bucket,
+			Bucket:   &s.bucket,
 			Key:      &to,
 			UploadId: &mpuId,
 			MultipartUpload: &s3.CompletedMultipartUpload{
@@ -355,9 +579,9 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 		param.ETag = resp.ETag
 	}
 
-	from := s.fs.bucket + "/" + param.Source
+	from := s.bucket + "/" + param.Source
 
-	if !s.fs.gcs && *param.Size > 5*1024*1024*1024 {
+	if !s.gcs && *param.Size > 5*1024*1024*1024 {
 		err := s.copyObjectMultipart(int64(*param.Size), from, param.Destination, "", param.ETag, param.Metadata)
 		if err != nil {
 			return nil, err
@@ -365,13 +589,13 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 		return &CopyBlobOutput{}, nil
 	}
 
-	storageClass := s.fs.flags.StorageClass
+	storageClass := s.flags.StorageClass
 	if *param.Size < 128*1024 && storageClass == "STANDARD_IA" {
 		storageClass = "STANDARD"
 	}
 
 	params := &s3.CopyObjectInput{
-		Bucket:            &s.fs.bucket,
+		Bucket:            &s.bucket,
 		CopySource:        aws.String(pathEscape(from)),
 		Key:               &param.Destination,
 		StorageClass:      &storageClass,
@@ -382,15 +606,15 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 
 	s3Log.Debug(params)
 
-	if s.fs.flags.UseSSE {
-		params.ServerSideEncryption = &s.fs.sseType
-		if s.fs.flags.UseKMS && s.fs.flags.KMSKeyID != "" {
-			params.SSEKMSKeyId = &s.fs.flags.KMSKeyID
+	if s.flags.UseSSE {
+		params.ServerSideEncryption = &s.sseType
+		if s.flags.UseKMS && s.flags.KMSKeyID != "" {
+			params.SSEKMSKeyId = &s.flags.KMSKeyID
 		}
 	}
 
-	if s.fs.flags.ACL != "" {
-		params.ACL = &s.fs.flags.ACL
+	if s.flags.ACL != "" {
+		params.ACL = &s.flags.ACL
 	}
 
 	_, err := s.CopyObject(params)
@@ -404,7 +628,7 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 
 func (s *S3Backend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 	get := s3.GetObjectInput{
-		Bucket: &s.fs.bucket,
+		Bucket: &s.bucket,
 		Key:    &param.Key,
 	}
 
@@ -442,23 +666,23 @@ func (s *S3Backend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 
 func (s *S3Backend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 	put := &s3.PutObjectInput{
-		Bucket:       &s.fs.bucket,
+		Bucket:       &s.bucket,
 		Key:          &param.Key,
 		Metadata:     param.Metadata,
 		Body:         param.Body,
-		StorageClass: &s.fs.flags.StorageClass,
+		StorageClass: &s.flags.StorageClass,
 		ContentType:  param.ContentType,
 	}
 
-	if s.fs.flags.UseSSE {
-		put.ServerSideEncryption = &s.fs.sseType
-		if s.fs.flags.UseKMS && s.fs.flags.KMSKeyID != "" {
-			put.SSEKMSKeyId = &s.fs.flags.KMSKeyID
+	if s.flags.UseSSE {
+		put.ServerSideEncryption = &s.sseType
+		if s.flags.UseKMS && s.flags.KMSKeyID != "" {
+			put.SSEKMSKeyId = &s.flags.KMSKeyID
 		}
 	}
 
-	if s.fs.flags.ACL != "" {
-		put.ACL = &s.fs.flags.ACL
+	if s.flags.ACL != "" {
+		put.ACL = &s.flags.ACL
 	}
 
 	resp, err := s.PutObject(put)
@@ -473,24 +697,24 @@ func (s *S3Backend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 
 func (s *S3Backend) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlobCommitInput, error) {
 	mpu := s3.CreateMultipartUploadInput{
-		Bucket:       &s.fs.bucket,
+		Bucket:       &s.bucket,
 		Key:          &param.Key,
-		StorageClass: &s.fs.flags.StorageClass,
+		StorageClass: &s.flags.StorageClass,
 		ContentType:  param.ContentType,
 	}
 
-	if s.fs.flags.UseSSE {
-		mpu.ServerSideEncryption = &s.fs.sseType
-		if s.fs.flags.UseKMS && s.fs.flags.KMSKeyID != "" {
-			mpu.SSEKMSKeyId = &s.fs.flags.KMSKeyID
+	if s.flags.UseSSE {
+		mpu.ServerSideEncryption = &s.sseType
+		if s.flags.UseKMS && s.flags.KMSKeyID != "" {
+			mpu.SSEKMSKeyId = &s.flags.KMSKeyID
 		}
 	}
 
-	if s.fs.flags.ACL != "" {
-		mpu.ACL = &s.fs.flags.ACL
+	if s.flags.ACL != "" {
+		mpu.ACL = &s.flags.ACL
 	}
 
-	if !s.fs.gcs {
+	if !s.gcs {
 		resp, err := s.CreateMultipartUpload(&mpu)
 		if err != nil {
 			s3Log.Errorf("CreateMultipartUpload %v = %v", param.Key, err)
@@ -536,9 +760,9 @@ func (s *S3Backend) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBl
 	en := &param.Commit.Parts[param.PartNumber-1]
 	atomic.AddUint32(&param.Commit.NumParts, 1)
 
-	if !s.fs.gcs {
+	if !s.gcs {
 		params := s3.UploadPartInput{
-			Bucket:     &s.fs.bucket,
+			Bucket:     &s.bucket,
 			Key:        param.Commit.Key,
 			PartNumber: aws.Int64(int64(param.PartNumber)),
 			UploadId:   param.Commit.UploadId,
@@ -562,7 +786,7 @@ func (s *S3Backend) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBl
 		// can just use a plain HTTP request, but going
 		// through aws-sdk-go anyway to get retry handling
 		params := &s3.PutObjectInput{
-			Bucket: &s.fs.bucket,
+			Bucket: &s.bucket,
 			Key:    param.Commit.Key,
 			Body:   param.Body,
 		}
@@ -607,7 +831,7 @@ func (s *S3Backend) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBl
 }
 
 func (s *S3Backend) MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error) {
-	if !s.fs.gcs {
+	if !s.gcs {
 		parts := make([]*s3.CompletedPart, param.NumParts)
 		for i := uint32(0); i < param.NumParts; i++ {
 			parts[i] = &s3.CompletedPart{
@@ -617,7 +841,7 @@ func (s *S3Backend) MultipartBlobCommit(param *MultipartBlobCommitInput) (*Multi
 		}
 
 		mpu := s3.CompleteMultipartUploadInput{
-			Bucket:   &s.fs.bucket,
+			Bucket:   &s.bucket,
 			Key:      param.Key,
 			UploadId: param.UploadId,
 			MultipartUpload: &s3.CompletedMultipartUpload{
@@ -647,7 +871,7 @@ func (s *S3Backend) MultipartBlobCommit(param *MultipartBlobCommitInput) (*Multi
 
 func (s *S3Backend) MultipartBlobAbort(param *MultipartBlobCommitInput) (*MultipartBlobAbortOutput, error) {
 	mpu := s3.AbortMultipartUploadInput{
-		Bucket:   &s.fs.bucket,
+		Bucket:   &s.bucket,
 		Key:      param.Key,
 		UploadId: param.UploadId,
 	}
@@ -660,7 +884,7 @@ func (s *S3Backend) MultipartBlobAbort(param *MultipartBlobCommitInput) (*Multip
 
 func (s *S3Backend) MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error) {
 	mpu, err := s.ListMultipartUploads(&s3.ListMultipartUploadsInput{
-		Bucket: &s.fs.bucket,
+		Bucket: &s.bucket,
 	})
 	if err != nil {
 		return nil, mapAwsError(err)
@@ -673,7 +897,7 @@ func (s *S3Backend) MultipartExpire(param *MultipartExpireInput) (*MultipartExpi
 
 		if !expireTime.After(now) {
 			params := &s3.AbortMultipartUploadInput{
-				Bucket:   &s.fs.bucket,
+				Bucket:   &s.bucket,
 				Key:      upload.Key,
 				UploadId: upload.UploadId,
 			}
