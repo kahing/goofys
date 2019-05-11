@@ -163,6 +163,18 @@ type MultipartExpireInput struct {
 type MultipartExpireOutput struct {
 }
 
+type RemoveBucketInput struct {
+}
+
+type RemoveBucketOutput struct {
+}
+
+type MakeBucketInput struct {
+}
+
+type MakeBucketOutput struct {
+}
+
 type StorageBackend interface {
 	Init() error
 	HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error)
@@ -178,4 +190,6 @@ type StorageBackend interface {
 	MultipartBlobAbort(param *MultipartBlobCommitInput) (*MultipartBlobAbortOutput, error)
 	MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error)
 	MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error)
+	RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput, error)
+	MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error)
 }

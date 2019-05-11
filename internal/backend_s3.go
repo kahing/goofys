@@ -927,3 +927,22 @@ func (s *S3Backend) MultipartExpire(param *MultipartExpireInput) (*MultipartExpi
 
 	return &MultipartExpireOutput{}, nil
 }
+
+func (s *S3Backend) RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput, error) {
+	_, err := s.DeleteBucket(&s3.DeleteBucketInput{Bucket: &s.bucket})
+	if err != nil {
+		return nil, mapAwsError(err)
+	}
+	return &RemoveBucketOutput{}, nil
+}
+
+func (s *S3Backend) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error) {
+	_, err := s.CreateBucket(&s3.CreateBucketInput{
+		Bucket: &s.bucket,
+		ACL:    &s.flags.ACL,
+	})
+	if err != nil {
+		return nil, mapAwsError(err)
+	}
+	return &MakeBucketOutput{}, nil
+}
