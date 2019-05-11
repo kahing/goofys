@@ -164,6 +164,7 @@ type MultipartExpireOutput struct {
 }
 
 type StorageBackend interface {
+	Init() error
 	HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error)
 	ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error)
 	DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error)

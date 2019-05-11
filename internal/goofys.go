@@ -19,10 +19,8 @@ import (
 	"fmt"
 	"math/rand"
 	"mime"
-	"net/http"
 	"net/url"
 	"runtime/debug"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -30,11 +28,6 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/corehandlers"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
 
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
@@ -62,8 +55,7 @@ type Goofys struct {
 	umask uint32
 
 	awsConfig *aws.Config
-	sess      *session.Session
-	s3        *S3Backend
+	s3        StorageBackend
 	v2Signer  bool
 	gcs       bool
 	sseType   string
@@ -109,9 +101,10 @@ var s3Log = GetLogger("s3")
 func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys {
 	// Set up the basic struct.
 	fs := &Goofys{
-		bucket: bucket,
-		flags:  flags,
-		umask:  0122,
+		bucket:    bucket,
+		flags:     flags,
+		umask:     0122,
+		awsConfig: awsConfig,
 	}
 
 	colon := strings.Index(bucket, ":")
@@ -133,61 +126,19 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 		fs.gcs = true
 	}
 
-	fs.awsConfig = awsConfig
-	fs.sess = session.New(awsConfig)
-	fs.s3 = fs.newS3()
-
-	var isAws bool
-	var err error
-	if !fs.flags.RegionSet {
-		err, isAws = fs.detectBucketLocationByHEAD()
-		if err == nil {
-			// we detected a region header, this is probably AWS S3,
-			// or we can use anonymous access, or both
-			fs.sess = session.New(awsConfig)
-			fs.s3 = fs.newS3()
-		} else if err == fuse.ENOENT {
-			log.Errorf("bucket %v does not exist", fs.bucket)
-			return nil
-		} else {
-			// this is NOT AWS, we expect the request to fail with 403 if this is not
-			// an anonymous bucket
-			if err != syscall.EACCES {
-				log.Errorf("Unable to access '%v': %v", fs.bucket, err)
-			}
-		}
+	if flags.DebugS3 {
+		s3Log.Level = logrus.DebugLevel
 	}
 
-	// try again with the credential to make sure
-	err = mapAwsError(fs.testBucket())
+	fs.s3 = NewS3(fs, bucket, awsConfig, flags)
+
+	err := fs.s3.Init()
 	if err != nil {
-		if !isAws {
-			// EMC returns 403 because it doesn't support v4 signing
-			// swift3, ceph-s3 returns 400
-			// Amplidata just gives up and return 500
-			if err == syscall.EACCES || err == fuse.EINVAL || err == syscall.EAGAIN {
-				fs.fallbackV2Signer()
-				err = mapAwsError(fs.testBucket())
-			}
-		}
-
-		if err != nil {
-			log.Errorf("Unable to access '%v': %v", fs.bucket, err)
-			return nil
-		}
+		log.Errorf("Unable to access '%v': %v", fs.bucket, err)
+		return nil
 	}
-
-	fs.s3.aws = isAws
 
 	go fs.s3.MultipartExpire(&MultipartExpireInput{})
-
-	if flags.UseKMS {
-		//SSE header string for KMS server-side encryption (SSE-KMS)
-		fs.sseType = s3.ServerSideEncryptionAwsKms
-	} else if flags.UseSSE {
-		//SSE header string for non-KMS server-side encryption (SSE-S3)
-		fs.sseType = s3.ServerSideEncryptionAes256
-	}
 
 	now := time.Now()
 	fs.rootAttrs = InodeAttributes{
@@ -217,49 +168,6 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 	return fs
 }
 
-func (fs *Goofys) fallbackV2Signer() (err error) {
-	if fs.v2Signer {
-		return fuse.EINVAL
-	}
-
-	s3Log.Infoln("Falling back to v2 signer")
-	fs.v2Signer = true
-	fs.s3 = fs.newS3()
-	return
-}
-
-func addAcceptEncoding(req *request.Request) {
-	if req.HTTPRequest.Method == "GET" {
-		// we need "Accept-Encoding: identity" so that objects
-		// with content-encoding won't be automatically
-		// deflated, but we don't want to sign it because GCS
-		// doesn't like it
-		req.HTTPRequest.Header.Set("Accept-Encoding", "identity")
-	}
-}
-
-func addRequestPayer(req *request.Request) {
-	// "Requester Pays" is only applicable to these
-	// see https://docs.aws.amazon.com/AmazonS3/latest/dev/RequesterPaysBuckets.html
-	if req.HTTPRequest.Method == "GET" || req.HTTPRequest.Method == "HEAD" || req.HTTPRequest.Method == "POST" {
-		req.HTTPRequest.Header.Set("x-amz-request-payer", "requester")
-	}
-}
-
-func (fs *Goofys) newS3() *S3Backend {
-	svc := s3.New(fs.sess)
-	if fs.flags != nil && fs.flags.RequesterPays {
-		svc.Handlers.Build.PushBack(addRequestPayer)
-	}
-	if fs.v2Signer {
-		svc.Handlers.Sign.Clear()
-		svc.Handlers.Sign.PushBack(SignV2)
-		svc.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
-	}
-	svc.Handlers.Sign.PushBack(addAcceptEncoding)
-	return &S3Backend{fs: fs, S3: svc}
-}
-
 // from https://stackoverflow.com/questions/22892120/how-to-generate-a-random-string-of-a-fixed-length-in-golang
 func RandStringBytesMaskImprSrc(n int) string {
 	const letterBytes = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -284,106 +192,6 @@ func RandStringBytesMaskImprSrc(n int) string {
 	}
 
 	return string(b)
-}
-
-func (fs *Goofys) testBucket() (err error) {
-	randomObjectName := fs.key(RandStringBytesMaskImprSrc(32))
-
-	_, err = fs.s3.HeadBlob(&HeadBlobInput{Key: *randomObjectName})
-	if err != nil {
-		err = mapAwsError(err)
-		if err == fuse.ENOENT {
-			err = nil
-		}
-	}
-
-	return
-}
-
-func (fs *Goofys) detectBucketLocationByHEAD() (err error, isAws bool) {
-	u := url.URL{
-		Scheme: "https",
-		Host:   "s3.amazonaws.com",
-		Path:   fs.bucket,
-	}
-
-	if fs.awsConfig.Endpoint != nil {
-		endpoint, err := url.Parse(*fs.awsConfig.Endpoint)
-		if err != nil {
-			return err, false
-		}
-
-		u.Scheme = endpoint.Scheme
-		u.Host = endpoint.Host
-	}
-
-	var req *http.Request
-	var resp *http.Response
-
-	req, err = http.NewRequest("HEAD", u.String(), nil)
-	if err != nil {
-		return
-	}
-
-	allowFails := 3
-	for i := 0; i < allowFails; i++ {
-		resp, err = http.DefaultTransport.RoundTrip(req)
-		if err != nil {
-			return
-		}
-		if resp.StatusCode < 500 {
-			break
-		} else if resp.StatusCode == 503 && resp.Status == "503 Slow Down" {
-			time.Sleep(time.Duration(i+1) * time.Second)
-			// allow infinite retries for 503 slow down
-			allowFails += 1
-		}
-	}
-
-	region := resp.Header["X-Amz-Bucket-Region"]
-	server := resp.Header["Server"]
-
-	s3Log.Debugf("HEAD %v = %v %v", u.String(), resp.StatusCode, region)
-	if region == nil {
-		for k, v := range resp.Header {
-			s3Log.Debugf("%v = %v", k, v)
-		}
-	}
-	if server != nil && server[0] == "AmazonS3" {
-		isAws = true
-	}
-
-	switch resp.StatusCode {
-	case 200:
-		// note that this only happen if the bucket is in us-east-1
-		if len(fs.flags.Profile) == 0 {
-			fs.awsConfig.Credentials = credentials.AnonymousCredentials
-			s3Log.Infof("anonymous bucket detected")
-		}
-	case 400:
-		err = fuse.EINVAL
-	case 403:
-		err = syscall.EACCES
-	case 404:
-		err = fuse.ENOENT
-	case 405:
-		err = syscall.ENOTSUP
-	default:
-		err = awserr.New(strconv.Itoa(resp.StatusCode), resp.Status, nil)
-	}
-
-	if len(region) != 0 {
-		if region[0] != *fs.awsConfig.Region {
-			s3Log.Infof("Switching from region '%v' to '%v'",
-				*fs.awsConfig.Region, region[0])
-			fs.awsConfig.Region = &region[0]
-		}
-
-		// we detected a region, this is aws, the error is irrelevant
-		err = nil
-	}
-
-	return
 }
 
 func (fs *Goofys) SigUsr1() {

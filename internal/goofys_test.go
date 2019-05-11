@@ -186,7 +186,8 @@ func (s *GoofysTest) deleteBucket(t *C) {
 	_, err = s.s3.DeleteBlobs(&DeleteBlobsInput{Items: keys})
 	t.Assert(err, IsNil)
 
-	s.s3.DeleteBucket(&s3.DeleteBucketInput{Bucket: &s.fs.bucket})
+	_, err = s.s3.DeleteBucket(&s3.DeleteBucketInput{Bucket: &s.fs.bucket})
+	t.Assert(err, IsNil)
 }
 
 func (s *GoofysTest) TearDownSuite(t *C) {
@@ -269,7 +270,8 @@ func (s *GoofysTest) SetUpTest(t *C) {
 	s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
 	t.Assert(s.fs, NotNil)
 
-	s.s3 = &S3Backend{S3: s3.New(s.sess), fs: s.fs, aws: hasEnv("AWS")}
+	s.s3 = NewS3(s.fs, bucket, s.awsConfig, flags)
+	s.s3.aws = hasEnv("AWS")
 
 	if !hasEnv("MINIO") {
 		s.s3.Handlers.Sign.Clear()
@@ -878,11 +880,13 @@ func (s *GoofysTest) TestRename(t *C) {
 	err = root.Rename(from, root, to)
 	t.Assert(err, Equals, fuse.ENOENT)
 
-	if !hasEnv("GCS") {
-		// not really rename but can be used by rename
-		from, to = s.fs.bucket+"/file2", "new_file"
-		err = s.fs.s3.copyObjectMultipart(int64(len("file2")), from, to, "", nil, nil)
-		t.Assert(err, IsNil)
+	if s3, ok := s.fs.s3.(*S3Backend); ok {
+		if !hasEnv("GCS") {
+			// not really rename but can be used by rename
+			from, to = s.fs.bucket+"/file2", "new_file"
+			err = s3.copyObjectMultipart(int64(len("file2")), from, to, "", nil, nil)
+			t.Assert(err, IsNil)
+		}
 	}
 }
 
@@ -1305,8 +1309,7 @@ func (s *GoofysTest) anonymous(t *C) {
 	// we are using anonymous credentials
 	s.fs.awsConfig = selectTestConfig(t)
 	s.fs.awsConfig.Credentials = credentials.AnonymousCredentials
-	s.fs.sess = session.New(s.fs.awsConfig)
-	s.fs.s3 = s.fs.newS3()
+	s.fs.s3 = NewS3(s.fs, s.fs.bucket, s.fs.awsConfig, s.fs.flags)
 }
 
 func (s *GoofysTest) disableS3() {
@@ -1941,8 +1944,7 @@ func (s *GoofysTest) TestRead403(t *C) {
 	t.Assert(err, IsNil)
 
 	s.fs.awsConfig.Credentials = credentials.AnonymousCredentials
-	s.fs.sess = session.New(s.fs.awsConfig)
-	s.fs.s3 = s.fs.newS3()
+	s.fs.s3 = NewS3(s.fs, s.fs.bucket, s.fs.awsConfig, s.fs.flags)
 
 	// fake enable read-ahead
 	fh.seqReadAmount = uint64(READAHEAD_CHUNK)
