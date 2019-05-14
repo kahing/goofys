@@ -159,7 +159,11 @@ func (fh *FileHandle) partSize() uint64 {
 	} else if fh.lastPartId < 2000 {
 		return 25 * 1024 * 1024
 	} else {
-		return 125 * 1024 * 1024
+		if _, ok := fh.inode.fs.cloud.(*AZBlob); ok {
+			return 100 * 1024 * 1024
+		} else {
+			return 125 * 1024 * 1024
+		}
 	}
 }
 

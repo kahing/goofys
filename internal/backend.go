@@ -36,6 +36,7 @@ type HeadBlobOutput struct {
 
 	ContentType *string
 	Metadata    map[string]*string
+	IsDirBlob   bool
 }
 
 type ListBlobsInput struct {
@@ -192,4 +193,32 @@ type StorageBackend interface {
 	MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error)
 	RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput, error)
 	MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error)
+}
+
+type sortBlobPrefixOutput []BlobPrefixOutput
+
+func (p sortBlobPrefixOutput) Len() int {
+	return len(p)
+}
+
+func (p sortBlobPrefixOutput) Less(i, j int) bool {
+	return *p[i].Prefix < *p[j].Prefix
+}
+
+func (p sortBlobPrefixOutput) Swap(i, j int) {
+	p[i], p[j] = p[j], p[i]
+}
+
+type sortBlobItemOutput []BlobItemOutput
+
+func (p sortBlobItemOutput) Len() int {
+	return len(p)
+}
+
+func (p sortBlobItemOutput) Less(i, j int) bool {
+	return *p[i].Key < *p[j].Key
+}
+
+func (p sortBlobItemOutput) Swap(i, j int) {
+	p[i], p[j] = p[j], p[i]
 }

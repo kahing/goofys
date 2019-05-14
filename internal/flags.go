@@ -197,6 +197,22 @@ func NewApp() (app *cli.App) {
 			},
 
 			/////////////////////////
+			// Azure
+			/////////////////////////
+
+			cli.StringFlag{
+				Name:  "azure-account-name",
+				Value: "",
+				Usage: "The Azure accout name to use",
+			},
+
+			cli.StringFlag{
+				Name:  "azure-account-key",
+				Value: "",
+				Usage: "The Azure accout key to use",
+			},
+
+			/////////////////////////
 			// Tuning
 			/////////////////////////
 
@@ -303,6 +319,10 @@ type FlagStorage struct {
 	ACL            string
 	Subdomain      bool
 
+	// Azure
+	AZAccountName string
+	AZAccountKey  string
+
 	// Tuning
 	Cheap        bool
 	ExplicitDir  bool
@@ -378,6 +398,10 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		KMSKeyID:       c.String("sse-kms"),
 		ACL:            c.String("acl"),
 		Subdomain:      c.Bool("subdomain"),
+
+		// Azure:
+		AZAccountName: c.String("azure-account-name"),
+		AZAccountKey:  c.String("azure-account-key"),
 
 		// Debugging,
 		DebugFuse:  c.Bool("debug_fuse"),

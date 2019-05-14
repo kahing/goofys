@@ -94,6 +94,14 @@ func PUInt64(v uint64) *uint64 {
 	return &v
 }
 
+func PString(v string) *string {
+	return &v
+}
+
+func PTime(v time.Time) *time.Time {
+	return &v
+}
+
 func xattrEscape(value []byte) (s string) {
 	for _, c := range value {
 		if c == '%' {

@@ -67,7 +67,9 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 	inode.logFuse("OpenDir")
 
 	parent := inode.Parent
-	if parent != nil && inode.fs.flags.TypeCacheTTL != 0 {
+	_, isS3 := inode.fs.cloud.(*S3Backend)
+
+	if isS3 && parent != nil && inode.fs.flags.TypeCacheTTL != 0 {
 		parent.mu.Lock()
 		defer parent.mu.Unlock()
 
