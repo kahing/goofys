@@ -329,6 +329,7 @@ func (s *S3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 		},
 		ContentType: resp.ContentType,
 		Metadata:    resp.Metadata,
+		IsDirBlob:   strings.HasSuffix(param.Key, "/"),
 	}, nil
 }
 

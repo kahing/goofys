@@ -130,7 +130,17 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 		s3Log.Level = logrus.DebugLevel
 	}
 
-	fs.cloud = NewS3(fs, bucket, awsConfig, flags)
+	if flags.AZAccountName != "" {
+		if flags.Endpoint == "" {
+			flags.Endpoint = AZBlobEndpoint
+		}
+		fs.cloud = NewAZBlob(fs, bucket, flags)
+		if fs.cloud == nil {
+			return nil
+		}
+	} else {
+		fs.cloud = NewS3(fs, bucket, awsConfig, flags)
+	}
 
 	err := fs.cloud.Init()
 	if err != nil {

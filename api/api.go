@@ -49,6 +49,10 @@ type Config struct {
 	ACL            string
 	Subdomain      bool
 
+	// Azure
+	AZAccountName string
+	AZAccountKey  string
+
 	// Tuning
 	Cheap        bool
 	ExplicitDir  bool

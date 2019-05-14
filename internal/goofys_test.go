@@ -86,8 +86,9 @@ type GoofysTest struct {
 	fs        *Goofys
 	ctx       context.Context
 	awsConfig *aws.Config
-	cloud     *S3Backend
-	env       map[string]io.ReadSeeker
+	cloud     StorageBackend
+
+	env map[string]io.ReadSeeker
 }
 
 func Test(t *testing.T) {
@@ -191,15 +192,7 @@ func (s *GoofysTest) TearDownSuite(t *C) {
 	s.deleteBucket(t)
 }
 
-func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker, public bool) {
-	if public {
-		if s3, ok := s.fs.cloud.(*S3Backend); ok {
-			s3.flags.ACL = "public-read"
-		}
-	}
-	_, err := s.cloud.MakeBucket(&MakeBucketInput{})
-	t.Assert(err, IsNil)
-
+func (s *GoofysTest) setupBlobs(t *C, env map[string]io.ReadSeeker) {
 	for path, r := range env {
 		if r == nil {
 			if strings.HasSuffix(path, "/") {
@@ -227,6 +220,18 @@ func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker,
 		_, err := s.cloud.HeadBlob(params)
 		t.Assert(err, IsNil)
 	}
+}
+
+func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker, public bool) {
+	if public {
+		if s3, ok := s.fs.cloud.(*S3Backend); ok {
+			s3.flags.ACL = "public-read"
+		}
+	}
+	_, err := s.cloud.MakeBucket(&MakeBucketInput{})
+	t.Assert(err, IsNil)
+
+	s.setupBlobs(t, env)
 
 	t.Log("setupEnv done")
 }
@@ -261,20 +266,33 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		Gid:          uint32(gid),
 	}
 
-	s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
-	t.Assert(s.fs, NotNil)
+	if os.Getenv("CLOUD") == "s3" {
+		s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
+		t.Assert(s.fs, NotNil)
 
-	s.cloud = NewS3(s.fs, bucket, s.awsConfig, flags)
-	s.cloud.aws = hasEnv("AWS")
+		s.cloud = NewS3(s.fs, bucket, s.awsConfig, flags)
+		if s3, ok := s.cloud.(*S3Backend); ok {
+			s3.aws = hasEnv("AWS")
 
-	if !hasEnv("MINIO") {
-		s.cloud.Handlers.Sign.Clear()
-		s.cloud.Handlers.Sign.PushBack(SignV2)
-		s.cloud.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
+			if !hasEnv("MINIO") {
+				s3.Handlers.Sign.Clear()
+				s3.Handlers.Sign.PushBack(SignV2)
+				s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
+			}
+			_, err := s3.ListBuckets(nil)
+			t.Assert(err, IsNil)
+		}
+	} else if os.Getenv("CLOUD") == "azblob" {
+		flags.Endpoint = AzuriteEndpoint
+		flags.AZAccountName = "devstoreaccount1"
+		flags.AZAccountKey = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
+
+		s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
+		t.Assert(s.fs, NotNil)
+
+		s.cloud = NewAZBlob(s.fs, bucket, flags)
+		t.Assert(s.cloud, NotNil)
 	}
-
-	_, err := s.cloud.ListBuckets(nil)
-	t.Assert(err, IsNil)
 
 	s.setupDefaultEnv(t, false)
 
@@ -341,6 +359,9 @@ func (s *GoofysTest) LookUpInode(t *C, name string) (in *Inode, err error) {
 	}
 	in = s.fs.inodes[lookup.Entry.Child]
 	return
+}
+
+func (s *GoofysTest) TestSetup(t *C) {
 }
 
 func (s *GoofysTest) TestLookUpInode(t *C) {
@@ -857,7 +878,7 @@ func (s *GoofysTest) TestRename(t *C) {
 	_, err = s.cloud.HeadBlob(&HeadBlobInput{Key: from})
 	t.Assert(mapAwsError(err), Equals, fuse.ENOENT)
 
-	from, to = "file3", "new_file"
+	from, to = "file3", "new_file2"
 	dir, _ := s.LookUpInode(t, "dir1")
 	err = dir.Rename(from, root, to)
 	t.Assert(err, IsNil)
@@ -2186,4 +2207,85 @@ func (s *GoofysTest) TestSlurpFileAndDir(t *C) {
 	t.Assert(err, IsNil)
 
 	s.assertEntries(t, in, []string{"a"})
+}
+
+func (s *GoofysTest) TestAzureDirBlob(t *C) {
+	if _, ok := s.fs.cloud.(*AZBlob); !ok {
+		t.Skip("only for Azure blob")
+	}
+
+	fakedir := []string{"dir2", "dir3"}
+
+	for _, d := range fakedir {
+		params := &PutBlobInput{
+			Key:  "azuredir/" + d,
+			Body: bytes.NewReader([]byte("")),
+			Metadata: map[string]*string{
+				AzureDirBlobMetadataKey: PString("true"),
+			},
+		}
+		_, err := s.cloud.PutBlob(params)
+		t.Assert(err, IsNil)
+	}
+
+	defer func() {
+		// because our listing changes dir3 to dir3/, test
+		// cleanup could not delete the blob so we wneed to
+		// clean up
+		for _, d := range fakedir {
+			_, err := s.cloud.DeleteBlob(&DeleteBlobInput{Key: "azuredir/" + d})
+			t.Assert(err, IsNil)
+		}
+	}()
+
+	s.setupBlobs(t, map[string]io.ReadSeeker{
+		// "azuredir/dir" would have gone here
+		"azuredir/dir3./":           nil,
+		"azuredir/dir3/file1":       nil,
+		"azuredir/dir345_is_a_file": nil,
+	})
+
+	head, err := s.cloud.HeadBlob(&HeadBlobInput{Key: "azuredir/dir3"})
+	t.Assert(err, IsNil)
+	t.Assert(head.IsDirBlob, Equals, true)
+
+	head, err = s.cloud.HeadBlob(&HeadBlobInput{Key: "azuredir/dir345_is_a_file"})
+	t.Assert(err, IsNil)
+	t.Assert(head.IsDirBlob, Equals, false)
+
+	list, err := s.cloud.ListBlobs(&ListBlobsInput{Prefix: PString("azuredir/")})
+	t.Assert(err, IsNil)
+
+	// for flat listing, we rename `dir3` to `dir3/` and add it to Items,
+	// `dir3` normally sorts before `dir3./`, but after the rename `dir3/` should
+	// sort after `dir3./`
+	t.Assert(len(list.Items), Equals, 5)
+	t.Assert(*list.Items[0].Key, Equals, "azuredir/dir2/")
+	t.Assert(*list.Items[1].Key, Equals, "azuredir/dir3./")
+	t.Assert(*list.Items[2].Key, Equals, "azuredir/dir3/")
+	t.Assert(*list.Items[3].Key, Equals, "azuredir/dir3/file1")
+	t.Assert(*list.Items[4].Key, Equals, "azuredir/dir345_is_a_file")
+	t.Assert(sort.IsSorted(sortBlobItemOutput(list.Items)), Equals, true)
+
+	list, err = s.cloud.ListBlobs(&ListBlobsInput{
+		Prefix:    PString("azuredir/"),
+		Delimiter: PString("/"),
+	})
+	t.Assert(err, IsNil)
+
+	// for delimited listing, we remove `dir3` from items and add `dir3/` to prefixes,
+	// which should already be there
+	t.Assert(len(list.Items), Equals, 1)
+	t.Assert(*list.Items[0].Key, Equals, "azuredir/dir345_is_a_file")
+
+	t.Assert(len(list.Prefixes), Equals, 3)
+	t.Assert(*list.Prefixes[0].Prefix, Equals, "azuredir/dir2/")
+	t.Assert(*list.Prefixes[1].Prefix, Equals, "azuredir/dir3./")
+	t.Assert(*list.Prefixes[2].Prefix, Equals, "azuredir/dir3/")
+
+	// finally check that we are reading them in correctly
+	in, err := s.LookUpInode(t, "azuredir")
+	t.Assert(err, IsNil)
+
+	s.assertEntries(t, in, []string{"dir2", "dir3", "dir3.", "dir345_is_a_file"})
 }

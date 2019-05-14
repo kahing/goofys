@@ -843,6 +843,9 @@ func (parent *Inode) readDirFromCache(offset fuseops.DirOffset) (en *DirHandleEn
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
+	if parent.dir == nil {
+		panic(*parent.FullName())
+	}
 	if !expired(parent.dir.DirTime, parent.fs.flags.TypeCacheTTL) {
 		ok = true
 
@@ -899,9 +902,8 @@ func (parent *Inode) LookUpInodeDir(name string, c chan ListBlobsOutput, errc ch
 // returned inode has nil Id
 func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *Inode, err error) {
 	errObjectChan := make(chan error, 1)
-	objectChan := make(chan HeadBlobOutput, 1)
+	objectChan := make(chan HeadBlobOutput, 2)
 	errDirBlobChan := make(chan error, 1)
-	dirBlobChan := make(chan HeadBlobOutput, 1)
 	var errDirChan chan error
 	var dirChan chan ListBlobsOutput
 
@@ -914,7 +916,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 
 	go parent.LookUpInodeNotDir(fullName, objectChan, errObjectChan)
 	if !parent.fs.flags.Cheap {
-		go parent.LookUpInodeNotDir(fullName+"/", dirBlobChan, errDirBlobChan)
+		go parent.LookUpInodeNotDir(fullName+"/", objectChan, errDirBlobChan)
 		if !parent.fs.flags.ExplicitDir {
 			errDirChan = make(chan error, 1)
 			dirChan = make(chan ListBlobsOutput, 1)
@@ -926,18 +928,23 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 		select {
 		case resp := <-objectChan:
 			err = nil
-			// XXX/TODO if both object and object/ exists, return dir
 			inode = NewInode(parent.fs, parent, &name, &fullName)
-			inode.Attributes = InodeAttributes{
-				Size:  resp.Size,
-				Mtime: *resp.LastModified,
+			if !resp.IsDirBlob {
+				// XXX/TODO if both object and object/ exists, return dir
+				inode.Attributes = InodeAttributes{
+					Size:  resp.Size,
+					Mtime: *resp.LastModified,
+				}
+
+				// don't want to point to the attribute because that
+				// can get updated
+				size := inode.Attributes.Size
+				inode.KnownSize = &size
+
+			} else {
+				inode.ToDir()
+				inode.Attributes.Mtime = *resp.LastModified
 			}
-
-			// don't want to point to the attribute because that
-			// can get updated
-			size := inode.Attributes.Size
-			inode.KnownSize = &size
-
 			inode.fillXattrFromHead(&resp)
 			return
 		case err = <-errObjectChan:
@@ -974,13 +981,6 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 			checking--
 			checkErr[2] = err
 			s3Log.Debugf("LIST %v/ = %v", fullName, err)
-		case resp := <-dirBlobChan:
-			err = nil
-			inode = NewInode(parent.fs, parent, &name, &fullName)
-			inode.ToDir()
-			inode.Attributes.Mtime = *resp.LastModified
-			inode.fillXattrFromHead(&resp)
-			return
 		case err = <-errDirBlobChan:
 			checking--
 			checkErr[1] = err
@@ -990,7 +990,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 		switch checking {
 		case 2:
 			if parent.fs.flags.Cheap {
-				go parent.LookUpInodeNotDir(fullName+"/", dirBlobChan, errDirBlobChan)
+				go parent.LookUpInodeNotDir(fullName+"/", objectChan, errDirBlobChan)
 			}
 		case 1:
 			if parent.fs.flags.ExplicitDir {
