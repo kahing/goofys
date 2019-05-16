@@ -58,14 +58,41 @@ func NewAZBlob(fs *Goofys, container string, config *FlagStorage) *AZBlob {
 	p := azblob.NewPipeline(azblob.NewAnonymousCredential(), azblob.PipelineOptions{
 		Log: pipeline.LogOptions{
 			Log: func(level pipeline.LogLevel, msg string) {
-				s3Log.Infoln(msg)
+				// naive casting kind of works because pipeline.INFO maps
+				// to 5 which is logrus.DEBUG
+				if level == pipeline.LogError {
+					// somehow some http errors
+					// are logged at Error, we
+					// already log unhandled
+					// errors so no need to do
+					// that here
+					level = pipeline.LogInfo
+				}
+				s3Log.Log(logrus.Level(uint32(level)), msg)
 			},
 			ShouldLog: func(level pipeline.LogLevel) bool {
-				return s3Log.IsLevelEnabled(logrus.Level(uint32(level))) && false
+				if level == pipeline.LogError {
+					// somehow some http errors
+					// are logged at Error, we
+					// already log unhandled
+					// errors so no need to do
+					// that here
+					level = pipeline.LogInfo
+				}
+				return s3Log.IsLevelEnabled(logrus.Level(uint32(level)))
 			},
 		},
+		RequestLog: azblob.RequestLogOptions{
+			LogWarningIfTryOverThreshold: time.Duration(-1),
+		},
 	})
-	bareURL := fmt.Sprintf(config.Endpoint, config.AZAccountName)
+	var bareURL string
+	if config.AZAccountName != "" {
+		bareURL = fmt.Sprintf(config.Endpoint, config.AZAccountName)
+	} else {
+		// endpoint already contains account name
+		bareURL = config.Endpoint
+	}
 
 	var sasTokenProvider SASTokenProvider
 
@@ -188,7 +215,7 @@ func mapAZBError(err error) error {
 		case azblob.ServiceCodeBlobNotFound:
 			return fuse.ENOENT
 		case azblob.ServiceCodeContainerAlreadyExists:
-			return syscall.EACCES
+			return syscall.EEXIST
 		case azblob.ServiceCodeContainerDisabled:
 			return syscall.EACCES
 		case azblob.ServiceCodeContainerNotFound:
@@ -205,6 +232,22 @@ func mapAZBError(err error) error {
 			return syscall.EAGAIN
 		case azblob.ServiceCodeBlobArchived:
 			return fuse.EINVAL
+		case azblob.ServiceCodeAccountBeingCreated:
+			return syscall.EAGAIN
+		case azblob.ServiceCodeAuthenticationFailed:
+			return syscall.EACCES
+		case azblob.ServiceCodeConditionNotMet:
+			return syscall.EBUSY
+		case azblob.ServiceCodeInternalError:
+			return syscall.EAGAIN
+		case azblob.ServiceCodeInvalidAuthenticationInfo:
+			return syscall.EACCES
+		case azblob.ServiceCodeOperationTimedOut:
+			return syscall.EAGAIN
+		case azblob.ServiceCodeResourceNotFound:
+			return fuse.ENOENT
+		case azblob.ServiceCodeServerBusy:
+			return syscall.EAGAIN
 		case "AuthorizationFailure": // from Azurite emulator
 			return syscall.EACCES
 		default:
@@ -438,7 +481,6 @@ func (b *AZBlob) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error
 }
 
 func (b *AZBlob) RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error) {
-	s3Log.Errorf("RENAME %v %v", param.Source, param.Destination)
 	return nil, syscall.ENOTSUP
 }
 
