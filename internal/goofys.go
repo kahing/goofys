@@ -130,8 +130,12 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 		s3Log.Level = logrus.DebugLevel
 	}
 
-	if flags.AZAccountName != "" {
+	if flags.AZAccountKey != "" {
 		if flags.Endpoint == "" {
+			if flags.AZAccountName == "" {
+				log.Errorf("At least one of Azure account name and endpoint must be set")
+				return nil
+			}
 			flags.Endpoint = AZBlobEndpoint
 		}
 		fs.cloud = NewAZBlob(fs, bucket, flags)
