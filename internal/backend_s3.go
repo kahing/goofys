@@ -20,7 +20,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -59,7 +58,6 @@ func NewS3(fs *Goofys, bucket string, awsConfig *aws.Config, flags *FlagStorage)
 		bucket:    bucket,
 		awsConfig: awsConfig,
 		flags:     flags,
-		gcs:       strings.HasSuffix(flags.Endpoint, "/storage.googleapis.com"),
 	}
 
 	if flags.DebugS3 {
@@ -389,46 +387,23 @@ func (s *S3Backend) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error
 }
 
 func (s *S3Backend) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error) {
-	if s.gcs {
-		// GCS does not have multi-delete
-		var wg sync.WaitGroup
-		var overallErr error
+	num_objs := len(param.Items)
 
-		for _, key := range param.Items {
-			wg.Add(1)
-			go func() {
-				_, err := s.DeleteBlob(&DeleteBlobInput{
-					Key: key,
-				})
-				if err != nil {
-					overallErr = err
-				}
-				wg.Done()
-			}()
-		}
-		wg.Wait()
-		if overallErr != nil {
-			return nil, mapAwsError(overallErr)
-		}
-	} else {
-		num_objs := len(param.Items)
+	var items s3.Delete
+	var objs = make([]*s3.ObjectIdentifier, num_objs)
 
-		var items s3.Delete
-		var objs = make([]*s3.ObjectIdentifier, num_objs)
+	for i, _ := range param.Items {
+		objs[i] = &s3.ObjectIdentifier{Key: &param.Items[i]}
+	}
 
-		for i, _ := range param.Items {
-			objs[i] = &s3.ObjectIdentifier{Key: &param.Items[i]}
-		}
-
-		// Add list of objects to delete to Delete object
-		items.SetObjects(objs)
-		_, err := s.DeleteObjects(&s3.DeleteObjectsInput{
-			Bucket: &s.bucket,
-			Delete: &items,
-		})
-		if err != nil {
-			return nil, mapAwsError(err)
-		}
+	// Add list of objects to delete to Delete object
+	items.SetObjects(objs)
+	_, err := s.DeleteObjects(&s3.DeleteObjectsInput{
+		Bucket: &s.bucket,
+		Delete: &items,
+	})
+	if err != nil {
+		return nil, mapAwsError(err)
 	}
 
 	return &DeleteBlobsOutput{}, nil
@@ -730,159 +705,77 @@ func (s *S3Backend) MultipartBlobBegin(param *MultipartBlobBeginInput) (*Multipa
 		mpu.ACL = &s.flags.ACL
 	}
 
-	if !s.gcs {
-		resp, err := s.CreateMultipartUpload(&mpu)
-		if err != nil {
-			s3Log.Errorf("CreateMultipartUpload %v = %v", param.Key, err)
-			return nil, mapAwsError(err)
-		}
-
-		return &MultipartBlobCommitInput{
-			Key:      &param.Key,
-			Metadata: param.Metadata,
-			UploadId: resp.UploadId,
-			Parts:    make([]*string, 10000), // at most 10K parts
-		}, nil
-	} else {
-		req, _ := s.CreateMultipartUploadRequest(&mpu)
-		// get rid of ?uploads=
-		req.HTTPRequest.URL.RawQuery = ""
-		req.HTTPRequest.Header.Set("x-goog-resumable", "start")
-
-		err := req.Send()
-		if err != nil {
-			s3Log.Errorf("CreateMultipartUpload %v = %v", param.Key, err)
-			return nil, mapAwsError(err)
-		}
-
-		location := req.HTTPResponse.Header.Get("Location")
-		_, err = url.Parse(location)
-		if err != nil {
-			s3Log.Errorf("CreateMultipartUpload %v = %v", param.Key, err)
-			return nil, mapAwsError(err)
-		}
-
-		return &MultipartBlobCommitInput{
-			Key:      &param.Key,
-			Metadata: param.Metadata,
-			UploadId: &location,
-			Parts:    make([]*string, 10000), // at most 10K parts
-		}, nil
+	resp, err := s.CreateMultipartUpload(&mpu)
+	if err != nil {
+		s3Log.Errorf("CreateMultipartUpload %v = %v", param.Key, err)
+		return nil, mapAwsError(err)
 	}
 
+	return &MultipartBlobCommitInput{
+		Key:      &param.Key,
+		Metadata: param.Metadata,
+		UploadId: resp.UploadId,
+		Parts:    make([]*string, 10000), // at most 10K parts
+	}, nil
 }
 
 func (s *S3Backend) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error) {
 	en := &param.Commit.Parts[param.PartNumber-1]
 	atomic.AddUint32(&param.Commit.NumParts, 1)
 
-	if !s.gcs {
-		params := s3.UploadPartInput{
-			Bucket:     &s.bucket,
-			Key:        param.Commit.Key,
-			PartNumber: aws.Int64(int64(param.PartNumber)),
-			UploadId:   param.Commit.UploadId,
-			Body:       param.Body,
-		}
-
-		s3Log.Debug(params)
-
-		resp, err := s.UploadPart(&params)
-		if err != nil {
-			return nil, mapAwsError(err)
-		}
-
-		if *en != nil {
-			panic(fmt.Sprintf("etags for part %v already set: %v", param.PartNumber, **en))
-		}
-		*en = resp.ETag
-	} else {
-		// the mpuId serves as authentication token so
-		// technically we don't need to sign this anymore and
-		// can just use a plain HTTP request, but going
-		// through aws-sdk-go anyway to get retry handling
-		params := &s3.PutObjectInput{
-			Bucket: &s.bucket,
-			Key:    param.Commit.Key,
-			Body:   param.Body,
-		}
-
-		s3Log.Debug(params)
-
-		req, resp := s.PutObjectRequest(params)
-		req.HTTPRequest.URL, _ = url.Parse(*param.Commit.UploadId)
-
-		atomic.AddUint64(&param.Commit.Size, param.Size)
-
-		start := param.Commit.Size - param.Size
-		end := param.Commit.Size - 1
-		var size string
-		if param.Last {
-			size = strconv.FormatUint(param.Commit.Size, 10)
-		} else {
-			size = "*"
-		}
-
-		contentRange := fmt.Sprintf("bytes %v-%v/%v", start, end, size)
-
-		req.HTTPRequest.Header.Set("Content-Length", strconv.FormatUint(param.Size, 10))
-		req.HTTPRequest.Header.Set("Content-Range", contentRange)
-
-		err := req.Send()
-		if err != nil {
-			// status indicating that we need more parts to finish this
-			if req.HTTPResponse.StatusCode == 308 {
-				err = nil
-			} else {
-				return nil, mapAwsError(err)
-			}
-		}
-
-		if param.Last {
-			param.Commit.ETag = resp.ETag
-		}
+	params := s3.UploadPartInput{
+		Bucket:     &s.bucket,
+		Key:        param.Commit.Key,
+		PartNumber: aws.Int64(int64(param.PartNumber)),
+		UploadId:   param.Commit.UploadId,
+		Body:       param.Body,
 	}
+
+	s3Log.Debug(params)
+
+	resp, err := s.UploadPart(&params)
+	if err != nil {
+		return nil, mapAwsError(err)
+	}
+
+	if *en != nil {
+		panic(fmt.Sprintf("etags for part %v already set: %v", param.PartNumber, **en))
+	}
+	*en = resp.ETag
 
 	return &MultipartBlobAddOutput{}, nil
 }
 
 func (s *S3Backend) MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error) {
-	if !s.gcs {
-		parts := make([]*s3.CompletedPart, param.NumParts)
-		for i := uint32(0); i < param.NumParts; i++ {
-			parts[i] = &s3.CompletedPart{
-				ETag:       param.Parts[i],
-				PartNumber: aws.Int64(int64(i + 1)),
-			}
+	parts := make([]*s3.CompletedPart, param.NumParts)
+	for i := uint32(0); i < param.NumParts; i++ {
+		parts[i] = &s3.CompletedPart{
+			ETag:       param.Parts[i],
+			PartNumber: aws.Int64(int64(i + 1)),
 		}
-
-		mpu := s3.CompleteMultipartUploadInput{
-			Bucket:   &s.bucket,
-			Key:      param.Key,
-			UploadId: param.UploadId,
-			MultipartUpload: &s3.CompletedMultipartUpload{
-				Parts: parts,
-			},
-		}
-
-		s3Log.Debug(mpu)
-
-		resp, err := s.CompleteMultipartUpload(&mpu)
-		if err != nil {
-			return nil, mapAwsError(err)
-		}
-
-		s3Log.Debug(resp)
-
-		return &MultipartBlobCommitOutput{
-			ETag: resp.ETag,
-		}, nil
-	} else {
-		// nothing, we already uploaded last part
-		return &MultipartBlobCommitOutput{
-			ETag: param.ETag,
-		}, nil
 	}
+
+	mpu := s3.CompleteMultipartUploadInput{
+		Bucket:   &s.bucket,
+		Key:      param.Key,
+		UploadId: param.UploadId,
+		MultipartUpload: &s3.CompletedMultipartUpload{
+			Parts: parts,
+		},
+	}
+
+	s3Log.Debug(mpu)
+
+	resp, err := s.CompleteMultipartUpload(&mpu)
+	if err != nil {
+		return nil, mapAwsError(err)
+	}
+
+	s3Log.Debug(resp)
+
+	return &MultipartBlobCommitOutput{
+		ETag: resp.ETag,
+	}, nil
 }
 
 func (s *S3Backend) MultipartBlobAbort(param *MultipartBlobCommitInput) (*MultipartBlobAbortOutput, error) {
