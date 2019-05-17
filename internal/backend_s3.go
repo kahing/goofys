@@ -509,6 +509,8 @@ func (s *S3Backend) mpuCopyParts(size int64, from string, to string, mpuId strin
 		sem.V(1)
 		go s.mpuCopyPart(from, to, mpuId, bytes, i, sem, srcEtag, &etags[i-1], err)
 	}
+
+	sem.V(MAX_CONCURRENCY)
 }
 
 func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuId string,
