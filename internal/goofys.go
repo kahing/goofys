@@ -142,6 +142,8 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 		if fs.cloud == nil {
 			return nil
 		}
+	} else if fs.gcs {
+		fs.cloud = NewGCS3(fs, bucket, awsConfig, flags)
 	} else {
 		fs.cloud = NewS3(fs, bucket, awsConfig, flags)
 	}
