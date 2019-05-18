@@ -159,11 +159,12 @@ func (fh *FileHandle) partSize() uint64 {
 	} else if fh.lastPartId < 2000 {
 		return 25 * 1024 * 1024
 	} else {
-		if _, ok := fh.inode.fs.cloud.(*AZBlob); ok {
-			return 100 * 1024 * 1024
-		} else {
-			return 125 * 1024 * 1024
+		maxPartSize := fh.inode.fs.cloud.Capabilities().MaxMultipartSize
+		tryPartSize := uint64(125 * 1024 * 1024)
+		if maxPartSize != 0 {
+			tryPartSize = MinUInt64(tryPartSize, maxPartSize)
 		}
+		return tryPartSize
 	}
 }
 
