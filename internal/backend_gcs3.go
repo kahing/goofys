@@ -43,6 +43,7 @@ func NewGCS3(fs *Goofys, bucket string, awsConfig *aws.Config, flags *FlagStorag
 		S3Backend: NewS3(fs, bucket, awsConfig, flags),
 	}
 	s.S3Backend.gcs = true
+	s.S3Backend.cap.NoParallelMultipart = true
 	return s
 }
 
