@@ -136,7 +136,10 @@ func NewAZBlob(fs *Goofys, container string, config *FlagStorage) *AZBlob {
 	}
 
 	b := &AZBlob{
-		fs:               fs,
+		fs: fs,
+		cap: Capabilities{
+			MaxMultipartSize: 100 * 1024 * 1024,
+		},
 		pipeline:         p,
 		bucket:           container,
 		bareURL:          bareURL,
