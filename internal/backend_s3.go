@@ -37,6 +37,8 @@ import (
 
 type S3Backend struct {
 	*s3.S3
+	cap Capabilities
+
 	session *session.Session
 
 	fs *Goofys
@@ -74,6 +76,10 @@ func NewS3(fs *Goofys, bucket string, awsConfig *aws.Config, flags *FlagStorage)
 
 	s.newS3(s.session)
 	return s
+}
+
+func (s *S3Backend) Capabilities() *Capabilities {
+	return &s.cap
 }
 
 func addAcceptEncoding(req *request.Request) {

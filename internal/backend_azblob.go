@@ -35,7 +35,8 @@ import (
 )
 
 type AZBlob struct {
-	fs *Goofys
+	fs  *Goofys
+	cap Capabilities
 
 	mu sync.Mutex
 	u  *azblob.ServiceURL
@@ -143,6 +144,10 @@ func NewAZBlob(fs *Goofys, container string, config *FlagStorage) *AZBlob {
 	}
 
 	return b
+}
+
+func (b *AZBlob) Capabilities() *Capabilities {
+	return &b.cap
 }
 
 func (b *AZBlob) refreshToken() (*azblob.ContainerURL, error) {

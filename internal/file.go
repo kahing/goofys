@@ -167,7 +167,7 @@ func (fh *FileHandle) partSize() uint64 {
 	}
 }
 
-func (fh *FileHandle) uploadCurrentBuf(gcs bool) (err error) {
+func (fh *FileHandle) uploadCurrentBuf(parallel bool) (err error) {
 	err = fh.waitForCreateMPU()
 	if err != nil {
 		return
@@ -178,11 +178,10 @@ func (fh *FileHandle) uploadCurrentBuf(gcs bool) (err error) {
 	buf := fh.buf
 	fh.buf = nil
 
-	if !gcs {
+	if parallel {
 		fh.mpuWG.Add(1)
 		go fh.mpuPart(buf, part, fh.nextWriteOffset)
 	} else {
-		// GCS doesn't support concurrent uploads
 		err = fh.mpuPartNoSpawn(buf, part, fh.nextWriteOffset, false)
 	}
 
@@ -221,7 +220,7 @@ func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 		fh.nextWriteOffset += int64(nCopied)
 
 		if fh.buf.Full() {
-			err = fh.uploadCurrentBuf(fs.gcs)
+			err = fh.uploadCurrentBuf(!fs.cloud.Capabilities().NoParallelMultipart)
 			if err != nil {
 				return
 			}

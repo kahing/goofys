@@ -19,6 +19,10 @@ import (
 	"time"
 )
 
+type Capabilities struct {
+	NoParallelMultipart bool
+}
+
 type HeadBlobInput struct {
 	Key string
 }
@@ -177,6 +181,7 @@ type MakeBucketOutput struct {
 
 type StorageBackend interface {
 	Init() error
+	Capabilities() *Capabilities
 	HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error)
 	ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error)
 	DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error)
