@@ -23,11 +23,19 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
+
+	"github.com/jacobsa/fuse"
 )
 
 // GCS variant of S3
 type GCS3 struct {
 	*S3Backend
+}
+
+type GCSMultipartBlobCommitInput struct {
+	Size uint64
+	ETag *string
+	Prev *MultipartBlobAddInput
 }
 
 func NewGCS3(fs *Goofys, bucket string, awsConfig *aws.Config, flags *FlagStorage) *GCS3 {
@@ -101,14 +109,15 @@ func (s *GCS3) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlo
 	}
 
 	return &MultipartBlobCommitInput{
-		Key:      &param.Key,
-		Metadata: param.Metadata,
-		UploadId: &location,
-		Parts:    make([]*string, 10000), // at most 10K parts
+		Key:         &param.Key,
+		Metadata:    param.Metadata,
+		UploadId:    &location,
+		Parts:       make([]*string, 10000), // at most 10K parts
+		backendData: &GCSMultipartBlobCommitInput{},
 	}, nil
 }
 
-func (s *GCS3) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error) {
+func (s *GCS3) uploadPart(param *MultipartBlobAddInput, totalSize uint64, last bool) (etag *string, err error) {
 	atomic.AddUint32(&param.Commit.NumParts, 1)
 
 	// the mpuId serves as authentication token so
@@ -126,13 +135,11 @@ func (s *GCS3) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAdd
 	req, resp := s.PutObjectRequest(params)
 	req.HTTPRequest.URL, _ = url.Parse(*param.Commit.UploadId)
 
-	atomic.AddUint64(&param.Commit.Size, param.Size)
-
-	start := param.Commit.Size - param.Size
-	end := param.Commit.Size - 1
+	start := totalSize - param.Size
+	end := totalSize - 1
 	var size string
-	if param.Last {
-		size = strconv.FormatUint(param.Commit.Size, 10)
+	if last {
+		size = strconv.FormatUint(totalSize, 10)
 	} else {
 		size = "*"
 	}
@@ -142,26 +149,63 @@ func (s *GCS3) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAdd
 	req.HTTPRequest.Header.Set("Content-Length", strconv.FormatUint(param.Size, 10))
 	req.HTTPRequest.Header.Set("Content-Range", contentRange)
 
-	err := req.Send()
+	err = req.Send()
 	if err != nil {
 		// status indicating that we need more parts to finish this
 		if req.HTTPResponse.StatusCode == 308 {
 			err = nil
 		} else {
-			return nil, mapAwsError(err)
+			err = mapAwsError(err)
+			return
 		}
 	}
 
-	if param.Last {
-		param.Commit.ETag = resp.ETag
+	etag = resp.ETag
+
+	return
+}
+
+func (s *GCS3) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error) {
+	if param.Size == 0 || param.Size%(256*1024) != 0 {
+		s3Log.Errorf("size of each block must be multiple of 256KB: %v", param.Size)
+		return nil, fuse.EINVAL
 	}
+
+	var commitData *GCSMultipartBlobCommitInput
+	var ok bool
+	if commitData, ok = param.Commit.backendData.(*GCSMultipartBlobCommitInput); !ok {
+		panic("Incorrect commit data type")
+	}
+
+	if commitData.Prev != nil {
+		commitData.Size += param.Size
+		_, err := s.uploadPart(commitData.Prev, commitData.Size, false)
+		if err != nil {
+			return nil, err
+		}
+	}
+	commitData.Prev = param
 
 	return &MultipartBlobAddOutput{}, nil
 }
 
 func (s *GCS3) MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error) {
-	// nothing, we already uploaded last part
+	var commitData *GCSMultipartBlobCommitInput
+	var ok bool
+	if commitData, ok = param.backendData.(*GCSMultipartBlobCommitInput); !ok {
+		panic("Incorrect commit data type")
+	}
+
+	if commitData.Prev == nil {
+		panic("commit should include last part")
+	}
+
+	etag, err := s.uploadPart(commitData.Prev, commitData.Size, true)
+	if err != nil {
+		return nil, err
+	}
+
 	return &MultipartBlobCommitOutput{
-		ETag: param.ETag,
+		ETag: etag,
 	}, nil
 }
