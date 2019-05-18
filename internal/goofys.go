@@ -54,11 +54,8 @@ type Goofys struct {
 
 	umask uint32
 
-	awsConfig *aws.Config
 	cloud     StorageBackend
-	v2Signer  bool
 	gcs       bool
-	sseType   string
 	rootAttrs InodeAttributes
 
 	bufferPool *BufferPool
@@ -101,10 +98,9 @@ var s3Log = GetLogger("s3")
 func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys {
 	// Set up the basic struct.
 	fs := &Goofys{
-		bucket:    bucket,
-		flags:     flags,
-		umask:     0122,
-		awsConfig: awsConfig,
+		bucket: bucket,
+		flags:  flags,
+		umask:  0122,
 	}
 
 	colon := strings.Index(bucket, ":")

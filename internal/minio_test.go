@@ -25,14 +25,15 @@ import (
 )
 
 type MinioTest struct {
-	fs *Goofys
-	s3 *S3Backend
+	fs        *Goofys
+	s3        *S3Backend
+	awsConfig *aws.Config
 }
 
 var _ = Suite(&MinioTest{})
 
 func (s *MinioTest) SetUpSuite(t *C) {
-	awsConfig := &aws.Config{
+	s.awsConfig = &aws.Config{
 		Credentials: credentials.NewStaticCredentials("Q3AM3UQ867SPQQA43P2F",
 			"zuf+tfteSlswRu7BJ86wekitnifILbZam1KYY3TG", ""),
 		Region:           aws.String("us-east-1"),
@@ -40,11 +41,9 @@ func (s *MinioTest) SetUpSuite(t *C) {
 		S3ForcePathStyle: aws.Bool(true),
 	}
 
-	s.fs = &Goofys{
-		awsConfig: awsConfig,
-	}
+	s.fs = &Goofys{}
 
-	s.fs.cloud = NewS3(s.fs, "", awsConfig, &FlagStorage{})
+	s.fs.cloud = NewS3(s.fs, "", s.awsConfig, &FlagStorage{})
 	if s3, ok := s.fs.cloud.(*S3Backend); ok {
 		_, err := s3.ListBuckets(nil)
 		t.Assert(err, IsNil)
@@ -72,9 +71,9 @@ func (s *MinioTest) SetUpTest(t *C) {
 		Gid:          uint32(gid),
 	}
 
-	s.fs = NewGoofys(context.Background(), bucket, s.fs.awsConfig, flags)
+	s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
 	t.Assert(s.fs, NotNil)
 }
 
-func (s *MinioTest) TestNoop(t *C) {
+func (s *MinioTest) TestMinioNoop(t *C) {
 }

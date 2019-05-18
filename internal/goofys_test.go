@@ -1320,9 +1320,9 @@ func (s *GoofysTest) anonymous(t *C) {
 
 	// should have auto-detected within NewGoofys, but doing this here to ensure
 	// we are using anonymous credentials
-	s.fs.awsConfig = selectTestConfig(t)
-	s.fs.awsConfig.Credentials = credentials.AnonymousCredentials
-	s.fs.cloud = NewS3(s.fs, s.fs.bucket, s.fs.awsConfig, s.fs.flags)
+	s.awsConfig = selectTestConfig(t)
+	s.awsConfig.Credentials = credentials.AnonymousCredentials
+	s.fs.cloud = NewS3(s.fs, s.fs.bucket, s.awsConfig, s.fs.flags)
 }
 
 func (s *GoofysTest) disableS3() {
@@ -1956,8 +1956,8 @@ func (s *GoofysTest) TestRead403(t *C) {
 	fh, err := in.OpenFile()
 	t.Assert(err, IsNil)
 
-	s.fs.awsConfig.Credentials = credentials.AnonymousCredentials
-	s.fs.cloud = NewS3(s.fs, s.fs.bucket, s.fs.awsConfig, s.fs.flags)
+	s.awsConfig.Credentials = credentials.AnonymousCredentials
+	s.fs.cloud = NewS3(s.fs, s.fs.bucket, s.awsConfig, s.fs.flags)
 
 	// fake enable read-ahead
 	fh.seqReadAmount = uint64(READAHEAD_CHUNK)
