@@ -134,8 +134,7 @@ type MultipartBlobCommitInput struct {
 	NumParts uint32
 
 	// for GCS
-	Size uint64
-	ETag *string
+	backendData interface{}
 }
 
 type MultipartBlobAddInput struct {

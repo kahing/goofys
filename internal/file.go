@@ -217,27 +217,13 @@ func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 			fh.buf = MBuf{}.Init(fh.poolHandle, fh.partSize(), true)
 		}
 
+		nCopied, _ := fh.buf.Write(data)
+		fh.nextWriteOffset += int64(nCopied)
+
 		if fh.buf.Full() {
 			err = fh.uploadCurrentBuf(fs.gcs)
 			if err != nil {
 				return
-			}
-			fh.buf = MBuf{}.Init(fh.poolHandle, fh.partSize(), true)
-		}
-
-		nCopied, _ := fh.buf.Write(data)
-		fh.nextWriteOffset += int64(nCopied)
-
-		if !fs.gcs {
-			// don't upload a buffer post write for GCS
-			// because we want to leave a buffer until
-			// flush so that we can mark the last part
-			// specially
-			if fh.buf.Full() {
-				err = fh.uploadCurrentBuf(fs.gcs)
-				if err != nil {
-					return
-				}
 			}
 		}
 
