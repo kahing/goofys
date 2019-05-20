@@ -261,8 +261,13 @@ func mapAZBError(err error) error {
 		case "AuthorizationFailure": // from Azurite emulator
 			return syscall.EACCES
 		default:
-			s3Log.Errorf("code=%v status=%v err=%v", stgErr.ServiceCode(), stgErr.Response().Status, stgErr)
-			return stgErr
+			err = mapHttpError(stgErr.Response().StatusCode)
+			if err != nil {
+				return err
+			} else {
+				s3Log.Errorf("code=%v status=%v err=%v", stgErr.ServiceCode(), stgErr.Response().Status, stgErr)
+				return stgErr
+			}
 		}
 	} else {
 		return err
