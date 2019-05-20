@@ -224,6 +224,8 @@ func mapAZBError(err error) error {
 			return fuse.ENOENT
 		case azblob.ServiceCodeContainerAlreadyExists:
 			return syscall.EEXIST
+		case azblob.ServiceCodeContainerBeingDeleted:
+			return syscall.EAGAIN
 		case azblob.ServiceCodeContainerDisabled:
 			return syscall.EACCES
 		case azblob.ServiceCodeContainerNotFound:
