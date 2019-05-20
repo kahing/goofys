@@ -1326,6 +1326,13 @@ func (s *GoofysTest) TestRenameCache(t *C) {
 }
 
 func (s *GoofysTest) anonymous(t *C) {
+	// On azure this fails because we re-create the bucket with
+	// the same name right away. And well anonymous access is not
+	// implemented yet in our azure backend anyway
+	if _, ok := s.fs.cloud.(*S3Backend); !ok {
+		t.Skip("only for S3")
+	}
+
 	// delete the original bucket
 	s.deleteBucket(t)
 
