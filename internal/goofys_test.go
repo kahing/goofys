@@ -87,6 +87,7 @@ type GoofysTest struct {
 	ctx       context.Context
 	awsConfig *aws.Config
 	cloud     StorageBackend
+	emulator  bool
 
 	env map[string]io.ReadSeeker
 }
@@ -123,7 +124,7 @@ func waitFor(t *C, addr string) (err error) {
 	return
 }
 
-func selectTestConfig(t *C) *aws.Config {
+func (s *GoofysTest) selectTestConfig(t *C) *aws.Config {
 	if hasEnv("AWS") {
 		return &aws.Config{
 			Region:     aws.String("us-west-2"),
@@ -149,16 +150,13 @@ func selectTestConfig(t *C) *aws.Config {
 			Endpoint:         aws.String("https://play.minio.io:9000"),
 		}
 	} else {
-		addr := "127.0.0.1:8080"
-
-		err := waitFor(t, addr)
-		t.Assert(err, IsNil)
+		s.emulator = true
 
 		return &aws.Config{
 			//Credentials: credentials.AnonymousCredentials,
 			Credentials:      credentials.NewStaticCredentials("foo", "bar", ""),
 			Region:           aws.String("us-west-2"),
-			Endpoint:         aws.String("http://" + addr),
+			Endpoint:         aws.String("http://127.0.0.1:8080"),
 			DisableSSL:       aws.Bool(true),
 			S3ForcePathStyle: aws.Bool(true),
 			MaxRetries:       aws.Int(0),
@@ -166,6 +164,15 @@ func selectTestConfig(t *C) *aws.Config {
 			//LogLevel: aws.LogLevel(aws.LogDebug),
 			//LogLevel: aws.LogLevel(aws.LogDebug | aws.LogDebugWithHTTPBody),
 		}
+	}
+}
+
+func (s *GoofysTest) waitForEmulator(t *C) {
+	if s.emulator {
+		addr := "127.0.0.1:8080"
+
+		err := waitFor(t, addr)
+		t.Assert(err, IsNil)
 	}
 }
 
@@ -189,7 +196,9 @@ func (s *GoofysTest) deleteBucket(t *C) {
 }
 
 func (s *GoofysTest) TearDownSuite(t *C) {
-	s.deleteBucket(t)
+	if s.cloud != nil {
+		s.deleteBucket(t)
+	}
 }
 
 func (s *GoofysTest) setupBlobs(t *C, env map[string]io.ReadSeeker) {
@@ -254,7 +263,7 @@ func (s *GoofysTest) setupDefaultEnv(t *C, public bool) {
 }
 
 func (s *GoofysTest) SetUpTest(t *C) {
-	s.awsConfig = selectTestConfig(t)
+	s.awsConfig = s.selectTestConfig(t)
 
 	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
 	uid, gid := MyUserAndGroup()
@@ -267,6 +276,8 @@ func (s *GoofysTest) SetUpTest(t *C) {
 	}
 
 	if os.Getenv("CLOUD") == "s3" {
+		s.waitForEmulator(t)
+
 		s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
 		t.Assert(s.fs, NotNil)
 
@@ -283,9 +294,14 @@ func (s *GoofysTest) SetUpTest(t *C) {
 			t.Assert(err, IsNil)
 		}
 	} else if os.Getenv("CLOUD") == "azblob" {
-		flags.Endpoint = AzuriteEndpoint
-		flags.AZAccountName = "devstoreaccount1"
-		flags.AZAccountKey = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
+		flags.Endpoint = os.Getenv("ENDPOINT")
+		flags.AZAccountName = os.Getenv("ACCOUNT_NAME")
+		flags.AZAccountKey = os.Getenv("ACCOUNT_KEY")
+
+		if flags.Endpoint == AzuriteEndpoint {
+			s.emulator = true
+			s.waitForEmulator(t)
+		}
 
 		s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
 		t.Assert(s.fs, NotNil)
@@ -1320,7 +1336,7 @@ func (s *GoofysTest) anonymous(t *C) {
 
 	// should have auto-detected within NewGoofys, but doing this here to ensure
 	// we are using anonymous credentials
-	s.awsConfig = selectTestConfig(t)
+	s.awsConfig = s.selectTestConfig(t)
 	s.awsConfig.Credentials = credentials.AnonymousCredentials
 	s.fs.cloud = NewS3(s.fs, s.fs.bucket, s.awsConfig, s.fs.flags)
 }
