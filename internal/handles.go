@@ -365,7 +365,6 @@ func (parent *Inode) MkDir(
 
 	_, err = parent.cloud.PutBlob(params)
 	if err != nil {
-		err = mapAwsError(err)
 		return
 	}
 
