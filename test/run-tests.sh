@@ -5,6 +5,8 @@ set -o errexit
 set -o nounset
 
 : ${CLOUD:="s3"}
+: ${PROXY_BIN:=""}
+: ${PROXY_PID:=""}
 
 function cleanup {
     if [ "$PROXY_PID" != "" ]; then
@@ -31,7 +33,6 @@ elif [ $CLOUD == "azblob" ]; then
 
     if [ ${ACCOUNT_NAME} != "devstoreaccount1" ]; then
 	: ${ENDPOINT:="https://%v.blob.core.windows.net?%%v"}
-	PROXY_BIN="cat"
     else
 	: ${ENDPOINT:="http://127.0.0.1:8080/%v/?%%v"}
 	rm -Rf /tmp/azblob
@@ -45,8 +46,10 @@ elif [ $CLOUD == "azblob" ]; then
     export ENDPOINT
 fi
 
-stdbuf -oL -eL $PROXY_BIN &
-PROXY_PID=$!
+if [ "$PROXY_BIN" != "" ]; then
+    stdbuf -oL -eL $PROXY_BIN &
+    PROXY_PID=$!
+fi
 
 export CLOUD
 go test -timeout 20m -v $(go list ./... | grep -v /vendor/) -check.vv $T
