@@ -123,8 +123,7 @@ In addition to the items above, the following are supportable but not yet implem
 goofys has been tested with the following non-AWS providers:
 
 * Amplidata
-* Digital Ocean Spaces (Ceph)
-* DreamObjects (Ceph)
+* Ceph (ex: Digital Ocean Spaces, DreamObjects, gridscale)
 * EMC Atmos
 * Google Cloud Storage
 * OpenStack Swift
