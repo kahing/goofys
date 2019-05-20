@@ -54,9 +54,10 @@ type Goofys struct {
 
 	umask uint32
 
-	cloud     StorageBackend
-	gcs       bool
-	rootAttrs InodeAttributes
+	resolvePath func(string) (StorageBackend, error)
+	cloud       StorageBackend
+	gcs         bool
+	rootAttrs   InodeAttributes
 
 	bufferPool *BufferPool
 

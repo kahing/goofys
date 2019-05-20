@@ -67,7 +67,7 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 	inode.logFuse("OpenDir")
 
 	parent := inode.Parent
-	_, isS3 := inode.fs.cloud.(*S3Backend)
+	_, isS3 := inode.cloud.(*S3Backend)
 
 	if isS3 && parent != nil && inode.fs.flags.TypeCacheTTL != 0 {
 		parent.mu.Lock()
@@ -150,7 +150,7 @@ func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *ListBlobsOutput, err
 		StartAfter: marker,
 	}
 
-	resp, err = fs.cloud.ListBlobs(params)
+	resp, err = inode.cloud.ListBlobs(params)
 	if err != nil {
 		s3Log.Errorf("ListObjects %v = %v", params, err)
 		return
@@ -246,7 +246,7 @@ func (dh *DirHandle) listObjects(prefix string) (resp *ListBlobsOutput, err erro
 			Prefix:            &prefix,
 		}
 
-		resp, err := fs.cloud.ListBlobs(params)
+		resp, err := dh.inode.cloud.ListBlobs(params)
 		if err != nil {
 			errListChan <- err
 		} else {

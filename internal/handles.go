@@ -42,6 +42,7 @@ type Inode struct {
 	Id         fuseops.InodeID
 	Name       *string
 	fs         *Goofys
+	cloud      StorageBackend
 	Attributes InodeAttributes
 	KnownSize  *uint64
 	AttrTime   time.Time
@@ -69,6 +70,7 @@ func NewInode(fs *Goofys, parent *Inode, name *string, fullName *string) (inode 
 	inode = &Inode{
 		Name:       name,
 		fs:         fs,
+		cloud:      fs.cloud,
 		AttrTime:   time.Now(),
 		Parent:     parent,
 		s3Metadata: make(map[string][]byte),
@@ -302,7 +304,7 @@ func (parent *Inode) Unlink(name string) (err error) {
 
 	fullName := parent.getChildName(name)
 
-	_, err = parent.fs.cloud.DeleteBlob(&DeleteBlobInput{
+	_, err = parent.cloud.DeleteBlob(&DeleteBlobInput{
 		Key: *parent.fs.key(fullName),
 	})
 	if err != nil {
@@ -361,7 +363,7 @@ func (parent *Inode) MkDir(
 		Body: nil,
 	}
 
-	_, err = fs.cloud.PutBlob(params)
+	_, err = parent.cloud.PutBlob(params)
 	if err != nil {
 		err = mapAwsError(err)
 		return
@@ -380,7 +382,7 @@ func (parent *Inode) MkDir(
 	return
 }
 
-func isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
+func (parent *Inode) isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
 	fullName += "/"
 
 	params := &ListBlobsInput{
@@ -389,7 +391,7 @@ func isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
 		Prefix:    fs.key(fullName),
 	}
 
-	resp, err := fs.cloud.ListBlobs(params)
+	resp, err := parent.cloud.ListBlobs(params)
 	if err != nil {
 		return false, mapAwsError(err)
 	}
@@ -417,7 +419,7 @@ func (parent *Inode) RmDir(name string) (err error) {
 	fullName := parent.getChildName(name)
 	fs := parent.fs
 
-	isDir, err := isEmptyDir(fs, fullName)
+	isDir, err := parent.isEmptyDir(fs, fullName)
 	if err != nil {
 		return
 	}
@@ -431,7 +433,7 @@ func (parent *Inode) RmDir(name string) (err error) {
 		Key: *fs.key(fullName),
 	}
 
-	_, err = fs.cloud.DeleteBlob(&params)
+	_, err = parent.cloud.DeleteBlob(&params)
 	if err != nil {
 		return
 	}
@@ -497,7 +499,7 @@ func (inode *Inode) fillXattr() (err error) {
 		fs := inode.fs
 
 		params := &HeadBlobInput{Key: *fs.key(fullName)}
-		resp, err := fs.cloud.HeadBlob(params)
+		resp, err := inode.cloud.HeadBlob(params)
 		if err != nil {
 			err = mapAwsError(err)
 			if err == fuse.ENOENT {
@@ -559,7 +561,7 @@ func convertMetadata(meta map[string][]byte) (metadata map[string]*string) {
 
 // LOCKS_REQUIRED(inode.mu)
 func (inode *Inode) updateXattr() (err error) {
-	_, err = inode.fs.cloud.CopyBlob(&CopyBlobInput{
+	_, err = inode.cloud.CopyBlob(&CopyBlobInput{
 		Source:      *inode.FullName(),
 		Destination: *inode.FullName(),
 		Size:        &inode.Attributes.Size,
@@ -682,7 +684,7 @@ func (parent *Inode) Rename(from string, newParent *Inode, to string) (err error
 	var fromIsDir bool
 	var toIsDir bool
 
-	fromIsDir, err = isEmptyDir(fs, fromFullName)
+	fromIsDir, err = parent.isEmptyDir(fs, fromFullName)
 	if err != nil {
 		// we don't support renaming a directory that's not empty
 		return
@@ -690,13 +692,13 @@ func (parent *Inode) Rename(from string, newParent *Inode, to string) (err error
 
 	toFullName := newParent.getChildName(to)
 
-	toIsDir, err = isEmptyDir(fs, toFullName)
+	toIsDir, err = parent.isEmptyDir(fs, toFullName)
 	if err != nil {
 		return
 	}
 
 	if fromIsDir && !toIsDir {
-		_, err = fs.cloud.HeadBlob(&HeadBlobInput{
+		_, err = parent.cloud.HeadBlob(&HeadBlobInput{
 			Key: *fs.key(toFullName),
 		})
 		if err == nil {
@@ -717,20 +719,20 @@ func (parent *Inode) Rename(from string, newParent *Inode, to string) (err error
 		size = PUInt64(0)
 	}
 
-	err = renameObject(fs, size, fromFullName, toFullName)
+	err = parent.renameObject(fs, size, fromFullName, toFullName)
 	return
 }
 
-func renameObject(fs *Goofys, size *uint64, fromFullName string, toFullName string) (err error) {
-	_, err = fs.cloud.RenameBlob(&RenameBlobInput{
+func (parent *Inode) renameObject(fs *Goofys, size *uint64, fromFullName string, toFullName string) (err error) {
+	_, err = parent.cloud.RenameBlob(&RenameBlobInput{
 		Source:      *fs.key(fromFullName),
 		Destination: *fs.key(toFullName),
 	})
-	if err != nil && err != syscall.ENOTSUP {
+	if err == nil || err != syscall.ENOTSUP {
 		return
 	}
 
-	_, err = fs.cloud.CopyBlob(&CopyBlobInput{
+	_, err = parent.cloud.CopyBlob(&CopyBlobInput{
 		Source:      *fs.key(fromFullName),
 		Destination: *fs.key(toFullName),
 		Size:        size,
@@ -739,7 +741,7 @@ func renameObject(fs *Goofys, size *uint64, fromFullName string, toFullName stri
 		return
 	}
 
-	_, err = fs.cloud.DeleteBlob(&DeleteBlobInput{
+	_, err = parent.cloud.DeleteBlob(&DeleteBlobInput{
 		Key: *fs.key(fromFullName),
 	})
 	if err != nil {
@@ -872,7 +874,7 @@ func (parent *Inode) readDirFromCache(offset fuseops.DirOffset) (en *DirHandleEn
 
 func (parent *Inode) LookUpInodeNotDir(name string, c chan HeadBlobOutput, errc chan error) {
 	params := &HeadBlobInput{Key: *parent.fs.key(name)}
-	resp, err := parent.fs.cloud.HeadBlob(params)
+	resp, err := parent.cloud.HeadBlob(params)
 	if err != nil {
 		errc <- mapAwsError(err)
 		return
@@ -889,7 +891,7 @@ func (parent *Inode) LookUpInodeDir(name string, c chan ListBlobsOutput, errc ch
 		Prefix:    parent.fs.key(name + "/"),
 	}
 
-	resp, err := parent.fs.cloud.ListBlobs(params)
+	resp, err := parent.cloud.ListBlobs(params)
 	if err != nil {
 		errc <- err
 		return
@@ -910,7 +912,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 	checking := 3
 	var checkErr [3]error
 
-	if parent.fs.cloud == nil {
+	if parent.cloud == nil {
 		panic("s3 disabled")
 	}
 
