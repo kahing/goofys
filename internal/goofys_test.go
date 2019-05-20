@@ -1488,6 +1488,8 @@ func (s *GoofysTest) TestIssue162(t *C) {
 }
 
 func (s *GoofysTest) TestXAttrGet(t *C) {
+	_, checkETag := s.cloud.(*S3Backend)
+
 	file1, err := s.LookUpInode(t, "file1")
 	t.Assert(err, IsNil)
 
@@ -1497,14 +1499,17 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 	t.Assert(names, DeepEquals, []string{"s3.etag", "s3.storage-class", "user.name"})
 
 	_, err = file1.GetXattr("user.foobar")
-	t.Assert(xattr.IsNotExist(err), Equals, true)
+	// xattr.IsNotExist seems broken on recent version of macOS
+	t.Assert(err, Equals, syscall.ENODATA)
 
-	value, err := file1.GetXattr("s3.etag")
-	t.Assert(err, IsNil)
-	// md5sum of "file1"
-	t.Assert(string(value), Equals, "\"826e8142e6baabe8af779f5f490cf5f5\"")
+	if checkETag {
+		value, err := file1.GetXattr("s3.etag")
+		t.Assert(err, IsNil)
+		// md5sum of "file1"
+		t.Assert(string(value), Equals, "\"826e8142e6baabe8af779f5f490cf5f5\"")
+	}
 
-	value, err = file1.GetXattr("user.name")
+	value, err := file1.GetXattr("user.name")
 	t.Assert(err, IsNil)
 	t.Assert(string(value), Equals, "file1+/#\x00")
 
@@ -1526,10 +1531,12 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 	t.Assert(file3, NotNil)
 	t.Assert(file3.userMetadata, IsNil)
 
-	value, err = file3.GetXattr("s3.etag")
-	t.Assert(err, IsNil)
-	// md5sum of "dir1/file3"
-	t.Assert(string(value), Equals, "\"5cd67e0e59fb85be91a515afe0f4bb24\"")
+	if checkETag {
+		value, err = file3.GetXattr("s3.etag")
+		t.Assert(err, IsNil)
+		// md5sum of "dir1/file3"
+		t.Assert(string(value), Equals, "\"5cd67e0e59fb85be91a515afe0f4bb24\"")
+	}
 
 	emptyDir2, err := s.LookUpInode(t, "empty_dir2")
 	t.Assert(err, IsNil)
@@ -1542,10 +1549,12 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 	emptyDir, err := s.LookUpInode(t, "empty_dir")
 	t.Assert(err, IsNil)
 
-	value, err = emptyDir.GetXattr("s3.etag")
-	t.Assert(err, IsNil)
-	// dir blobs are empty
-	t.Assert(string(value), Equals, "\"d41d8cd98f00b204e9800998ecf8427e\"")
+	if checkETag {
+		value, err = emptyDir.GetXattr("s3.etag")
+		t.Assert(err, IsNil)
+		// dir blobs are empty
+		t.Assert(string(value), Equals, "\"d41d8cd98f00b204e9800998ecf8427e\"")
+	}
 
 	// implicit dir blobs don't have s3.etag at all
 	names, err = dir1.ListXattr()
