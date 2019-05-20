@@ -1974,6 +1974,7 @@ func (s *GoofysTest) TestRead403(t *C) {
 
 	s.awsConfig.Credentials = credentials.AnonymousCredentials
 	s.fs.cloud = NewS3(s.fs, s.fs.bucket, s.awsConfig, s.fs.flags)
+	fh.inode.cloud = s.fs.cloud
 
 	// fake enable read-ahead
 	fh.seqReadAmount = uint64(READAHEAD_CHUNK)
