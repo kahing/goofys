@@ -2264,7 +2264,7 @@ func (s *GoofysTest) TestAzureDirBlob(t *C) {
 
 	s.setupBlobs(t, map[string]io.ReadSeeker{
 		// "azuredir/dir" would have gone here
-		"azuredir/dir3./":           nil,
+		"azuredir/dir3,/":           nil,
 		"azuredir/dir3/file1":       nil,
 		"azuredir/dir345_is_a_file": nil,
 	})
@@ -2285,7 +2285,7 @@ func (s *GoofysTest) TestAzureDirBlob(t *C) {
 	// sort after `dir3./`
 	t.Assert(len(list.Items), Equals, 5)
 	t.Assert(*list.Items[0].Key, Equals, "azuredir/dir2/")
-	t.Assert(*list.Items[1].Key, Equals, "azuredir/dir3./")
+	t.Assert(*list.Items[1].Key, Equals, "azuredir/dir3,/")
 	t.Assert(*list.Items[2].Key, Equals, "azuredir/dir3/")
 	t.Assert(*list.Items[3].Key, Equals, "azuredir/dir3/file1")
 	t.Assert(*list.Items[4].Key, Equals, "azuredir/dir345_is_a_file")
@@ -2304,12 +2304,12 @@ func (s *GoofysTest) TestAzureDirBlob(t *C) {
 
 	t.Assert(len(list.Prefixes), Equals, 3)
 	t.Assert(*list.Prefixes[0].Prefix, Equals, "azuredir/dir2/")
-	t.Assert(*list.Prefixes[1].Prefix, Equals, "azuredir/dir3./")
+	t.Assert(*list.Prefixes[1].Prefix, Equals, "azuredir/dir3,/")
 	t.Assert(*list.Prefixes[2].Prefix, Equals, "azuredir/dir3/")
 
 	// finally check that we are reading them in correctly
 	in, err := s.LookUpInode(t, "azuredir")
 	t.Assert(err, IsNil)
 
-	s.assertEntries(t, in, []string{"dir2", "dir3", "dir3.", "dir345_is_a_file"})
+	s.assertEntries(t, in, []string{"dir2", "dir3", "dir3,", "dir345_is_a_file"})
 }
