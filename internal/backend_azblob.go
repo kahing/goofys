@@ -15,6 +15,7 @@
 package internal
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -572,9 +573,14 @@ func (b *AZBlob) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 		return nil, err
 	}
 
+	body := param.Body
+	if body == nil {
+		body = bytes.NewReader([]byte(""))
+	}
+
 	blob := c.NewBlobURL(param.Key).ToBlockBlobURL()
 	resp, err := blob.Upload(context.TODO(),
-		param.Body,
+		body,
 		azblob.BlobHTTPHeaders{
 			ContentType: nilStr(param.ContentType),
 		},
