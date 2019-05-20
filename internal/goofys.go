@@ -335,6 +335,23 @@ func (fs *Goofys) SetXattr(ctx context.Context,
 	return
 }
 
+func mapHttpError(status int) error {
+	switch status {
+	case 400:
+		return fuse.EINVAL
+	case 403:
+		return syscall.EACCES
+	case 404:
+		return fuse.ENOENT
+	case 405:
+		return syscall.ENOTSUP
+	case 500:
+		return syscall.EAGAIN
+	default:
+		return nil
+	}
+}
+
 func mapAwsError(err error) error {
 	if err == nil {
 		return nil
@@ -343,18 +360,10 @@ func mapAwsError(err error) error {
 	if awsErr, ok := err.(awserr.Error); ok {
 		if reqErr, ok := err.(awserr.RequestFailure); ok {
 			// A service error occurred
-			switch reqErr.StatusCode() {
-			case 400:
-				return fuse.EINVAL
-			case 403:
-				return syscall.EACCES
-			case 404:
-				return fuse.ENOENT
-			case 405:
-				return syscall.ENOTSUP
-			case 500:
-				return syscall.EAGAIN
-			default:
+			err = mapHttpError(reqErr.StatusCode())
+			if err != nil {
+				return err
+			} else {
 				s3Log.Errorf("code=%v msg=%v request=%v\n", reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
 				return reqErr
 			}
