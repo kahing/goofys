@@ -514,6 +514,8 @@ func (b *AZBlob) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 	}
 
 	if resp.CopyStatus() == azblob.CopyStatusPending {
+		time.Sleep(50 * time.Millisecond)
+
 		var copy *azblob.BlobGetPropertiesResponse
 		for copy, err = dest.GetProperties(context.TODO(), azblob.BlobAccessConditions{}); err == nil; copy, err = dest.GetProperties(context.TODO(), azblob.BlobAccessConditions{}) {
 			// if there's a new copy, we can only assume the last one was done
