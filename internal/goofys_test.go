@@ -815,8 +815,8 @@ func (s *GoofysTest) TestRenamePreserveMetadata(t *C) {
 
 	resp, err := s.cloud.HeadBlob(&HeadBlobInput{Key: to})
 	t.Assert(err, IsNil)
-	t.Assert(resp.Metadata["Foo"], NotNil)
-	t.Assert(*resp.Metadata["Foo"], Equals, "bar")
+	t.Assert(resp.Metadata["foo"], NotNil)
+	t.Assert(*resp.Metadata["foo"], Equals, "bar")
 }
 
 func (s *GoofysTest) TestRenameLarge(t *C) {
@@ -1259,8 +1259,13 @@ func (s *GoofysTest) TestPutMimeType(t *C) {
 	} else if hasEnv("GCS") {
 		t.Assert(*resp.ContentType, Equals, "application/octet-stream")
 	} else {
-		// workaround s3proxy https://github.com/andrewgaul/s3proxy/issues/179
-		t.Assert(*resp.ContentType, Equals, "application/unknown")
+		if _, ok := s.cloud.(*S3Backend); ok {
+			// workaround s3proxy https://github.com/andrewgaul/s3proxy/issues/179
+			t.Assert(*resp.ContentType, Equals, "application/unknown")
+		} else if _, ok := s.cloud.(*AZBlob); ok {
+			// on azure rename copies the old content type
+			t.Assert(*resp.ContentType, Equals, "image/jpeg")
+		}
 	}
 
 	err = root.Rename(file, root, jpg2)
@@ -1978,6 +1983,11 @@ func (s *GoofysTest) TestRenameOverwrite(t *C) {
 }
 
 func (s *GoofysTest) TestRead403(t *C) {
+	// anonymous only works in S3 for now
+	if _, ok := s.fs.cloud.(*S3Backend); !ok {
+		t.Skip("only for S3")
+	}
+
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 

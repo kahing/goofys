@@ -315,6 +315,23 @@ func (s *S3Backend) ListObjectsV2(params *s3.ListObjectsV2Input) (*s3.ListObject
 	}
 }
 
+func metadataToLower(m map[string]*string) map[string]*string {
+	if m != nil {
+		var toDelete []string
+		for k, v := range m {
+			lower := strings.ToLower(k)
+			if lower != k {
+				m[lower] = v
+				toDelete = append(toDelete, k)
+			}
+		}
+		for _, k := range toDelete {
+			delete(m, k)
+		}
+	}
+	return m
+}
+
 func (s *S3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	resp, err := s.S3.HeadObject(&s3.HeadObjectInput{
 		Bucket: &s.bucket,
@@ -332,7 +349,7 @@ func (s *S3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 			StorageClass: resp.StorageClass,
 		},
 		ContentType: resp.ContentType,
-		Metadata:    resp.Metadata,
+		Metadata:    metadataToLower(resp.Metadata),
 		IsDirBlob:   strings.HasSuffix(param.Key, "/"),
 	}, nil
 }
@@ -505,7 +522,7 @@ func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuI
 			Key:          &to,
 			StorageClass: &s.flags.StorageClass,
 			ContentType:  s.fs.getMimeType(to),
-			Metadata:     metadata,
+			Metadata:     metadataToLower(metadata),
 		}
 
 		if s.flags.UseSSE {
@@ -597,7 +614,7 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 		Key:               &param.Destination,
 		StorageClass:      &storageClass,
 		ContentType:       s.fs.getMimeType(param.Destination),
-		Metadata:          param.Metadata,
+		Metadata:          metadataToLower(param.Metadata),
 		MetadataDirective: aws.String(s3.MetadataDirectiveReplace),
 	}
 
@@ -655,7 +672,7 @@ func (s *S3Backend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 				StorageClass: resp.StorageClass,
 			},
 			ContentType: resp.ContentType,
-			Metadata:    resp.Metadata,
+			Metadata:    metadataToLower(resp.Metadata),
 		},
 		Body: resp.Body,
 	}, nil
@@ -665,7 +682,7 @@ func (s *S3Backend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 	put := &s3.PutObjectInput{
 		Bucket:       &s.bucket,
 		Key:          &param.Key,
-		Metadata:     param.Metadata,
+		Metadata:     metadataToLower(param.Metadata),
 		Body:         param.Body,
 		StorageClass: &s.flags.StorageClass,
 		ContentType:  param.ContentType,
@@ -719,7 +736,7 @@ func (s *S3Backend) MultipartBlobBegin(param *MultipartBlobBeginInput) (*Multipa
 
 	return &MultipartBlobCommitInput{
 		Key:      &param.Key,
-		Metadata: param.Metadata,
+		Metadata: metadataToLower(param.Metadata),
 		UploadId: resp.UploadId,
 		Parts:    make([]*string, 10000), // at most 10K parts
 	}, nil

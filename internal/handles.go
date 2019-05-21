@@ -553,6 +553,7 @@ func (inode *Inode) getXattrMap(name string, userOnly bool) (
 func convertMetadata(meta map[string][]byte) (metadata map[string]*string) {
 	metadata = make(map[string]*string)
 	for k, v := range meta {
+		k = strings.ToLower(k)
 		metadata[k] = aws.String(xattrEscape(v))
 	}
 	return

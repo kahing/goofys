@@ -278,6 +278,7 @@ func mapAZBError(err error) error {
 func pMetadata(m map[string]string) map[string]*string {
 	metadata := make(map[string]*string)
 	for k, _ := range m {
+		k = strings.ToLower(k)
 		v := m[k]
 		metadata[k] = &v
 	}
@@ -287,6 +288,7 @@ func pMetadata(m map[string]string) map[string]*string {
 func nilMetadata(m map[string]*string) map[string]string {
 	metadata := make(map[string]string)
 	for k, v := range m {
+		k = strings.ToLower(k)
 		metadata[k] = nilStr(v)
 	}
 	return metadata
@@ -508,7 +510,8 @@ func (b *AZBlob) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 
 	src := c.NewBlobURL(param.Source)
 	dest := c.NewBlobURL(param.Destination)
-	resp, err := dest.StartCopyFromURL(context.TODO(), src.URL(), nil, azblob.ModifiedAccessConditions{}, azblob.BlobAccessConditions{})
+	resp, err := dest.StartCopyFromURL(context.TODO(), src.URL(), nilMetadata(param.Metadata),
+		azblob.ModifiedAccessConditions{}, azblob.BlobAccessConditions{})
 	if err != nil {
 		return nil, mapAZBError(err)
 	}
