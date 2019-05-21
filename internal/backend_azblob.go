@@ -57,7 +57,7 @@ const AzuriteEndpoint = "http://127.0.0.1:8080/%v/?%%v"
 const AzureDirBlobMetadataKey = "hdi_isfolder"
 
 func NewAZBlob(fs *Goofys, container string, config *FlagStorage) *AZBlob {
-	p := azblob.NewPipeline(azblob.NewAnonymousCredential(), azblob.PipelineOptions{
+	po := azblob.PipelineOptions{
 		Log: pipeline.LogOptions{
 			Log: func(level pipeline.LogLevel, msg string) {
 				// naive casting kind of works because pipeline.INFO maps
@@ -87,7 +87,9 @@ func NewAZBlob(fs *Goofys, container string, config *FlagStorage) *AZBlob {
 		RequestLog: azblob.RequestLogOptions{
 			LogWarningIfTryOverThreshold: time.Duration(-1),
 		},
-	})
+	}
+
+	p := azblob.NewPipeline(azblob.NewAnonymousCredential(), po)
 	var bareURL string
 	if config.AZAccountName != "" {
 		bareURL = fmt.Sprintf(config.Endpoint, config.AZAccountName)
@@ -97,6 +99,8 @@ func NewAZBlob(fs *Goofys, container string, config *FlagStorage) *AZBlob {
 	}
 
 	var sasTokenProvider SASTokenProvider
+	var bu *azblob.ServiceURL
+	var bc *azblob.ContainerURL
 
 	if strings.HasPrefix(config.AZAccountKey, "sig=") {
 		// it's a SAS signature
@@ -110,29 +114,47 @@ func NewAZBlob(fs *Goofys, container string, config *FlagStorage) *AZBlob {
 			return nil
 		}
 
-		sasTokenProvider = func() (string, error) {
-			sasQueryParams, err := azblob.AccountSASSignatureValues{
-				Protocol:   azblob.SASProtocolHTTPSandHTTP,
-				ExpiryTime: time.Now().UTC().Add(48 * time.Hour),
-				Services:   azblob.AccountSASServices{Blob: true}.String(),
-				ResourceTypes: azblob.AccountSASResourceTypes{
-					Service:   true,
-					Container: true,
-					Object:    true,
-				}.String(),
-				Permissions: azblob.AccountSASPermissions{
-					Read:   true,
-					Write:  true,
-					Delete: true,
-					List:   true,
-					Create: true,
-				}.String(),
-			}.NewSASQueryParameters(credential)
+		if config.Endpoint == AzuriteEndpoint {
+			// Azurite's SAS is buggy, ex: https://github.com/Azure/Azurite/issues/216
+			p = azblob.NewPipeline(credential, po)
+			// rid the URL of the SAS token param
+			bareURL = fmt.Sprintf(bareURL, "")
+
+			u, err := url.Parse(bareURL)
 			if err != nil {
-				return "", err
+				return nil
 			}
 
-			return sasQueryParams.Encode(), nil
+			serviceURL := azblob.NewServiceURL(*u, p)
+			containerURL := serviceURL.NewContainerURL(container)
+
+			bu = &serviceURL
+			bc = &containerURL
+		} else {
+			sasTokenProvider = func() (string, error) {
+				sasQueryParams, err := azblob.AccountSASSignatureValues{
+					Protocol:   azblob.SASProtocolHTTPSandHTTP,
+					ExpiryTime: time.Now().UTC().Add(48 * time.Hour),
+					Services:   azblob.AccountSASServices{Blob: true}.String(),
+					ResourceTypes: azblob.AccountSASResourceTypes{
+						Service:   true,
+						Container: true,
+						Object:    true,
+					}.String(),
+					Permissions: azblob.AccountSASPermissions{
+						Read:   true,
+						Write:  true,
+						Delete: true,
+						List:   true,
+						Create: true,
+					}.String(),
+				}.NewSASQueryParameters(credential)
+				if err != nil {
+					return "", err
+				}
+
+				return sasQueryParams.Encode(), nil
+			}
 		}
 	}
 
@@ -145,6 +167,8 @@ func NewAZBlob(fs *Goofys, container string, config *FlagStorage) *AZBlob {
 		bucket:           container,
 		bareURL:          bareURL,
 		sasTokenProvider: sasTokenProvider,
+		u:                bu,
+		c:                bc,
 	}
 
 	return b
@@ -155,6 +179,10 @@ func (b *AZBlob) Capabilities() *Capabilities {
 }
 
 func (b *AZBlob) refreshToken() (*azblob.ContainerURL, error) {
+	if b.sasTokenProvider == nil {
+		return b.c, nil
+	}
+
 	b.mu.Lock()
 
 	if b.c == nil {
@@ -203,7 +231,7 @@ func (b *AZBlob) testBucket() (err error) {
 }
 
 func (b *AZBlob) Init() error {
-	_, err := b.updateToken()
+	_, err := b.refreshToken()
 	if err != nil {
 		return err
 	}

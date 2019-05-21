@@ -34,6 +34,12 @@ elif [ $CLOUD == "azblob" ]; then
     if [ ${ACCOUNT_NAME} != "devstoreaccount1" ]; then
 	: ${ENDPOINT:="https://%v.blob.core.windows.net?%%v"}
     else
+	if ! which azurite >/dev/null; then
+	    echo "Azurite missing, run:" >&1
+	    echo "npm install -g azurite" >&1
+	    exit 1
+	fi
+
 	: ${ENDPOINT:="http://127.0.0.1:8080/%v/?%%v"}
 	rm -Rf /tmp/azblob
 	mkdir -p /tmp/azblob
