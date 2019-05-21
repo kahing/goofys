@@ -88,6 +88,7 @@ type GoofysTest struct {
 	awsConfig *aws.Config
 	cloud     StorageBackend
 	emulator  bool
+	azurite   bool
 
 	env map[string]io.ReadSeeker
 }
@@ -300,6 +301,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 
 		if flags.Endpoint == AzuriteEndpoint {
 			s.emulator = true
+			s.azurite = true
 			s.waitForEmulator(t)
 		}
 
@@ -796,6 +798,9 @@ func (s *GoofysTest) TestRmDir(t *C) {
 }
 
 func (s *GoofysTest) TestRenamePreserveMetadata(t *C) {
+	if s.azurite {
+		t.Skip("https://github.com/Azure/Azurite/issues/220")
+	}
 	root := s.getRoot(t)
 
 	from, to := "file1", "new_file"
@@ -907,7 +912,13 @@ func (s *GoofysTest) TestRename(t *C) {
 
 	from, to = "no_such_file", "new_file"
 	err = root.Rename(from, root, to)
-	t.Assert(err, Equals, fuse.ENOENT)
+	if s.azurite {
+		// Azurite returns 400 when copy source doesn't exist
+		// https://github.com/Azure/Azurite/issues/219
+		t.Assert(err, Equals, fuse.EINVAL)
+	} else {
+		t.Assert(err, Equals, fuse.ENOENT)
+	}
 
 	if s3, ok := s.fs.cloud.(*S3Backend); ok {
 		if !hasEnv("GCS") {
@@ -1475,6 +1486,10 @@ func (s *GoofysTest) TestIssue156(t *C) {
 }
 
 func (s *GoofysTest) TestIssue162(t *C) {
+	if s.azurite {
+		t.Skip("https://github.com/Azure/Azurite/issues/221")
+	}
+
 	params := &PutBlobInput{
 		Key:  "dir1/l├â┬╢r 006.jpg",
 		Body: bytes.NewReader([]byte("foo")),
@@ -1611,7 +1626,13 @@ func (s *GoofysTest) TestXAttrCopied(t *C) {
 	t.Assert(err, IsNil)
 
 	_, err = in.GetXattr("user.name")
-	t.Assert(err, IsNil)
+	if !s.azurite {
+		t.Assert(err, IsNil)
+	} else {
+		// Azurite doesn't copy over metadata:
+		// https://github.com/Azure/Azurite/issues/220
+		t.Assert(err, NotNil)
+	}
 }
 
 func (s *GoofysTest) TestXAttrRemove(t *C) {
@@ -1678,6 +1699,13 @@ func (s *GoofysTest) TestXAttrSet(t *C) {
 }
 
 func (s *GoofysTest) TestCreateRenameBeforeCloseFuse(t *C) {
+	if s.azurite {
+		// Azurite returns 400 when copy source doesn't exist
+		// https://github.com/Azure/Azurite/issues/219
+		// so our code to ignore ENOENT fails
+		t.Skip("https://github.com/Azure/Azurite/issues/219")
+	}
+
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
 	s.mount(t, mountPoint)
