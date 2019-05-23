@@ -106,11 +106,23 @@ func (op ADLv1Op) Header(k, v string) ADLv1Op {
 	return op
 }
 
-var ADL1_GETFILESTATUS = newADLv1Op("GETFILESTATUS")
 var ADL1_CREATE = newADLv1Op("CREATE").
 	Param("overwrite", "true").
 	Header("Expect", "100-continue")
+var ADL1_DELETE = newADLv1Op("DELETE").Param("recursive", "false")
+var ADL1_GETFILESTATUS = newADLv1Op("GETFILESTATUS")
+var ADL1_LISTSTATUS = newADLv1Op("LISTSTATUS")
 var ADL1_MKDIRS = newADLv1Op("MKDIRS")
+
+type ListStatusResult struct {
+	FileStatuses struct {
+		FileStatus        []hdfs.FileStatus
+		ContinuationToken string
+	}
+}
+type BooleanResult struct {
+	Boolean bool
+}
 
 func retryableHttpClient(c *http.Client, oauth bool) *retryablehttp.Client {
 	retryPolicy := func(ctx context.Context, resp *http.Response, err error) (bool, error) {
@@ -244,7 +256,11 @@ func (b *ADLv1) call(method string, op ADLv1Op, path string, arg interface{}, re
 	endpoint := b.endpoint
 	path = strings.TrimLeft(path, "/")
 	if b.bucket != "" {
-		path = b.bucket + "/" + path
+		if path != "" {
+			path = b.bucket + "/" + path
+		} else {
+			path = b.bucket
+		}
 	}
 
 	endpoint.Path += path
@@ -336,6 +352,19 @@ func (b *ADLv1) Capabilities() *Capabilities {
 	return &b.cap
 }
 
+func adlv1LastModified(t int64) time.Time {
+	return time.Unix(t/1000, t%1000000)
+}
+
+func adlv1FileStatus2BlobItem(f *hdfs.FileStatus, key *string) BlobItemOutput {
+	return BlobItemOutput{
+		Key:          key,
+		LastModified: PTime(adlv1LastModified(f.ModificationTime)),
+		Size:         uint64(f.Length),
+		StorageClass: PString(strconv.FormatInt(f.Replication, 10)),
+	}
+}
+
 func (b *ADLv1) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	type FileStatus struct {
 		FileStatus hdfs.FileStatus
@@ -349,26 +378,140 @@ func (b *ADLv1) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	f := res.FileStatus
 
 	return &HeadBlobOutput{
-		BlobItemOutput: BlobItemOutput{
-			Key:          &param.Key,
-			LastModified: PTime(time.Unix(f.ModificationTime/1000, f.ModificationTime%1000000)),
-			Size:         uint64(f.Length),
-			StorageClass: PString(strconv.FormatInt(f.Replication, 10)),
-		},
-		IsDirBlob: f.Type == "DIRECTORY",
+		BlobItemOutput: adlv1FileStatus2BlobItem(&f, &param.Key),
+		IsDirBlob:      f.Type == "DIRECTORY",
 	}, nil
 }
 
+func (b *ADLv1) appendToListResults(listOp ADLv1Op, path string, recursive bool,
+	prefixes []BlobPrefixOutput, items []BlobItemOutput) (*ListStatusResult, []BlobPrefixOutput, []BlobItemOutput, error) {
+	res := ListStatusResult{}
+
+	err := b.get(listOp, path, &res)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	for _, i := range res.FileStatuses.FileStatus {
+		key := path + "/" + i.PathSuffix
+
+		if i.Type == "DIRECTORY" {
+			if recursive {
+				// we shouldn't generate prefixes if
+				// it's a recursive listing
+				items = append(items, adlv1FileStatus2BlobItem(&i, &key))
+
+				_, prefixes, items, err = b.appendToListResults(listOp,
+					key, recursive, prefixes, items)
+			} else {
+				prefixes = append(prefixes, BlobPrefixOutput{
+					Prefix: PString(key),
+				})
+			}
+		} else {
+			items = append(items, adlv1FileStatus2BlobItem(&i, &key))
+		}
+	}
+
+	return &res, prefixes, items, nil
+}
+
 func (b *ADLv1) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
-	return nil, syscall.ENOTSUP
+	var recursive bool
+	if param.Delimiter == nil {
+		// used by tests to cleanup (and also slurping, but
+		// that's only enabled on S3 right now)
+		recursive = true
+		// cannot emulate these
+		if param.ContinuationToken != nil || param.StartAfter != nil {
+			return nil, syscall.ENOTSUP
+		}
+	} else if *param.Delimiter != "/" {
+		return nil, syscall.ENOTSUP
+	}
+
+	listOp := ADL1_LISTSTATUS.New()
+	// it's not documented in
+	// https://docs.microsoft.com/en-us/rest/api/datalakestore/webhdfs-filesystem-apis
+	// but from their Java SDK looks like they support additional params:
+	// https://github.com/Azure/azure-data-lake-store-java/blob/f5c270b8cb2ac68536b2cb123d355a874cade34c/src/main/java/com/microsoft/azure/datalake/store/Core.java#L861
+	if param.StartAfter != nil {
+		listOp.Param("listAfter", *param.StartAfter)
+	}
+	if param.MaxKeys != nil {
+		listOp.Param("listSize", strconv.FormatUint(uint64(*param.MaxKeys), 10))
+	}
+
+	res, prefixes, items, err := b.appendToListResults(listOp, nilStr(param.Prefix),
+		recursive, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var continuationToken *string
+	if res.FileStatuses.ContinuationToken != "" {
+		continuationToken = PString(res.FileStatuses.ContinuationToken)
+	}
+
+	return &ListBlobsOutput{
+		Prefixes:          prefixes,
+		Items:             items,
+		ContinuationToken: continuationToken,
+		IsTruncated:       continuationToken != nil,
+	}, nil
 }
 
 func (b *ADLv1) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error) {
-	return nil, syscall.ENOTSUP
+	var res BooleanResult
+
+	err := b.call("DELETE", ADL1_DELETE, strings.TrimRight(param.Key, "/"), nil, &res)
+	if err != nil {
+		return nil, err
+	}
+	if !res.Boolean {
+		return nil, fuse.ENOENT
+	}
+	return &DeleteBlobOutput{}, nil
 }
 
 func (b *ADLv1) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error) {
-	return nil, syscall.ENOTSUP
+	progress := true
+	toDelete := param.Items
+
+	for progress {
+		progress = false
+		var dirs []string
+
+		for _, i := range toDelete {
+			_, err := b.DeleteBlob(&DeleteBlobInput{i})
+			if err != nil {
+				if err != fuse.ENOENT {
+					// if we delete a directory that's not
+					// empty, ADLv1 returns 403. That can
+					// happen if we want to delete both
+					// "dir1" and "dir1/file" but delete
+					// them in the wrong order for example
+					if err == syscall.EACCES {
+						dirs = append(dirs, i)
+					} else {
+						return nil, err
+					}
+				} else {
+					progress = true
+				}
+			} else {
+				progress = true
+			}
+		}
+
+		if len(dirs) == 0 {
+			break
+		}
+
+		toDelete = dirs
+	}
+
+	return &DeleteBlobsOutput{}, nil
 }
 
 func (b *ADLv1) RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error) {
@@ -385,8 +528,6 @@ func (b *ADLv1) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 
 func (b *ADLv1) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 	if param.DirBlob {
-		// ADLv1 creates a "dir" blob if we create "dir/" and subsequently
-		// disallow "dir/file" to be created
 		err := b.mkdir(param.Key)
 		if err != nil {
 			return nil, err
@@ -426,7 +567,23 @@ func (b *ADLv1) MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOu
 }
 
 func (b *ADLv1) RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput, error) {
-	return nil, syscall.ENOTSUP
+	if b.bucket == "" {
+		return nil, fuse.EINVAL
+	}
+
+	var res BooleanResult
+
+	err := b.call("DELETE", ADL1_DELETE, "", nil, &res)
+	if err != nil {
+		return nil, err
+	}
+
+	// delete can return false because the directory is not there
+	if !res.Boolean {
+		return nil, fuse.ENOENT
+	}
+
+	return &RemoveBucketOutput{}, nil
 }
 
 func (b *ADLv1) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error) {
@@ -434,7 +591,7 @@ func (b *ADLv1) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error) {
 		return nil, fuse.EINVAL
 	}
 
-	err := b.mkdir(b.bucket)
+	err := b.mkdir("")
 	if err != nil {
 		return nil, err
 	}
@@ -443,11 +600,14 @@ func (b *ADLv1) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error) {
 }
 
 func (b *ADLv1) mkdir(dir string) error {
-	type Mkdirs struct {
-		boolean bool
+	var res BooleanResult
+
+	err := b.call("PUT", ADL1_MKDIRS.New().Perm(b.flags.DirMode), dir, nil, &res)
+	if err != nil {
+		return err
 	}
-
-	res := Mkdirs{}
-
-	return b.call("PUT", ADL1_MKDIRS.New().Perm(b.flags.DirMode), dir, nil, &res)
+	if !res.Boolean {
+		return fuse.EEXIST
+	}
+	return nil
 }
