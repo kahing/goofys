@@ -112,7 +112,7 @@ var ADL1_CREATE = newADLv1Op("CREATE").
 	Header("Expect", "100-continue")
 var ADL1_MKDIRS = newADLv1Op("MKDIRS")
 
-func retryableHttpClient(c *http.Client) *retryablehttp.Client {
+func retryableHttpClient(c *http.Client, oauth bool) *retryablehttp.Client {
 	retryPolicy := func(ctx context.Context, resp *http.Response, err error) (bool, error) {
 		// do not retry on context.Canceled or context.DeadlineExceeded
 		if ctx.Err() != nil {
@@ -133,24 +133,15 @@ func retryableHttpClient(c *http.Client) *retryablehttp.Client {
 	return &retryablehttp.Client{
 		HTTPClient:   c,
 		Backoff:      retryablehttp.LinearJitterBackoff,
-		Logger:       s3Log,
+		Logger:       RetryHTTPLogger{s3Log},
 		RetryWaitMax: 1 * time.Second,
 		// XXX figure out a better number
 		RetryMax:   20,
 		CheckRetry: retryPolicy,
 		RequestLogHook: func(_ retryablehttp.Logger, r *http.Request, nRetry int) {
-			s3Log.Debugf("--> %v", r.URL)
-
-			if nRetry != 0 {
-				s3Log.Errorf("adlv1 retry #%v: %v", nRetry, r.URL)
-			}
 		},
 		ResponseLogHook: func(_ retryablehttp.Logger, r *http.Response) {
-			if r.StatusCode >= 400 {
-				s3Log.Errorf("adlv1 %v: %v", r.Request.URL, r.Status)
-			} else {
-				s3Log.Debugf("adlv1 %v %v", r.Request.URL, r.Status)
-			}
+			s3Log.Debugf("%v %v %v", r.Request.Method, r.Request.URL, r.Status)
 		},
 	}
 }
@@ -189,7 +180,7 @@ func NewADLv1(fs *Goofys, bucket string, flags *FlagStorage) *ADLv1 {
 
 	ctx := context.WithValue(context.TODO(), oauth2.HTTPClient,
 		&http.Client{
-			Transport: RetryClient{retryableHttpClient(&http.Client{})},
+			Transport: RetryClient{retryableHttpClient(&http.Client{}, true)},
 		})
 	tokenSource := oauth2.ReuseTokenSource(nil, conf.TokenSource(ctx))
 	oauth2Client := oauth2.NewClient(context.TODO(), tokenSource)
@@ -197,7 +188,7 @@ func NewADLv1(fs *Goofys, bucket string, flags *FlagStorage) *ADLv1 {
 	return &ADLv1{
 		fs:       fs,
 		flags:    flags,
-		client:   retryableHttpClient(oauth2Client),
+		client:   retryableHttpClient(oauth2Client, false),
 		endpoint: *endpoint,
 		bucket:   bucket,
 		cap: Capabilities{
