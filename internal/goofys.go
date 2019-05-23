@@ -136,13 +136,16 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 			flags.Endpoint = AZBlobEndpoint
 		}
 		fs.cloud = NewAZBlob(fs, bucket, flags)
-		if fs.cloud == nil {
-			return nil
-		}
+	} else if flags.ADLv1ClientID != "" {
+		fs.cloud = NewADLv1(fs, bucket, flags)
 	} else if fs.gcs {
 		fs.cloud = NewGCS3(fs, bucket, awsConfig, flags)
 	} else {
 		fs.cloud = NewS3(fs, bucket, awsConfig, flags)
+	}
+
+	if fs.cloud == nil {
+		return nil
 	}
 
 	err := fs.cloud.Init()
@@ -339,6 +342,8 @@ func mapHttpError(status int) error {
 	switch status {
 	case 400:
 		return fuse.EINVAL
+	case 401:
+		return syscall.EACCES
 	case 403:
 		return syscall.EACCES
 	case 404:
