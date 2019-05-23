@@ -204,8 +204,13 @@ func (s *GoofysTest) TearDownSuite(t *C) {
 
 func (s *GoofysTest) setupBlobs(t *C, env map[string]io.ReadSeeker) {
 	for path, r := range env {
+		dir := false
 		if r == nil {
 			if strings.HasSuffix(path, "/") {
+				if s.cloud.Capabilities().DirBlob {
+					path = strings.TrimRight(path, "/")
+				}
+				dir = true
 				r = bytes.NewReader([]byte{})
 			} else {
 				r = bytes.NewReader([]byte(path))
@@ -218,6 +223,7 @@ func (s *GoofysTest) setupBlobs(t *C, env map[string]io.ReadSeeker) {
 			Metadata: map[string]*string{
 				"name": aws.String(path + "+/#%00"),
 			},
+			DirBlob: dir,
 		}
 
 		_, err := s.cloud.PutBlob(params)

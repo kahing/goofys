@@ -358,9 +358,14 @@ func (parent *Inode) MkDir(
 	fullName := parent.getChildName(name)
 	fs := parent.fs
 
+	key := *fs.key(fullName)
+	if !parent.cloud.Capabilities().DirBlob {
+		key += "/"
+	}
 	params := &PutBlobInput{
-		Key:  *fs.key(fullName + "/"),
-		Body: nil,
+		Key:     key,
+		Body:    nil,
+		DirBlob: true,
 	}
 
 	_, err = parent.cloud.PutBlob(params)
@@ -917,7 +922,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 	}
 
 	go parent.LookUpInodeNotDir(fullName, objectChan, errObjectChan)
-	if !parent.fs.flags.Cheap {
+	if !parent.cloud.Capabilities().DirBlob && !parent.fs.flags.Cheap {
 		go parent.LookUpInodeNotDir(fullName+"/", objectChan, errDirBlobChan)
 		if !parent.fs.flags.ExplicitDir {
 			errDirChan = make(chan error, 1)
@@ -987,6 +992,10 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 			checking--
 			checkErr[1] = err
 			s3Log.Debugf("HEAD %v/ = %v", fullName, err)
+		}
+
+		if parent.cloud.Capabilities().DirBlob {
+			return
 		}
 
 		switch checking {

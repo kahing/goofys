@@ -22,6 +22,8 @@ import (
 type Capabilities struct {
 	NoParallelMultipart bool
 	MaxMultipartSize    uint64
+	// indicates that the blob store has native support for directories
+	DirBlob bool
 }
 
 type HeadBlobInput struct {
@@ -116,6 +118,7 @@ type PutBlobInput struct {
 	Key         string
 	Metadata    map[string]*string
 	ContentType *string
+	DirBlob     bool
 
 	Body io.ReadSeeker
 }
