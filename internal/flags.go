@@ -323,6 +323,11 @@ type FlagStorage struct {
 	AZAccountName string
 	AZAccountKey  string
 
+	// Azure Datalake v1
+	ADLv1ClientID         string
+	ADLv1ClientCredential string
+	ADLv1TenantID         string
+
 	// Tuning
 	Cheap        bool
 	ExplicitDir  bool

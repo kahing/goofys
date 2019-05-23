@@ -282,7 +282,9 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		Gid:          uint32(gid),
 	}
 
-	if os.Getenv("CLOUD") == "s3" {
+	cloud := os.Getenv("CLOUD")
+
+	if cloud == "s3" {
 		s.waitForEmulator(t)
 
 		s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
@@ -300,22 +302,34 @@ func (s *GoofysTest) SetUpTest(t *C) {
 			_, err := s3.ListBuckets(nil)
 			t.Assert(err, IsNil)
 		}
-	} else if os.Getenv("CLOUD") == "azblob" {
+	} else if cloud == "azblob" {
 		flags.Endpoint = os.Getenv("ENDPOINT")
 		flags.AZAccountName = os.Getenv("ACCOUNT_NAME")
 		flags.AZAccountKey = os.Getenv("ACCOUNT_KEY")
-
-		if flags.Endpoint == AzuriteEndpoint {
-			s.emulator = true
-			s.azurite = true
-			s.waitForEmulator(t)
-		}
 
 		s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
 		t.Assert(s.fs, NotNil)
 
 		s.cloud = NewAZBlob(s.fs, bucket, flags)
 		t.Assert(s.cloud, NotNil)
+	} else if cloud == "adlv1" {
+		flags.Endpoint = os.Getenv("ENDPOINT")
+		flags.ADLv1ClientID = os.Getenv("ADLV1_CLIENT_ID")
+		flags.ADLv1ClientCredential = os.Getenv("ADLV1_CLIENT_CREDENTIAL")
+		flags.ADLv1TenantID = os.Getenv("ADLV1_TENANT_ID")
+
+		t.Assert(flags.Endpoint, Not(Equals), "")
+		t.Assert(flags.ADLv1ClientID, Not(Equals), "")
+		t.Assert(flags.ADLv1ClientCredential, Not(Equals), "")
+		t.Assert(flags.ADLv1TenantID, Not(Equals), "")
+
+		s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
+		t.Assert(s.fs, NotNil)
+
+		s.cloud = NewADLv1(s.fs, bucket, flags)
+		t.Assert(s.cloud, NotNil)
+	} else {
+		t.Fatal("Unsupported backend")
 	}
 
 	s.setupDefaultEnv(t, false)
