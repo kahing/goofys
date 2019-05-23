@@ -52,12 +52,14 @@ type ADLv1 struct {
 }
 
 type ADLv1Op struct {
+	method  string
 	params  url.Values
 	headers http.Header
 }
 
-func newADLv1Op(op string) ADLv1Op {
+func newADLv1Op(method, op string) ADLv1Op {
 	return ADLv1Op{
+		method:  method,
 		params:  url.Values{"op": []string{op}},
 		headers: http.Header{},
 	}
@@ -70,6 +72,7 @@ func (op ADLv1Op) String() string {
 func (op ADLv1Op) New() ADLv1Op {
 	// stupid golang doesn't have an easy way to copy map
 	res := ADLv1Op{
+		method:  op.method,
 		params:  url.Values{},
 		headers: http.Header{},
 	}
@@ -106,13 +109,13 @@ func (op ADLv1Op) Header(k, v string) ADLv1Op {
 	return op
 }
 
-var ADL1_CREATE = newADLv1Op("CREATE").
+var ADL1_CREATE = newADLv1Op("PUT", "CREATE").
 	Param("overwrite", "true").
 	Header("Expect", "100-continue")
-var ADL1_DELETE = newADLv1Op("DELETE").Param("recursive", "false")
-var ADL1_GETFILESTATUS = newADLv1Op("GETFILESTATUS")
-var ADL1_LISTSTATUS = newADLv1Op("LISTSTATUS")
-var ADL1_MKDIRS = newADLv1Op("MKDIRS")
+var ADL1_DELETE = newADLv1Op("DELETE", "DELETE").Param("recursive", "false")
+var ADL1_GETFILESTATUS = newADLv1Op("GET", "GETFILESTATUS")
+var ADL1_LISTSTATUS = newADLv1Op("GET", "LISTSTATUS")
+var ADL1_MKDIRS = newADLv1Op("PUT", "MKDIRS")
 
 type ListStatusResult struct {
 	FileStatuses struct {
@@ -249,10 +252,10 @@ func mapADLv1Error(resp *http.Response, err error) error {
 }
 
 func (b *ADLv1) get(op ADLv1Op, path string, res interface{}) error {
-	return b.call("GET", op, path, nil, res)
+	return b.call(op, path, nil, res)
 }
 
-func (b *ADLv1) call(method string, op ADLv1Op, path string, arg interface{}, res interface{}) error {
+func (b *ADLv1) call(op ADLv1Op, path string, arg interface{}, res interface{}) error {
 	endpoint := b.endpoint
 	path = strings.TrimLeft(path, "/")
 	if b.bucket != "" {
@@ -284,7 +287,7 @@ func (b *ADLv1) call(method string, op ADLv1Op, path string, arg interface{}, re
 		body = bytes.NewReader([]byte(""))
 	}
 
-	req, err := retryablehttp.NewRequest(method, endpoint.String(), body)
+	req, err := retryablehttp.NewRequest(op.method, endpoint.String(), body)
 	if err != nil {
 		s3Log.Errorf("NewRequest error: %v", err)
 		return fuse.EINVAL
@@ -314,7 +317,7 @@ func (b *ADLv1) call(method string, op ADLv1Op, path string, arg interface{}, re
 				return syscall.EAGAIN
 			}
 			s3Log.Debugf("redirect %v", location)
-			req, err = retryablehttp.NewRequest(method, location.String(), body)
+			req, err = retryablehttp.NewRequest(op.method, location.String(), body)
 			if err != nil {
 				s3Log.Errorf("NewRequest error: %v", err)
 				return fuse.EINVAL
@@ -464,7 +467,7 @@ func (b *ADLv1) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 func (b *ADLv1) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error) {
 	var res BooleanResult
 
-	err := b.call("DELETE", ADL1_DELETE, strings.TrimRight(param.Key, "/"), nil, &res)
+	err := b.call(ADL1_DELETE, strings.TrimRight(param.Key, "/"), nil, &res)
 	if err != nil {
 		return nil, err
 	}
@@ -537,7 +540,7 @@ func (b *ADLv1) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 		if param.ContentType != nil {
 			create.Header("Content-Type", *param.ContentType)
 		}
-		err := b.call("PUT", create, param.Key, param.Body, nil)
+		err := b.call(create, param.Key, param.Body, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -573,7 +576,7 @@ func (b *ADLv1) RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput, err
 
 	var res BooleanResult
 
-	err := b.call("DELETE", ADL1_DELETE, "", nil, &res)
+	err := b.call(ADL1_DELETE, "", nil, &res)
 	if err != nil {
 		return nil, err
 	}
@@ -602,7 +605,7 @@ func (b *ADLv1) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error) {
 func (b *ADLv1) mkdir(dir string) error {
 	var res BooleanResult
 
-	err := b.call("PUT", ADL1_MKDIRS.New().Perm(b.flags.DirMode), dir, nil, &res)
+	err := b.call(ADL1_MKDIRS.New().Perm(b.flags.DirMode), dir, nil, &res)
 	if err != nil {
 		return err
 	}
