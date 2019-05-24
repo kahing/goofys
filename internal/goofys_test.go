@@ -1901,6 +1901,9 @@ func (s *GoofysTest) TestInodeInsert(t *C) {
 }
 
 func (s *GoofysTest) TestReadDirSlurpSubtree(t *C) {
+	if _, ok := s.fs.cloud.(*S3Backend); !ok {
+		t.Skip("only for S3")
+	}
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 
 	s.getRoot(t).dir.seqOpenDirScore = 2
