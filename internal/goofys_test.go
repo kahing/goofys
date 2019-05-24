@@ -634,7 +634,10 @@ func (s *GoofysTest) TestCreateFiles(t *C) {
 
 	resp, err = s.cloud.GetBlob(&GetBlobInput{Key: fileName})
 	t.Assert(err, IsNil)
-	t.Assert(resp.HeadBlobOutput.Size, Equals, uint64(1))
+	// ADLv1 doesn't return size when we do a GET
+	if _, adlv1 := s.cloud.(*ADLv1); !adlv1 {
+		t.Assert(resp.HeadBlobOutput.Size, Equals, uint64(1))
+	}
 	defer resp.Body.Close()
 }
 
