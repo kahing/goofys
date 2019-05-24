@@ -29,6 +29,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	retryablehttp "github.com/hashicorp/go-retryablehttp"
 	"github.com/jacobsa/fuse"
 	"github.com/sirupsen/logrus"
@@ -109,13 +110,31 @@ func (op ADLv1Op) Header(k, v string) ADLv1Op {
 	return op
 }
 
+const ADL1_REQUEST_ID = "X-Ms-Request-Id"
+
+// APPEND and CREATE additionally supports "append=true" and
+// "write=true" to prevent initial 307 redirect because it just
+// redirects to the same domain anyway
+//
+// there's no such thing as abort, but at least we should release the
+// lease which technically is more like a commit than abort. In this
+// case we are not sending data so there's no reason to do expect
+// 100-continue
+var ADL1_ABORT = newADLv1Op("POST", "APPEND").
+	Param("append", "true").
+	Param("syncFlag", "CLOSE")
+var ADL1_APPEND = newADLv1Op("POST", "APPEND").
+	Param("append", "true").
+	Header("Expect", "100-continue")
 var ADL1_CREATE = newADLv1Op("PUT", "CREATE").
+	Param("write", "true").
 	Param("overwrite", "true").
 	Header("Expect", "100-continue")
 var ADL1_DELETE = newADLv1Op("DELETE", "DELETE").Param("recursive", "false")
 var ADL1_GETFILESTATUS = newADLv1Op("GET", "GETFILESTATUS")
 var ADL1_LISTSTATUS = newADLv1Op("GET", "LISTSTATUS")
 var ADL1_MKDIRS = newADLv1Op("PUT", "MKDIRS")
+var ADL1_OPEN = newADLv1Op("GET", "OPEN").Param("read", "true")
 var ADL1_RENAME = newADLv1Op("PUT", "RENAME")
 
 type ListStatusResult struct {
@@ -126,6 +145,11 @@ type ListStatusResult struct {
 }
 type BooleanResult struct {
 	Boolean bool
+}
+
+type ADLv1MultipartBlobCommitInput struct {
+	Size uint64
+	Prev *MultipartBlobAddInput
 }
 
 func retryableHttpClient(c *http.Client, oauth bool) *retryablehttp.Client {
@@ -155,9 +179,22 @@ func retryableHttpClient(c *http.Client, oauth bool) *retryablehttp.Client {
 		RetryMax:   20,
 		CheckRetry: retryPolicy,
 		RequestLogHook: func(_ retryablehttp.Logger, r *http.Request, nRetry int) {
+			if nRetry != 0 {
+				// generate a new request id
+				oldRequestId := r.Header.Get(ADL1_REQUEST_ID)
+				newRequestId := uuid.New().String()
+				r.Header.Set(ADL1_REQUEST_ID, newRequestId)
+
+				s3Log.Debugf("%v %v %v retry#%v as %v", r.Method, r.URL,
+					oldRequestId, nRetry, newRequestId)
+			} else {
+				s3Log.Debugf("%v %v %v", r.Method, r.URL,
+					r.Header.Get(ADL1_REQUEST_ID))
+			}
 		},
 		ResponseLogHook: func(_ retryablehttp.Logger, r *http.Response) {
-			s3Log.Debugf("%v %v %v", r.Request.Method, r.Request.URL, r.Status)
+			s3Log.Debugf("%v %v %v %v", r.Request.Method, r.Request.URL,
+				r.Header.Get(ADL1_REQUEST_ID), r.Status)
 		},
 	}
 }
@@ -244,7 +281,8 @@ func mapADLv1Error(resp *http.Response, err error) error {
 			return err
 		} else {
 			op := resp.Request.URL.Query().Get("op")
-			s3Log.Errorf("adlv1 %v %v", op, resp.Status)
+			requestId := resp.Header.Get(ADL1_REQUEST_ID)
+			s3Log.Errorf("%v %v %v %v", op, resp.Request.URL.String(), requestId, resp.Status)
 			return syscall.EINVAL
 		}
 	}
@@ -270,34 +308,45 @@ func (b *ADLv1) call(op ADLv1Op, path string, arg interface{}, res interface{}) 
 	endpoint.Path += path
 	endpoint.RawQuery = op.params.Encode()
 
-	var body io.ReadSeeker
+	var body ReadSeekerCloser
 	var err error
 
 	if arg != nil {
 		if r, ok := arg.(io.ReadSeeker); ok {
-			body = r
+			body = ReadSeekerCloser{r}
 		} else {
 			buf, err := json.Marshal(arg)
 			if err != nil {
 				s3Log.Errorf("json error: %v", err)
 				return fuse.EINVAL
 			}
-			body = bytes.NewReader(buf)
+			body = ReadSeekerCloser{bytes.NewReader(buf)}
 		}
 	} else {
-		body = bytes.NewReader([]byte(""))
+		body = ReadSeekerCloser{bytes.NewReader([]byte(""))}
 	}
 
 	req, err := retryablehttp.NewRequest(op.method, endpoint.String(), body)
 	if err != nil {
 		s3Log.Errorf("NewRequest error: %v", err)
+		body.Close()
 		return fuse.EINVAL
 	}
 
 	req.Header = op.headers
+	req.Header.Add(ADL1_REQUEST_ID, uuid.New().String())
 	var resp *http.Response
 
-	for true {
+	// retryablehttp doesn't close the reader
+	defer func() {
+		err := body.Close()
+		if err != nil {
+			s3Log.Errorf("%v close: %v", endpoint.String(), err)
+		}
+	}()
+
+	var i int
+	for i = 0; i < 10; i++ {
 		resp, err = b.client.Do(req)
 		err = mapADLv1Error(resp, err)
 		if err != nil {
@@ -317,7 +366,8 @@ func (b *ADLv1) call(op ADLv1Op, path string, arg interface{}, res interface{}) 
 				s3Log.Errorf("redirect from %v but no Location header", endpoint)
 				return syscall.EAGAIN
 			}
-			s3Log.Debugf("redirect %v", location)
+			s3Log.Infof("redirect %v %v -> %v", req.Method, req.URL.String(), location)
+			body.Seek(0, 0)
 			req, err = retryablehttp.NewRequest(op.method, location.String(), body)
 			if err != nil {
 				s3Log.Errorf("NewRequest error: %v", err)
@@ -327,12 +377,21 @@ func (b *ADLv1) call(op ADLv1Op, path string, arg interface{}, res interface{}) 
 			break
 		}
 	}
+	if i == 10 {
+		s3Log.Errorf("too many redirects for %v %v", req.Method, req.URL.String())
+	}
 
 	if res != nil {
-		decoder := json.NewDecoder(resp.Body)
-		err = decoder.Decode(res)
-		if err != nil {
-			log.Errorf("adlv1 api %v decode error: %v", op, err)
+		if reader, ok := res.(**http.Response); ok {
+			*reader = resp
+		} else if reader, ok := res.(*io.Reader); ok {
+			*reader = resp.Body
+		} else {
+			decoder := json.NewDecoder(resp.Body)
+			err = decoder.Decode(res)
+			if err != nil {
+				log.Errorf("adlv1 api %v decode error: %v", op, err)
+			}
 		}
 	}
 
@@ -581,7 +640,52 @@ func (b *ADLv1) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 }
 
 func (b *ADLv1) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
-	return nil, syscall.ENOTSUP
+	open := ADL1_OPEN.New()
+	if param.Start != 0 {
+		open.Param("offset", strconv.FormatUint(param.Start, 10))
+	}
+	if param.Count != 0 {
+		open.Param("length", strconv.FormatUint(param.Count, 10))
+	}
+	if param.IfMatch != nil {
+		open.Param("filesessionid", *param.IfMatch)
+	}
+
+	var resp *http.Response
+
+	err := b.call(open, param.Key, nil, &resp)
+	if err != nil {
+		return nil, err
+	}
+	if resp != nil {
+		defer func() {
+			if resp.Body != nil {
+				resp.Body.Close()
+			}
+		}()
+	}
+	// WebHDFS specifies that Content-Length is returned but ADLv1
+	// doesn't return it. Thankfully we never actually use it in
+	// the context of GetBlobOutput
+
+	var contentType *string
+	if val, ok := resp.Header["Content-Type"]; ok && len(val) != 0 {
+		contentType = &val[len(val)-1]
+	}
+
+	res := GetBlobOutput{
+		HeadBlobOutput: HeadBlobOutput{
+			BlobItemOutput: BlobItemOutput{
+				Key: &param.Key,
+			},
+			ContentType: contentType,
+			IsDirBlob:   false,
+		},
+		Body: resp.Body,
+	}
+	resp.Body = nil
+
+	return &res, nil
 }
 
 func (b *ADLv1) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
@@ -605,19 +709,100 @@ func (b *ADLv1) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 }
 
 func (b *ADLv1) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlobCommitInput, error) {
-	return nil, syscall.ENOTSUP
+	// ADLv1 doesn't have the concept of atomic replacement which
+	// means that when we replace an object, readers may see
+	// intermediate results. Here we implement MPU by first
+	// sending a CREATE with 0 bytes and acquire a lease at the
+	// same time.  much of these is not documented anywhere except
+	// in the SDKs:
+	// https://github.com/Azure/azure-data-lake-store-java/blob/f5c270b8cb2ac68536b2cb123d355a874cade34c/src/main/java/com/microsoft/azure/datalake/store/Core.java#L84
+	leaseId := uuid.New().String()
+
+	create := ADL1_CREATE.New().Perm(b.flags.FileMode)
+	if param.ContentType != nil {
+		create.Header("Content-Type", *param.ContentType)
+	}
+	create.Param("leaseid", leaseId)
+	create.Param("syncFlag", "DATA")
+	// https://docs.microsoft.com/en-us/dotnet/api/microsoft.azure.management.datalake.store.filesystemoperationsextensions.appendasync?view=azure-dotnet
+	create.Param("filesessionid", leaseId)
+
+	err := b.call(create, param.Key, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &MultipartBlobCommitInput{
+		Key:         &param.Key,
+		UploadId:    &leaseId,
+		backendData: &ADLv1MultipartBlobCommitInput{},
+	}, nil
+}
+
+func (b *ADLv1) uploadPart(param *MultipartBlobAddInput, offset uint64, last bool) error {
+	append := ADL1_APPEND.New().
+		Param("leaseid", *param.Commit.UploadId).
+		Param("filesessionid", *param.Commit.UploadId).
+		Param("offset", strconv.FormatUint(offset-param.Size, 10))
+
+	if last {
+		append.Param("syncFlag", "CLOSE")
+	} else {
+		append.Param("syncFlag", "DATA")
+	}
+
+	return b.call(append, *param.Commit.Key, param.Body, nil)
 }
 
 func (b *ADLv1) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error) {
-	return nil, syscall.ENOTSUP
+	// APPEND with the expected offsets (so we can detect
+	// concurrent updates to the same file and fail, in case lease
+	// is for some reason broken on the server side
+
+	var commitData *ADLv1MultipartBlobCommitInput
+	var ok bool
+	if commitData, ok = param.Commit.backendData.(*ADLv1MultipartBlobCommitInput); !ok {
+		panic("Incorrect commit data type")
+	}
+
+	if commitData.Prev != nil {
+		err := b.uploadPart(commitData.Prev, commitData.Size, false)
+		if err != nil {
+			return nil, err
+		}
+	}
+	commitData.Size += param.Size
+	commitData.Prev = param
+
+	return &MultipartBlobAddOutput{}, nil
 }
 
 func (b *ADLv1) MultipartBlobAbort(param *MultipartBlobCommitInput) (*MultipartBlobAbortOutput, error) {
-	return nil, syscall.ENOTSUP
+	// there's no such thing as abort, but at least we should release the lease
+	// which technically is more like a commit than abort
+	abort := ADL1_ABORT.New().
+		Param("leaseid", *param.UploadId).
+		Param("filesessionid", *param.UploadId)
+
+	return &MultipartBlobAbortOutput{}, b.call(abort, *param.Key, nil, nil)
 }
 
 func (b *ADLv1) MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error) {
-	return nil, syscall.ENOTSUP
+	var commitData *ADLv1MultipartBlobCommitInput
+	var ok bool
+	if commitData, ok = param.backendData.(*ADLv1MultipartBlobCommitInput); !ok {
+		panic("Incorrect commit data type")
+	}
+
+	if commitData.Prev == nil {
+		panic("commit should include last part")
+	}
+
+	err := b.uploadPart(commitData.Prev, commitData.Size, true)
+	if err != nil {
+		return nil, err
+	}
+
+	return &MultipartBlobCommitOutput{}, nil
 }
 
 func (b *ADLv1) MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error) {
