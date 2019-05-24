@@ -167,11 +167,6 @@ func (s *GCS3) uploadPart(param *MultipartBlobAddInput, totalSize uint64, last b
 }
 
 func (s *GCS3) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error) {
-	if param.Size == 0 || param.Size%(256*1024) != 0 {
-		s3Log.Errorf("size of each block must be multiple of 256KB: %v", param.Size)
-		return nil, fuse.EINVAL
-	}
-
 	var commitData *GCSMultipartBlobCommitInput
 	var ok bool
 	if commitData, ok = param.Commit.backendData.(*GCSMultipartBlobCommitInput); !ok {
@@ -179,6 +174,11 @@ func (s *GCS3) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAdd
 	}
 
 	if commitData.Prev != nil {
+		if commitData.Prev.Size == 0 || commitData.Prev.Size%(256*1024) != 0 {
+			s3Log.Errorf("size of each block must be multiple of 256KB: %v", param.Size)
+			return nil, fuse.EINVAL
+		}
+
 		commitData.Size += param.Size
 		_, err := s.uploadPart(commitData.Prev, commitData.Size, false)
 		if err != nil {
