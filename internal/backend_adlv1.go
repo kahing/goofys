@@ -433,7 +433,7 @@ func (b *ADLv1) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 		FileStatus hdfs.FileStatus
 	}
 	res := FileStatus{}
-	err := b.get(ADL1_GETFILESTATUS, param.Key, &res)
+	err := b.get(ADL1_GETFILESTATUS.New(), param.Key, &res)
 	if err != nil {
 		return nil, err
 	}
@@ -556,7 +556,7 @@ func (b *ADLv1) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 func (b *ADLv1) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error) {
 	var res BooleanResult
 
-	err := b.call(ADL1_DELETE, strings.TrimRight(param.Key, "/"), nil, &res)
+	err := b.call(ADL1_DELETE.New(), strings.TrimRight(param.Key, "/"), nil, &res)
 	if err != nil {
 		return nil, err
 	}
@@ -816,7 +816,7 @@ func (b *ADLv1) RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput, err
 
 	var res BooleanResult
 
-	err := b.call(ADL1_DELETE, "", nil, &res)
+	err := b.call(ADL1_DELETE.New(), "", nil, &res)
 	if err != nil {
 		return nil, err
 	}
