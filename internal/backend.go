@@ -15,6 +15,7 @@
 package internal
 
 import (
+	"fmt"
 	"io"
 	"time"
 )
@@ -229,4 +230,12 @@ func (p sortBlobItemOutput) Less(i, j int) bool {
 
 func (p sortBlobItemOutput) Swap(i, j int) {
 	p[i], p[j] = p[j], p[i]
+}
+
+func (b BlobItemOutput) String() string {
+	return fmt.Sprintf("%v: %v", *b.Key, b.Size)
+}
+
+func (b BlobPrefixOutput) String() string {
+	return fmt.Sprintf("%v", *b.Prefix)
 }

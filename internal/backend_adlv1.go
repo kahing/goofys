@@ -116,6 +116,7 @@ var ADL1_DELETE = newADLv1Op("DELETE", "DELETE").Param("recursive", "false")
 var ADL1_GETFILESTATUS = newADLv1Op("GET", "GETFILESTATUS")
 var ADL1_LISTSTATUS = newADLv1Op("GET", "LISTSTATUS")
 var ADL1_MKDIRS = newADLv1Op("PUT", "MKDIRS")
+var ADL1_RENAME = newADLv1Op("PUT", "RENAME")
 
 type ListStatusResult struct {
 	FileStatuses struct {
@@ -395,6 +396,8 @@ func (b *ADLv1) appendToListResults(listOp ADLv1Op, path string, recursive bool,
 		return nil, nil, nil, err
 	}
 
+	path = strings.TrimRight(path, "/")
+
 	for _, i := range res.FileStatuses.FileStatus {
 		key := path + "/" + i.PathSuffix
 
@@ -445,15 +448,42 @@ func (b *ADLv1) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		listOp.Param("listSize", strconv.FormatUint(uint64(*param.MaxKeys), 10))
 	}
 
+	var continuationToken *string
+
 	res, prefixes, items, err := b.appendToListResults(listOp, nilStr(param.Prefix),
 		recursive, nil, nil)
-	if err != nil {
-		return nil, err
-	}
+	if err != fuse.ENOENT {
+		if err != nil {
+			return nil, err
+		}
 
-	var continuationToken *string
-	if res.FileStatuses.ContinuationToken != "" {
-		continuationToken = PString(res.FileStatuses.ContinuationToken)
+		if len(prefixes) == 0 && len(items) == 0 && param.Prefix != nil {
+			// the only way we get nothing is if we are listing an empty dir
+			if strings.HasSuffix(*param.Prefix, "/") {
+				items = []BlobItemOutput{BlobItemOutput{
+					Key: param.Prefix,
+				},
+				}
+			} else {
+				prefixes = []BlobPrefixOutput{BlobPrefixOutput{
+					Prefix: PString(*param.Prefix + "/"),
+				},
+				}
+			}
+		} else if len(items) != 0 && param.Prefix != nil &&
+			strings.HasSuffix(*items[0].Key, "/") {
+			if *items[0].Key == *param.Prefix {
+				items = items[1:]
+			} else if *items[0].Key == (*param.Prefix + "/") {
+				items[0].Key = PString(*param.Prefix)
+			}
+		}
+
+		if res.FileStatuses.ContinuationToken != "" {
+			continuationToken = PString(res.FileStatuses.ContinuationToken)
+		}
+	} else {
+		err = nil
 	}
 
 	return &ListBlobsOutput{
@@ -518,7 +548,32 @@ func (b *ADLv1) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error)
 }
 
 func (b *ADLv1) RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error) {
-	return nil, syscall.ENOTSUP
+	var res BooleanResult
+
+	dest := param.Destination
+	if b.bucket != "" {
+		dest = b.bucket + "/" + dest
+	}
+
+	err := b.call(ADL1_RENAME.New().Param("destination", dest),
+		param.Source, nil, &res)
+	if err != nil {
+		return nil, err
+	}
+
+	if !res.Boolean {
+		// ADLv1 returns false if we try to rename a dir to a
+		// file, or if the rename source doesn't exist. We
+		// should have prevented renaming a dir to a file at
+		// upper layer so this is probably the former
+
+		// (the reverse, renaming a file to a directory works
+		// in ADLv1 and is the same as moving the file into
+		// the directory)
+		return nil, fuse.ENOENT
+	}
+
+	return &RenameBlobOutput{}, nil
 }
 
 func (b *ADLv1) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {

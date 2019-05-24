@@ -880,8 +880,52 @@ func (s *GoofysTest) TestRenameToExisting(t *C) {
 	t.Assert(*file2.Name, Equals, "file2")
 }
 
+func (s *GoofysTest) TestBackendListPrefix(t *C) {
+	res, err := s.cloud.ListBlobs(&ListBlobsInput{
+		Prefix:    PString("random"),
+		Delimiter: PString("/"),
+	})
+	t.Assert(err, IsNil)
+	t.Assert(len(res.Prefixes), Equals, 0)
+	t.Assert(len(res.Items), Equals, 0)
+
+	res, err = s.cloud.ListBlobs(&ListBlobsInput{
+		Prefix:    PString("empty_dir"),
+		Delimiter: PString("/"),
+	})
+	t.Assert(err, IsNil)
+	t.Assert(len(res.Prefixes), Not(Equals), 0)
+	t.Assert(*res.Prefixes[0].Prefix, Equals, "empty_dir/")
+	t.Assert(len(res.Items), Equals, 0)
+
+	res, err = s.cloud.ListBlobs(&ListBlobsInput{
+		Prefix:    PString("empty_dir/"),
+		Delimiter: PString("/"),
+	})
+	t.Assert(err, IsNil)
+	t.Assert(len(res.Prefixes), Equals, 0)
+	t.Assert(len(res.Items), Equals, 1)
+
+	res, err = s.cloud.ListBlobs(&ListBlobsInput{
+		Prefix:    PString("file1"),
+		Delimiter: PString("/"),
+	})
+	t.Assert(err, IsNil)
+	t.Assert(len(res.Prefixes), Equals, 0)
+	t.Assert(len(res.Items), Equals, 1)
+
+	res, err = s.cloud.ListBlobs(&ListBlobsInput{
+		Prefix:    PString("file1/"),
+		Delimiter: PString("/"),
+	})
+	t.Assert(err, IsNil)
+	t.Assert(len(res.Prefixes), Equals, 0)
+	t.Assert(len(res.Items), Equals, 0)
+}
+
 func (s *GoofysTest) TestRename(t *C) {
 	root := s.getRoot(t)
+
 	from, to := "dir1", "new_dir"
 	err := root.Rename(from, root, to)
 	t.Assert(err, Equals, fuse.ENOTEMPTY)
