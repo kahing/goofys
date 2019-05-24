@@ -2204,8 +2204,10 @@ func (s *GoofysTest) TestDirMTime(t *C) {
 
 	attr1, _ := dir1.GetAttributes()
 	m1 := attr1.Mtime
-	// dir1 doesn't have a dir blob, so should take root's mtime
-	t.Assert(m1, Equals, root.Attributes.Mtime)
+	if !s.cloud.Capabilities().DirBlob {
+		// dir1 doesn't have a dir blob, so should take root's mtime
+		t.Assert(m1, Equals, root.Attributes.Mtime)
+	}
 
 	time.Sleep(2 * time.Second)
 
@@ -2277,6 +2279,9 @@ func (s *GoofysTest) TestDirMTime(t *C) {
 }
 
 func (s *GoofysTest) TestDirMTimeNoTTL(t *C) {
+	if s.cloud.Capabilities().DirBlob {
+		t.Skip("Tests for behavior without dir blob")
+	}
 	// enable cheap to ensure GET dir/ will come back before LIST dir/
 	s.fs.flags.Cheap = true
 
