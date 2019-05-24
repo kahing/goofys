@@ -370,6 +370,11 @@ func nilUint32(v *uint32) uint32 {
 }
 
 func (b *AZBlob) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
+	// azure blob does not support startAfter
+	if param.StartAfter != nil {
+		return nil, syscall.ENOTSUP
+	}
+
 	c, err := b.refreshToken()
 	if err != nil {
 		return nil, err
