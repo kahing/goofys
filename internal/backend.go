@@ -239,3 +239,15 @@ func (b BlobItemOutput) String() string {
 func (b BlobPrefixOutput) String() string {
 	return fmt.Sprintf("%v", *b.Prefix)
 }
+
+type ReadSeekerCloser struct {
+	io.ReadSeeker
+}
+
+func (r *ReadSeekerCloser) Close() error {
+	if closer, ok := r.ReadSeeker.(io.Closer); ok {
+		return closer.Close()
+	} else {
+		return nil
+	}
+}

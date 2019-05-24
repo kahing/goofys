@@ -99,8 +99,6 @@ func (fh *FileHandle) mpuPartNoSpawn(buf *MBuf, part uint32, total int64, last b
 	fs.replicators.Take(1, true)
 	defer fs.replicators.Return(1)
 
-	defer buf.Free()
-
 	if part == 0 || part > 10000 {
 		return errors.New(fmt.Sprintf("invalid part number: %v", part))
 	}
@@ -648,6 +646,7 @@ func (fh *FileHandle) FlushFile() (err error) {
 		if err != nil {
 			return
 		}
+		fh.buf = nil
 	}
 
 	_, err = fh.inode.cloud.MultipartBlobCommit(fh.mpuId)

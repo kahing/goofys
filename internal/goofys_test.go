@@ -233,8 +233,13 @@ func (s *GoofysTest) setupBlobs(t *C, env map[string]io.ReadSeeker) {
 	// double check
 	for path := range env {
 		params := &HeadBlobInput{Key: path}
-		_, err := s.cloud.HeadBlob(params)
+		res, err := s.cloud.HeadBlob(params)
 		t.Assert(err, IsNil)
+		if strings.HasSuffix(path, "/") || path == "zero" {
+			t.Assert(res.Size, Equals, uint64(0))
+		} else {
+			t.Assert(res.Size, Equals, uint64(len(path)))
+		}
 	}
 }
 
