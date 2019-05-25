@@ -135,7 +135,7 @@ var ADL1_GETFILESTATUS = newADLv1Op("GET", "GETFILESTATUS")
 var ADL1_LISTSTATUS = newADLv1Op("GET", "LISTSTATUS")
 var ADL1_MKDIRS = newADLv1Op("PUT", "MKDIRS")
 var ADL1_OPEN = newADLv1Op("GET", "OPEN").Param("read", "true")
-var ADL1_RENAME = newADLv1Op("PUT", "RENAME")
+var ADL1_RENAME = newADLv1Op("PUT", "RENAME").Param("renameoptions", "OVERWRITE")
 
 type ListStatusResult struct {
 	FileStatuses struct {
@@ -459,7 +459,10 @@ func (b *ADLv1) appendToListResults(listOp ADLv1Op, path string, recursive bool,
 	path = strings.TrimRight(path, "/")
 
 	for _, i := range res.FileStatuses.FileStatus {
-		key := path + "/" + i.PathSuffix
+		key := i.PathSuffix
+		if path != "" {
+			key = path + "/" + key
+		}
 
 		if i.Type == "DIRECTORY" {
 			if recursive {
@@ -471,7 +474,7 @@ func (b *ADLv1) appendToListResults(listOp ADLv1Op, path string, recursive bool,
 					key, recursive, prefixes, items)
 			} else {
 				prefixes = append(prefixes, BlobPrefixOutput{
-					Prefix: PString(key),
+					Prefix: PString(key + "/"),
 				})
 			}
 		} else {
@@ -518,7 +521,8 @@ func (b *ADLv1) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		}
 
 		if len(prefixes) == 0 && len(items) == 0 && param.Prefix != nil {
-			// the only way we get nothing is if we are listing an empty dir
+			// the only way we get nothing is if we are listing an empty dir,
+			// because ADLv1 returns 404 if the prefix didn't exist
 			if strings.HasSuffix(*param.Prefix, "/") {
 				items = []BlobItemOutput{BlobItemOutput{
 					Key: param.Prefix,
@@ -533,6 +537,11 @@ func (b *ADLv1) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		} else if len(items) != 0 && param.Prefix != nil &&
 			strings.HasSuffix(*items[0].Key, "/") {
 			if *items[0].Key == *param.Prefix {
+				// if we list "file/", somehow we will
+				// get back pathSuffix="" which
+				// appendToListResults would massage
+				// back into "file1/", we don't want
+				// that entry
 				items = items[1:]
 			} else if *items[0].Key == (*param.Prefix + "/") {
 				items[0].Key = PString(*param.Prefix)

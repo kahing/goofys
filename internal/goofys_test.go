@@ -826,6 +826,9 @@ func (s *GoofysTest) TestRmDir(t *C) {
 }
 
 func (s *GoofysTest) TestRenamePreserveMetadata(t *C) {
+	if _, ok := s.cloud.(*ADLv1); ok {
+		t.Skip("ADLv1 doesn't support metadata")
+	}
 	if s.azurite {
 		t.Skip("https://github.com/Azure/Azurite/issues/220")
 	}
@@ -928,6 +931,15 @@ func (s *GoofysTest) TestBackendListPrefix(t *C) {
 	})
 	t.Assert(err, IsNil)
 	t.Assert(len(res.Prefixes), Equals, 0)
+	t.Assert(len(res.Items), Equals, 0)
+
+	res, err = s.cloud.ListBlobs(&ListBlobsInput{
+		Prefix:    PString("dir2/"),
+		Delimiter: PString("/"),
+	})
+	t.Assert(err, IsNil)
+	t.Assert(len(res.Prefixes), Equals, 1)
+	t.Assert(*res.Prefixes[0].Prefix, Equals, "dir2/dir3/")
 	t.Assert(len(res.Items), Equals, 0)
 }
 
@@ -1588,6 +1600,10 @@ func (s *GoofysTest) TestIssue162(t *C) {
 }
 
 func (s *GoofysTest) TestXAttrGet(t *C) {
+	if _, ok := s.cloud.(*ADLv1); ok {
+		t.Skip("ADLv1 doesn't support metadata")
+	}
+
 	_, checkETag := s.cloud.(*S3Backend)
 
 	file1, err := s.LookUpInode(t, "file1")
@@ -1683,6 +1699,10 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 }
 
 func (s *GoofysTest) TestXAttrGetCached(t *C) {
+	if _, ok := s.cloud.(*ADLv1); ok {
+		t.Skip("ADLv1 doesn't support metadata")
+	}
+
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 	s.readDirIntoCache(t, fuseops.RootInodeID)
@@ -1697,6 +1717,10 @@ func (s *GoofysTest) TestXAttrGetCached(t *C) {
 }
 
 func (s *GoofysTest) TestXAttrCopied(t *C) {
+	if _, ok := s.cloud.(*ADLv1); ok {
+		t.Skip("ADLv1 doesn't support metadata")
+	}
+
 	root := s.getRoot(t)
 
 	err := root.Rename("file1", root, "file0")
@@ -1716,6 +1740,10 @@ func (s *GoofysTest) TestXAttrCopied(t *C) {
 }
 
 func (s *GoofysTest) TestXAttrRemove(t *C) {
+	if _, ok := s.cloud.(*ADLv1); ok {
+		t.Skip("ADLv1 doesn't support metadata")
+	}
+
 	in, err := s.LookUpInode(t, "file1")
 	t.Assert(err, IsNil)
 
@@ -1730,6 +1758,10 @@ func (s *GoofysTest) TestXAttrRemove(t *C) {
 }
 
 func (s *GoofysTest) TestXAttrSet(t *C) {
+	if _, ok := s.cloud.(*ADLv1); ok {
+		t.Skip("ADLv1 doesn't support metadata")
+	}
+
 	in, err := s.LookUpInode(t, "file1")
 	t.Assert(err, IsNil)
 
@@ -2325,6 +2357,9 @@ func (s *GoofysTest) TestIssue326(t *C) {
 }
 
 func (s *GoofysTest) TestSlurpFileAndDir(t *C) {
+	if _, ok := s.fs.cloud.(*S3Backend); !ok {
+		t.Skip("only for S3")
+	}
 	prefix := "TestSlurpFileAndDir/"
 	// fileAndDir is both a file and a directory, and we are
 	// slurping them together as part of our listing optimization
