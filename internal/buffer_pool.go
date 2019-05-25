@@ -115,6 +115,8 @@ func (pool *BufferPool) RequestMultiple(size uint64, block bool) (buffers [][]by
 		pool.recomputeBufferLimit()
 	}
 
+	bufferLog.Debugf("requesting %v", size)
+
 	for pool.numBuffers+uint64(nPages) > pool.computedMaxbuffers {
 		if block {
 			if pool.numBuffers == 0 {
@@ -151,6 +153,7 @@ func (pool *BufferPool) MaybeGC() {
 }
 
 func (pool *BufferPool) Free(buf []byte) {
+	bufferLog.Debugf("returning %v", len(buf))
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
@@ -313,6 +316,11 @@ func (mb *MBuf) WriteFrom(r io.Reader) (n int, err error) {
 	return
 }
 
+func (mb *MBuf) Close() error {
+	mb.Free()
+	return nil
+}
+
 func (mb *MBuf) Free() {
 	for _, b := range mb.buffers {
 		mb.pool.Free(b)
@@ -443,6 +451,8 @@ func (b *Buffer) Read(p []byte) (n int, err error) {
 }
 
 func (b *Buffer) Close() (err error) {
+	bufferLog.Debugf("Buffer.Close()")
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

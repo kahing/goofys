@@ -16,6 +16,7 @@ package internal
 
 import (
 	"fmt"
+	"io"
 	"net/url"
 	"strconv"
 	"sync"
@@ -121,6 +122,10 @@ func (s *GCS3) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlo
 func (s *GCS3) uploadPart(param *MultipartBlobAddInput, totalSize uint64, last bool) (etag *string, err error) {
 	atomic.AddUint32(&param.Commit.NumParts, 1)
 
+	if closer, ok := param.Body.(io.Closer); ok {
+		defer closer.Close()
+	}
+
 	// the mpuId serves as authentication token so
 	// technically we don't need to sign this anymore and
 	// can just use a plain HTTP request, but going
@@ -185,7 +190,9 @@ func (s *GCS3) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAdd
 			return nil, err
 		}
 	}
-	commitData.Prev = param
+	copy := *param
+	commitData.Prev = &copy
+	param.Body = nil
 
 	return &MultipartBlobAddOutput{}, nil
 }

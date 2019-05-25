@@ -193,8 +193,8 @@ func retryableHttpClient(c *http.Client, oauth bool) *retryablehttp.Client {
 			}
 		},
 		ResponseLogHook: func(_ retryablehttp.Logger, r *http.Response) {
-			s3Log.Debugf("%v %v %v %v", r.Request.Method, r.Request.URL,
-				r.Header.Get(ADL1_REQUEST_ID), r.Status)
+			s3Log.Debugf("%v %v %v %v %v", r.Request.Method, r.Request.URL,
+				r.Header.Get(ADL1_REQUEST_ID), r.Status, r.Header)
 		},
 	}
 }
@@ -308,42 +308,43 @@ func (b *ADLv1) call(op ADLv1Op, path string, arg interface{}, res interface{}) 
 	endpoint.Path += path
 	endpoint.RawQuery = op.params.Encode()
 
-	var body ReadSeekerCloser
+	var body io.ReadSeeker
 	var err error
 
 	if arg != nil {
 		if r, ok := arg.(io.ReadSeeker); ok {
-			body = ReadSeekerCloser{r}
+			body = r
+			// retryablehttp doesn't close the request body
+			if closer, ok := body.(io.Closer); ok {
+				defer func() {
+					err := closer.Close()
+					if err != nil {
+						s3Log.Errorf("%v close: %v", endpoint.String(), err)
+					}
+				}()
+			}
+
 		} else {
 			buf, err := json.Marshal(arg)
 			if err != nil {
 				s3Log.Errorf("json error: %v", err)
 				return fuse.EINVAL
 			}
-			body = ReadSeekerCloser{bytes.NewReader(buf)}
+			body = bytes.NewReader(buf)
 		}
 	} else {
-		body = ReadSeekerCloser{bytes.NewReader([]byte(""))}
+		body = bytes.NewReader([]byte(""))
 	}
 
 	req, err := retryablehttp.NewRequest(op.method, endpoint.String(), body)
 	if err != nil {
 		s3Log.Errorf("NewRequest error: %v", err)
-		body.Close()
 		return fuse.EINVAL
 	}
 
 	req.Header = op.headers
 	req.Header.Add(ADL1_REQUEST_ID, uuid.New().String())
 	var resp *http.Response
-
-	// retryablehttp doesn't close the reader
-	defer func() {
-		err := body.Close()
-		if err != nil {
-			s3Log.Errorf("%v close: %v", endpoint.String(), err)
-		}
-	}()
 
 	var i int
 	for i = 0; i < 10; i++ {
@@ -669,6 +670,7 @@ func (b *ADLv1) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 	// the context of GetBlobOutput
 
 	var contentType *string
+	// not very useful since ADLv1 always return application/octet-stream
 	if val, ok := resp.Header["Content-Type"]; ok && len(val) != 0 {
 		contentType = &val[len(val)-1]
 	}
@@ -771,7 +773,9 @@ func (b *ADLv1) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAd
 		}
 	}
 	commitData.Size += param.Size
-	commitData.Prev = param
+	copy := *param
+	commitData.Prev = &copy
+	param.Body = nil
 
 	return &MultipartBlobAddOutput{}, nil
 }
