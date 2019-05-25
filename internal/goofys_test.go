@@ -1180,6 +1180,9 @@ func (s *GoofysTest) TestExplicitDirAndCheap(t *C) {
 }
 
 func (s *GoofysTest) testExplicitDir(t *C) {
+	if s.cloud.Capabilities().DirBlob {
+		t.Skip("only for backends without dir blob")
+	}
 
 	_, err := s.LookUpInode(t, "file1")
 	t.Assert(err, IsNil)
@@ -1319,6 +1322,11 @@ func (s *GoofysTest) TestGetMimeType(t *C) {
 }
 
 func (s *GoofysTest) TestPutMimeType(t *C) {
+	if _, ok := s.cloud.(*ADLv1); ok {
+		// ADLv1 doesn't support content-type
+		t.Skip("ADLv1 doesn't support content-type")
+	}
+
 	s.fs.flags.UseContentType = true
 
 	root := s.getRoot(t)
@@ -1326,7 +1334,7 @@ func (s *GoofysTest) TestPutMimeType(t *C) {
 	jpg2 := "test2.jpg"
 	file := "test"
 
-	s.testWriteFile(t, jpg, 0, 0)
+	s.testWriteFile(t, jpg, 10, 128)
 
 	resp, err := s.cloud.HeadBlob(&HeadBlobInput{Key: jpg})
 	t.Assert(err, IsNil)
