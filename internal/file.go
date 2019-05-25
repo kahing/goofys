@@ -103,13 +103,22 @@ func (fh *FileHandle) mpuPartNoSpawn(buf *MBuf, part uint32, total int64, last b
 		return errors.New(fmt.Sprintf("invalid part number: %v", part))
 	}
 
-	_, err = fh.inode.cloud.MultipartBlobAdd(&MultipartBlobAddInput{
+	mpu := MultipartBlobAddInput{
 		Commit:     fh.mpuId,
 		PartNumber: part,
 		Body:       buf,
 		Size:       uint64(buf.Len()),
 		Last:       last,
-	})
+	}
+
+	defer func() {
+		if mpu.Body != nil {
+			bufferLog.Debugf("Free %T", buf)
+			buf.Free()
+		}
+	}()
+
+	_, err = fh.inode.cloud.MultipartBlobAdd(&mpu)
 
 	return
 }
