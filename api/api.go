@@ -52,6 +52,11 @@ type Config struct {
 	AZAccountName string
 	AZAccountKey  string
 
+	// Azure Datalake v1
+	ADClientID     string
+	ADClientSecret string
+	ADTenantID     string
+
 	// Tuning
 	Cheap        bool
 	ExplicitDir  bool

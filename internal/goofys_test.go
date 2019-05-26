@@ -319,14 +319,14 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		t.Assert(s.cloud, NotNil)
 	} else if cloud == "adlv1" {
 		flags.Endpoint = os.Getenv("ENDPOINT")
-		flags.ADLv1ClientID = os.Getenv("ADLV1_CLIENT_ID")
-		flags.ADLv1ClientCredential = os.Getenv("ADLV1_CLIENT_CREDENTIAL")
-		flags.ADLv1TenantID = os.Getenv("ADLV1_TENANT_ID")
+		flags.ADClientID = os.Getenv("ADLV1_CLIENT_ID")
+		flags.ADClientSecret = os.Getenv("ADLV1_CLIENT_CREDENTIAL")
+		flags.ADTenantID = os.Getenv("ADLV1_TENANT_ID")
 
 		t.Assert(flags.Endpoint, Not(Equals), "")
-		t.Assert(flags.ADLv1ClientID, Not(Equals), "")
-		t.Assert(flags.ADLv1ClientCredential, Not(Equals), "")
-		t.Assert(flags.ADLv1TenantID, Not(Equals), "")
+		t.Assert(flags.ADClientID, Not(Equals), "")
+		t.Assert(flags.ADClientSecret, Not(Equals), "")
+		t.Assert(flags.ADTenantID, Not(Equals), "")
 
 		s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
 		t.Assert(s.fs, NotNil)

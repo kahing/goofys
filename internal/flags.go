@@ -197,7 +197,7 @@ func NewApp() (app *cli.App) {
 			},
 
 			/////////////////////////
-			// Azure
+			// Azure Blob
 			/////////////////////////
 
 			cli.StringFlag{
@@ -210,6 +210,28 @@ func NewApp() (app *cli.App) {
 				Name:  "azure-account-key",
 				Value: "",
 				Usage: "The Azure accout key to use",
+			},
+
+			/////////////////////////
+			// Azure Data Lake v1
+			/////////////////////////
+
+			cli.StringFlag{
+				Name:  "ad-client-id",
+				Value: "",
+				Usage: "Azure Active Directory client ID",
+			},
+
+			cli.StringFlag{
+				Name:  "ad-client-secret",
+				Value: "",
+				Usage: "Azure Active Directory client secret",
+			},
+
+			cli.StringFlag{
+				Name:  "ad-directory-id",
+				Value: "",
+				Usage: "Azure Active Directory (tenant) ID",
 			},
 
 			/////////////////////////
@@ -324,9 +346,9 @@ type FlagStorage struct {
 	AZAccountKey  string
 
 	// Azure Datalake v1
-	ADLv1ClientID         string
-	ADLv1ClientCredential string
-	ADLv1TenantID         string
+	ADClientID     string
+	ADClientSecret string
+	ADTenantID     string
 
 	// Tuning
 	Cheap        bool
@@ -407,6 +429,10 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		// Azure:
 		AZAccountName: c.String("azure-account-name"),
 		AZAccountKey:  c.String("azure-account-key"),
+
+		ADClientID:     c.String("ad-client-id"),
+		ADClientSecret: c.String("ad-client-secret"),
+		ADTenantID:     c.String("ad-directory-id"),
 
 		// Debugging,
 		DebugFuse:  c.Bool("debug_fuse"),
