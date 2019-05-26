@@ -212,11 +212,19 @@ func (c RetryClient) RoundTrip(r *http.Request) (*http.Response, error) {
 	return c.client.Do(req)
 }
 
+func IsADLv1Endpoint(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+	return strings.HasSuffix(u.Hostname(), ".azuredatalakestore.net")
+}
+
 func NewADLv1(fs *Goofys, bucket string, flags *FlagStorage) *ADLv1 {
 	conf := clientcredentials.Config{
-		ClientID:       flags.ADLv1ClientID,
-		ClientSecret:   flags.ADLv1ClientCredential,
-		TokenURL:       fmt.Sprintf("https://login.microsoftonline.com/%v/oauth2/token", flags.ADLv1TenantID),
+		ClientID:       flags.ADClientID,
+		ClientSecret:   flags.ADClientSecret,
+		TokenURL:       fmt.Sprintf("https://login.microsoftonline.com/%v/oauth2/token", flags.ADTenantID),
 		EndpointParams: url.Values{"resource": {"https://management.core.windows.net/"}},
 	}
 	conf.AuthStyle = oauth2.AuthStyleInParams

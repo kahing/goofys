@@ -136,7 +136,11 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 			flags.Endpoint = AZBlobEndpoint
 		}
 		fs.cloud = NewAZBlob(fs, bucket, flags)
-	} else if flags.ADLv1ClientID != "" {
+	} else if flags.Endpoint != "" && IsADLv1Endpoint(flags.Endpoint) {
+		if flags.ADClientID == "" || flags.ADClientSecret == "" || flags.ADTenantID == "" {
+			log.Errorf("All of --ad-client-id, --ad-client-secret, and --ad-directory-id must be set")
+			return nil
+		}
 		fs.cloud = NewADLv1(fs, bucket, flags)
 	} else if fs.gcs {
 		fs.cloud = NewGCS3(fs, bucket, awsConfig, flags)
