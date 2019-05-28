@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -53,9 +54,10 @@ type ADLv1 struct {
 }
 
 type ADLv1Op struct {
-	method  string
-	params  url.Values
-	headers http.Header
+	method   string
+	params   url.Values
+	headers  http.Header
+	rawError bool
 }
 
 func newADLv1Op(method, op string) ADLv1Op {
@@ -70,12 +72,26 @@ func (op ADLv1Op) String() string {
 	return op.params.Encode()
 }
 
+type ADLv1Err struct {
+	RemoteException struct {
+		Exception     string
+		Message       string
+		JavaClassName string
+	}
+	resp *http.Response
+}
+
+func (err ADLv1Err) Error() string {
+	return fmt.Sprintf("%v %v", err.resp.Status, err.RemoteException)
+}
+
 func (op ADLv1Op) New() ADLv1Op {
 	// stupid golang doesn't have an easy way to copy map
 	res := ADLv1Op{
-		method:  op.method,
-		params:  url.Values{},
-		headers: http.Header{},
+		method:   op.method,
+		params:   url.Values{},
+		headers:  http.Header{},
+		rawError: op.rawError,
 	}
 
 	for k, v := range op.params {
@@ -110,6 +126,11 @@ func (op ADLv1Op) Header(k, v string) ADLv1Op {
 	return op
 }
 
+func (op ADLv1Op) RawError() ADLv1Op {
+	op.rawError = true
+	return op
+}
+
 const ADL1_REQUEST_ID = "X-Ms-Request-Id"
 
 // APPEND and CREATE additionally supports "append=true" and
@@ -125,7 +146,13 @@ var ADL1_ABORT = newADLv1Op("POST", "APPEND").
 	Param("syncFlag", "CLOSE")
 var ADL1_APPEND = newADLv1Op("POST", "APPEND").
 	Param("append", "true").
-	Header("Expect", "100-continue")
+	Param("syncFlag", "DATA").
+	Header("Expect", "100-continue").
+	RawError()
+var ADL1_CLOSE = newADLv1Op("POST", "APPEND").
+	Param("append", "true").
+	Param("syncFlag", "CLOSE").
+	RawError()
 var ADL1_CREATE = newADLv1Op("PUT", "CREATE").
 	Param("write", "true").
 	Param("overwrite", "true").
@@ -149,7 +176,6 @@ type BooleanResult struct {
 
 type ADLv1MultipartBlobCommitInput struct {
 	Size uint64
-	Prev *MultipartBlobAddInput
 }
 
 func retryableHttpClient(c *http.Client, oauth bool) *retryablehttp.Client {
@@ -194,7 +220,7 @@ func retryableHttpClient(c *http.Client, oauth bool) *retryablehttp.Client {
 		},
 		ResponseLogHook: func(_ retryablehttp.Logger, r *http.Response) {
 			s3Log.Debugf("%v %v %v %v %v", r.Request.Method, r.Request.URL,
-				r.Header.Get(ADL1_REQUEST_ID), r.Status, r.Header)
+				r.Request.Header.Get(ADL1_REQUEST_ID), r.Status, r.Header)
 		},
 	}
 }
@@ -241,7 +267,20 @@ func NewADLv1(fs *Goofys, bucket string, flags *FlagStorage) *ADLv1 {
 
 	ctx := context.WithValue(context.TODO(), oauth2.HTTPClient,
 		&http.Client{
-			Transport: RetryClient{retryableHttpClient(&http.Client{}, true)},
+			Transport: RetryClient{retryableHttpClient(&http.Client{
+				Transport: &http.Transport{
+					Proxy: http.ProxyFromEnvironment,
+					DialContext: (&net.Dialer{
+						Timeout:   30 * time.Second,
+						KeepAlive: 30 * time.Second,
+					}).DialContext,
+					MaxIdleConns:          100,
+					IdleConnTimeout:       90 * time.Second,
+					MaxIdleConnsPerHost:   100,
+					TLSHandshakeTimeout:   3 * time.Second,
+					ExpectContinueTimeout: 1 * time.Second,
+				},
+			}, true)},
 		})
 	tokenSource := oauth2.ReuseTokenSource(nil, conf.TokenSource(ctx))
 	oauth2Client := oauth2.NewClient(context.TODO(), tokenSource)
@@ -268,7 +307,7 @@ func toOauth2Error(err error) *oauth2.RetrieveError {
 	return nil
 }
 
-func mapADLv1Error(resp *http.Response, err error) error {
+func mapADLv1Error(op *ADLv1Op, resp *http.Response, err error) error {
 	if err != nil {
 		oauth2Err := toOauth2Error(err)
 		if oauth2Err != nil {
@@ -283,6 +322,26 @@ func mapADLv1Error(resp *http.Response, err error) error {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if resp.StatusCode == http.StatusTemporaryRedirect {
 			return nil
+		}
+		if resp.StatusCode >= 400 && op != nil && op.rawError {
+			var adlErr ADLv1Err
+			body, bodyErr := ioutil.ReadAll(resp.Body)
+			if bodyErr == nil {
+				decoder := json.NewDecoder(bytes.NewReader(body))
+				jsonErr := decoder.Decode(&adlErr)
+
+				if jsonErr == nil {
+					s3Log.Errorf("%v %v %v", resp.Request.Method, resp.Request.URL.String(), adlErr)
+					adlErr.resp = resp
+					return adlErr
+				} else {
+					s3Log.Errorf("%v %v %v", resp.Request.Method, resp.Request.URL.String(), body)
+				}
+			} else {
+				// we cannot read the error body,
+				// nothing much we can do
+			}
+
 		}
 		err = mapHttpError(resp.StatusCode)
 		if err != nil {
@@ -357,16 +416,8 @@ func (b *ADLv1) call(op ADLv1Op, path string, arg interface{}, res interface{}) 
 	var i int
 	for i = 0; i < 10; i++ {
 		resp, err = b.client.Do(req)
-		err = mapADLv1Error(resp, err)
+		err = mapADLv1Error(&op, resp, err)
 		if err != nil {
-			if err == fuse.EINVAL && resp != nil {
-				body, bodyErr := ioutil.ReadAll(resp.Body)
-				if bodyErr != nil {
-					return bodyErr
-				}
-
-				s3Log.Errorf("%v", string(body))
-			}
 			return err
 		}
 		if resp.StatusCode == http.StatusTemporaryRedirect {
@@ -396,12 +447,19 @@ func (b *ADLv1) call(op ADLv1Op, path string, arg interface{}, res interface{}) 
 		} else if reader, ok := res.(*io.Reader); ok {
 			*reader = resp.Body
 		} else {
+			defer resp.Body.Close()
+
 			decoder := json.NewDecoder(resp.Body)
 			err = decoder.Decode(res)
 			if err != nil {
 				log.Errorf("adlv1 api %v decode error: %v", op, err)
 			}
 		}
+	} else {
+		// consume the stream so we can re-use the connection
+		// for keep-alive
+		defer resp.Body.Close()
+		io.Copy(ioutil.Discard, resp.Body)
 	}
 
 	return err
@@ -757,19 +815,46 @@ func (b *ADLv1) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBl
 	}, nil
 }
 
-func (b *ADLv1) uploadPart(param *MultipartBlobAddInput, offset uint64, last bool) error {
+func (b *ADLv1) uploadPart(param *MultipartBlobAddInput, offset uint64) error {
 	append := ADL1_APPEND.New().
 		Param("leaseid", *param.Commit.UploadId).
 		Param("filesessionid", *param.Commit.UploadId).
 		Param("offset", strconv.FormatUint(offset-param.Size, 10))
 
-	if last {
-		append.Param("syncFlag", "CLOSE")
-	} else {
-		append.Param("syncFlag", "DATA")
-	}
+	err := b.call(append, *param.Commit.Key, param.Body, nil)
+	if err != nil {
+		if adlErr, ok := err.(ADLv1Err); ok {
+			if adlErr.resp.StatusCode == 404 {
+				// ADLv1 APPEND returns 404 if either:
+				// the request payload is too large:
+				// https://social.msdn.microsoft.com/Forums/azure/en-US/48e86ce8-79f8-4412-838f-8e2a60b5f387/notfound-error-on-call-to-data-lake-store-create?forum=AzureDataLake
 
-	return b.call(append, *param.Commit.Key, param.Body, nil)
+				// or if a second concurrent stream is
+				// created. The behavior is odd: seems
+				// like the first stream will error
+				// but the latter stream works fine
+				err = fuse.EINVAL
+				return err
+			} else if adlErr.resp.StatusCode == 400 &&
+				adlErr.RemoteException.Exception == "BadOffsetException" {
+				appendErr := b.detectTransientError(param, offset)
+				if appendErr == nil {
+					return nil
+				}
+			}
+			err = mapADLv1Error(nil, adlErr.resp, nil)
+		}
+	}
+	return err
+}
+
+func (b *ADLv1) detectTransientError(param *MultipartBlobAddInput, offset uint64) error {
+	append := ADL1_APPEND.New().
+		Param("leaseid", *param.Commit.UploadId).
+		Param("filesessionid", *param.Commit.UploadId).
+		Param("offset", strconv.FormatUint(offset, 10))
+	append.rawError = false
+	return b.call(append, *param.Commit.Key, nil, nil)
 }
 
 func (b *ADLv1) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error) {
@@ -783,16 +868,11 @@ func (b *ADLv1) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAd
 		panic("Incorrect commit data type")
 	}
 
-	if commitData.Prev != nil {
-		err := b.uploadPart(commitData.Prev, commitData.Size, false)
-		if err != nil {
-			return nil, err
-		}
-	}
 	commitData.Size += param.Size
-	copy := *param
-	commitData.Prev = &copy
-	param.Body = nil
+	err := b.uploadPart(param, commitData.Size)
+	if err != nil {
+		return nil, err
+	}
 
 	return &MultipartBlobAddOutput{}, nil
 }
@@ -814,11 +894,19 @@ func (b *ADLv1) MultipartBlobCommit(param *MultipartBlobCommitInput) (*Multipart
 		panic("Incorrect commit data type")
 	}
 
-	if commitData.Prev == nil {
-		panic("commit should include last part")
-	}
+	close := ADL1_CLOSE.New().
+		Param("leaseid", *param.UploadId).
+		Param("filesessionid", *param.UploadId).
+		Param("offset", strconv.FormatUint(commitData.Size, 10))
 
-	err := b.uploadPart(commitData.Prev, commitData.Size, true)
+	err := b.call(close, *param.Key, nil, nil)
+	if err == fuse.ENOENT {
+		// either the blob was concurrently deleted or we got
+		// another CREATE which broke our lease. Either way
+		// technically we did finish uploading data so swallow
+		// the error
+		err = nil
+	}
 	if err != nil {
 		return nil, err
 	}
