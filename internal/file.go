@@ -140,7 +140,7 @@ func (fh *FileHandle) mpuPart(buf *MBuf, part uint32, total int64) {
 	err := fh.mpuPartNoSpawn(buf, part, total, false)
 	if err != nil {
 		if fh.lastWriteError == nil {
-			fh.lastWriteError = mapAwsError(err)
+			fh.lastWriteError = err
 		}
 	}
 }
@@ -191,6 +191,9 @@ func (fh *FileHandle) uploadCurrentBuf(parallel bool) (err error) {
 		go fh.mpuPart(buf, part, fh.nextWriteOffset)
 	} else {
 		err = fh.mpuPartNoSpawn(buf, part, fh.nextWriteOffset, false)
+		if fh.lastWriteError == nil {
+			fh.lastWriteError = err
+		}
 	}
 
 	return
