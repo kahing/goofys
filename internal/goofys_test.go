@@ -245,9 +245,7 @@ func (s *GoofysTest) setupBlobs(t *C, env map[string]io.ReadSeeker) {
 
 func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker, public bool) {
 	if public {
-		if s3, ok := s.fs.cloud.(*S3Backend); ok {
-			s3.flags.ACL = "public-read"
-		}
+		s.fs.flags.ACL = "public-read"
 	}
 	_, err := s.cloud.MakeBucket(&MakeBucketInput{})
 	t.Assert(err, IsNil)
@@ -295,7 +293,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
 		t.Assert(s.fs, NotNil)
 
-		s.cloud = NewS3(s.fs, bucket, s.awsConfig, flags)
+		s.cloud = NewS3(bucket, s.awsConfig, flags)
 		if s3, ok := s.cloud.(*S3Backend); ok {
 			s3.aws = hasEnv("AWS")
 
@@ -311,11 +309,16 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		flags.Endpoint = os.Getenv("ENDPOINT")
 		flags.AZAccountName = os.Getenv("ACCOUNT_NAME")
 		flags.AZAccountKey = os.Getenv("ACCOUNT_KEY")
+		if flags.Endpoint == AzuriteEndpoint {
+			s.azurite = true
+			s.emulator = true
+			s.waitForEmulator(t)
+		}
 
 		s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
 		t.Assert(s.fs, NotNil)
 
-		s.cloud = NewAZBlob(s.fs, bucket, flags)
+		s.cloud = NewAZBlob(bucket, flags)
 		t.Assert(s.cloud, NotNil)
 	} else if cloud == "adlv1" {
 		flags.Endpoint = os.Getenv("ENDPOINT")
@@ -331,7 +334,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
 		t.Assert(s.fs, NotNil)
 
-		s.cloud = NewADLv1(s.fs, bucket, flags)
+		s.cloud = NewADLv1(bucket, flags)
 		t.Assert(s.cloud, NotNil)
 	} else {
 		t.Fatal("Unsupported backend")
@@ -1008,7 +1011,7 @@ func (s *GoofysTest) TestRename(t *C) {
 		t.Assert(err, Equals, fuse.ENOENT)
 	}
 
-	if s3, ok := s.fs.cloud.(*S3Backend); ok {
+	if s3, ok := s.cloud.(*S3Backend); ok {
 		if !hasEnv("GCS") {
 			// not really rename but can be used by rename
 			from, to = s.fs.bucket+"/file2", "new_file"
@@ -1318,22 +1321,22 @@ func (s *GoofysTest) TestIssue69Fuse(t *C) {
 
 func (s *GoofysTest) TestGetMimeType(t *C) {
 	// option to use mime type not turned on
-	mime := s.fs.getMimeType("foo.css")
+	mime := s.fs.flags.GetMimeType("foo.css")
 	t.Assert(mime, IsNil)
 
 	s.fs.flags.UseContentType = true
 
-	mime = s.fs.getMimeType("foo.css")
+	mime = s.fs.flags.GetMimeType("foo.css")
 	t.Assert(mime, NotNil)
 	t.Assert(*mime, Equals, "text/css")
 
-	mime = s.fs.getMimeType("foo")
+	mime = s.fs.flags.GetMimeType("foo")
 	t.Assert(mime, IsNil)
 
-	mime = s.fs.getMimeType("foo.")
+	mime = s.fs.flags.GetMimeType("foo.")
 	t.Assert(mime, IsNil)
 
-	mime = s.fs.getMimeType("foo.unknownExtension")
+	mime = s.fs.flags.GetMimeType("foo.unknownExtension")
 	t.Assert(mime, IsNil)
 }
 
@@ -1385,10 +1388,10 @@ func (s *GoofysTest) TestPutMimeType(t *C) {
 
 func (s *GoofysTest) TestBucketPrefixSlash(t *C) {
 	s.fs = NewGoofys(context.Background(), s.fs.bucket+":dir2", s.awsConfig, s.fs.flags)
-	t.Assert(s.fs.prefix, Equals, "dir2/")
+	t.Assert(s.getRoot(t).dir.mountPrefix, Equals, "dir2/")
 
 	s.fs = NewGoofys(context.Background(), s.fs.bucket+":dir2///", s.awsConfig, s.fs.flags)
-	t.Assert(s.fs.prefix, Equals, "dir2/")
+	t.Assert(s.getRoot(t).dir.mountPrefix, Equals, "dir2/")
 }
 
 func (s *GoofysTest) TestFuseWithPrefix(t *C) {
@@ -1441,7 +1444,7 @@ func (s *GoofysTest) anonymous(t *C) {
 	// On azure this fails because we re-create the bucket with
 	// the same name right away. And well anonymous access is not
 	// implemented yet in our azure backend anyway
-	if _, ok := s.fs.cloud.(*S3Backend); !ok {
+	if _, ok := s.cloud.(*S3Backend); !ok {
 		t.Skip("only for S3")
 	}
 
@@ -1457,12 +1460,12 @@ func (s *GoofysTest) anonymous(t *C) {
 	// we are using anonymous credentials
 	s.awsConfig = s.selectTestConfig(t)
 	s.awsConfig.Credentials = credentials.AnonymousCredentials
-	s.fs.cloud = NewS3(s.fs, s.fs.bucket, s.awsConfig, s.fs.flags)
+	s.fs.inodes[fuseops.RootInodeID].dir.cloud = NewS3(s.fs.bucket, s.awsConfig, s.fs.flags)
 }
 
 func (s *GoofysTest) disableS3() {
 	time.Sleep(1 * time.Second) // wait for any background goroutines to finish
-	s.fs.cloud = nil
+	s.fs.inodes[fuseops.RootInodeID].dir.cloud = nil
 }
 
 func (s *GoofysTest) TestWriteAnonymous(t *C) {
@@ -1905,18 +1908,18 @@ func (s *GoofysTest) TestRenameBeforeCloseFuse(t *C) {
 func (s *GoofysTest) TestInodeInsert(t *C) {
 	root := s.getRoot(t)
 
-	in := NewInode(s.fs, root, aws.String("2"), aws.String("2"))
+	in := NewInode(s.fs, root, aws.String("2"))
 	in.Attributes = InodeAttributes{}
 	root.insertChild(in)
 	t.Assert(*root.dir.Children[0].Name, Equals, "2")
 
-	in = NewInode(s.fs, root, aws.String("1"), aws.String("1"))
+	in = NewInode(s.fs, root, aws.String("1"))
 	in.Attributes = InodeAttributes{}
 	root.insertChild(in)
 	t.Assert(*root.dir.Children[0].Name, Equals, "1")
 	t.Assert(*root.dir.Children[1].Name, Equals, "2")
 
-	in = NewInode(s.fs, root, aws.String("4"), aws.String("4"))
+	in = NewInode(s.fs, root, aws.String("4"))
 	in.Attributes = InodeAttributes{}
 	root.insertChild(in)
 	t.Assert(*root.dir.Children[0].Name, Equals, "1")
@@ -1948,7 +1951,7 @@ func (s *GoofysTest) TestInodeInsert(t *C) {
 }
 
 func (s *GoofysTest) TestReadDirSlurpSubtree(t *C) {
-	if _, ok := s.fs.cloud.(*S3Backend); !ok {
+	if _, ok := s.cloud.(*S3Backend); !ok {
 		t.Skip("only for S3")
 	}
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
@@ -2131,7 +2134,7 @@ func (s *GoofysTest) TestRenameOverwrite(t *C) {
 
 func (s *GoofysTest) TestRead403(t *C) {
 	// anonymous only works in S3 for now
-	if _, ok := s.fs.cloud.(*S3Backend); !ok {
+	if _, ok := s.cloud.(*S3Backend); !ok {
 		t.Skip("only for S3")
 	}
 
@@ -2146,8 +2149,7 @@ func (s *GoofysTest) TestRead403(t *C) {
 	t.Assert(err, IsNil)
 
 	s.awsConfig.Credentials = credentials.AnonymousCredentials
-	s.fs.cloud = NewS3(s.fs, s.fs.bucket, s.awsConfig, s.fs.flags)
-	fh.inode.cloud = s.fs.cloud
+	fh.inode.Parent.dir.cloud = NewS3(s.fs.bucket, s.awsConfig, s.fs.flags)
 
 	// fake enable read-ahead
 	fh.seqReadAmount = uint64(READAHEAD_CHUNK)
@@ -2361,7 +2363,7 @@ func (s *GoofysTest) TestIssue326(t *C) {
 }
 
 func (s *GoofysTest) TestSlurpFileAndDir(t *C) {
-	if _, ok := s.fs.cloud.(*S3Backend); !ok {
+	if _, ok := s.cloud.(*S3Backend); !ok {
 		t.Skip("only for S3")
 	}
 	prefix := "TestSlurpFileAndDir/"
@@ -2408,7 +2410,7 @@ func (s *GoofysTest) TestSlurpFileAndDir(t *C) {
 }
 
 func (s *GoofysTest) TestAzureDirBlob(t *C) {
-	if _, ok := s.fs.cloud.(*AZBlob); !ok {
+	if _, ok := s.cloud.(*AZBlob); !ok {
 		t.Skip("only for Azure blob")
 	}
 
@@ -2486,4 +2488,329 @@ func (s *GoofysTest) TestAzureDirBlob(t *C) {
 	t.Assert(err, IsNil)
 
 	s.assertEntries(t, in, []string{"dir2", "dir3", "dir3,", "dir345_is_a_file"})
+}
+
+func (s *GoofysTest) newBackend(t *C, bucket string) (cloud StorageBackend) {
+	switch s.cloud.(type) {
+	case *S3Backend:
+		cloud = NewS3(bucket, s.awsConfig, s.fs.flags)
+		if s3, ok := cloud.(*S3Backend); ok {
+			s3.aws = hasEnv("AWS")
+
+			if !hasEnv("MINIO") {
+				s3.Handlers.Sign.Clear()
+				s3.Handlers.Sign.PushBack(SignV2)
+				s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
+			}
+		}
+	case *AZBlob:
+		cloud = NewAZBlob(bucket, s.fs.flags)
+	case *ADLv1:
+		cloud = NewADLv1(bucket, s.fs.flags)
+	default:
+		t.Fatal("unknown backend")
+	}
+
+	_, err := cloud.MakeBucket(&MakeBucketInput{})
+	t.Assert(err, IsNil)
+
+	return
+}
+
+func (s *GoofysTest) TestVFS(t *C) {
+	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
+	cloud2 := s.newBackend(t, bucket)
+
+	// "mount" this 2nd cloud
+	in, err := s.LookUpInode(t, "dir4")
+	t.Assert(in, NotNil)
+	t.Assert(err, IsNil)
+
+	in.dir.cloud = cloud2
+	in.dir.mountPrefix = "cloud2Prefix/"
+
+	rootCloud, rootPath := in.cloud()
+	t.Assert(rootCloud, NotNil)
+	t.Assert(rootCloud == cloud2, Equals, true)
+	t.Assert(rootPath, Equals, "cloud2Prefix")
+
+	_, fh := in.Create("testfile")
+	err = fh.FlushFile()
+	t.Assert(err, IsNil)
+
+	resp, err := cloud2.GetBlob(&GetBlobInput{Key: "cloud2Prefix/testfile"})
+	t.Assert(err, IsNil)
+	defer resp.Body.Close()
+
+	err = s.getRoot(t).Rename("file1", in, "file2")
+	t.Assert(err, Equals, syscall.EINVAL)
+
+	_, err = in.MkDir("subdir")
+	t.Assert(err, IsNil)
+
+	resp, err = cloud2.GetBlob(&GetBlobInput{Key: "cloud2Prefix/subdir/"})
+	t.Assert(err, IsNil)
+	defer resp.Body.Close()
+
+	subdir, err := s.LookUpInode(t, "dir4/subdir")
+	t.Assert(err, IsNil)
+	t.Assert(subdir, NotNil)
+	t.Assert(subdir.dir, NotNil)
+	t.Assert(subdir.dir.cloud, IsNil)
+
+	subdirCloud, subdirPath := subdir.cloud()
+	t.Assert(subdirCloud, NotNil)
+	t.Assert(subdirCloud == cloud2, Equals, true)
+	t.Assert(subdirPath, Equals, "cloud2Prefix/subdir")
+
+	// create another file inside subdir to make sure that our
+	// mount check is correct for dir inside the root
+	_, fh = subdir.Create("testfile2")
+	err = fh.FlushFile()
+	t.Assert(err, IsNil)
+
+	resp, err = cloud2.GetBlob(&GetBlobInput{Key: "cloud2Prefix/subdir/testfile2"})
+	t.Assert(err, IsNil)
+	defer resp.Body.Close()
+
+	err = subdir.Rename("testfile2", in, "testfile2")
+	t.Assert(err, IsNil)
+
+	_, err = cloud2.GetBlob(&GetBlobInput{Key: "cloud2Prefix/subdir/testfile2"})
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	resp, err = cloud2.GetBlob(&GetBlobInput{Key: "cloud2Prefix/testfile2"})
+	t.Assert(err, IsNil)
+	defer resp.Body.Close()
+
+	err = in.Rename("testfile2", subdir, "testfile2")
+	t.Assert(err, IsNil)
+
+	_, err = cloud2.GetBlob(&GetBlobInput{Key: "cloud2Prefix/testfile2"})
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	resp, err = cloud2.GetBlob(&GetBlobInput{Key: "cloud2Prefix/subdir/testfile2"})
+	t.Assert(err, IsNil)
+	defer resp.Body.Close()
+}
+
+type StaticMounts struct {
+	mounts []*Mount
+}
+
+func (m *StaticMounts) List() ([]*Mount, error) {
+	return m.mounts, nil
+}
+
+func (m *StaticMounts) Lookup(name string) (*Mount, error) {
+	for _, b := range m.mounts {
+		if b.name == name {
+			return b, nil
+		}
+	}
+	return nil, fuse.ENOENT
+}
+
+func (s *GoofysTest) TestMountProviderList(t *C) {
+	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
+	cloud := s.newBackend(t, bucket)
+
+	// "mount" this 2nd cloud
+	in, err := s.LookUpInode(t, "dir4")
+	t.Assert(in, NotNil)
+	t.Assert(err, IsNil)
+
+	mountprovider := &MountProviderBackend{
+		MountProvider: &StaticMounts{
+			[]*Mount{
+				&Mount{"cloud1", cloud, ""},
+				&Mount{"cloud2", cloud, "prefix/"},
+			},
+		},
+		inode: in,
+	}
+	in.dir.cloud = mountprovider
+
+	t.Assert(in.isMountProvider(), Equals, true)
+	s.readDirIntoCache(t, in.Id)
+	// detach the mount provider to ensure that we are looking up from cache
+	in.dir.cloud = nil
+
+	c1, err := s.LookUpInode(t, "dir4/cloud1")
+	t.Assert(err, IsNil)
+	t.Assert(*c1.Name, Equals, "cloud1")
+	t.Assert(c1.isMountProvider(), Equals, false)
+	t.Assert(c1.dir.cloud == cloud, Equals, true)
+
+	c2, err := s.LookUpInode(t, "dir4/cloud2")
+	t.Assert(err, IsNil)
+	t.Assert(*c2.Name, Equals, "cloud2")
+	t.Assert(c2.isMountProvider(), Equals, false)
+	t.Assert(c2.dir.cloud == cloud, Equals, true)
+
+	in.dir.cloud = mountprovider
+	// pretend we've passed the normal cache ttl
+	time.Sleep(1 * time.Second)
+	// listing root again should not overwrite the mount provider
+	s.readDirIntoCache(t, in.Parent.Id)
+	in_2, err := s.LookUpInode(t, "dir4")
+	t.Assert(err, IsNil)
+	t.Assert(in_2, NotNil)
+	t.Assert(in == in_2, Equals, true)
+	t.Assert(in_2.dir.cloud, NotNil)
+	t.Assert(in_2.dir.cloud == mountprovider, Equals, true)
+}
+
+func (s *GoofysTest) TestMountProviderNewDir(t *C) {
+	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
+	cloud := s.newBackend(t, bucket)
+
+	// "mount" this 2nd cloud on a dir that didn't exist
+	_, err := s.LookUpInode(t, "dir5")
+	t.Assert(err, NotNil)
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	in := NewInode(s.fs, s.getRoot(t), PString("dir5"))
+	in.ToDir()
+
+	mountprovider := &MountProviderBackend{
+		MountProvider: &StaticMounts{
+			[]*Mount{
+				&Mount{"cloud1", cloud, ""},
+				&Mount{"cloud2", cloud, "prefix/"},
+			},
+		},
+		inode: in,
+	}
+	in.dir.cloud = mountprovider
+	in.AttrTime = TIME_MAX
+	s.fs.insertInode(s.getRoot(t), in)
+
+	// pretend we've passed the normal cache ttl
+	time.Sleep(1 * time.Second)
+	// listing root again should not overwrite the mount provider
+	s.readDirIntoCache(t, in.Parent.Id)
+	in_2, err := s.LookUpInode(t, "dir5")
+	t.Assert(err, IsNil)
+	t.Assert(in_2, NotNil)
+	t.Assert(in == in_2, Equals, true)
+	t.Assert(in_2.dir.cloud, NotNil)
+	t.Assert(in_2.dir.cloud == mountprovider, Equals, true)
+}
+
+func (s *GoofysTest) TestMountProviderGet(t *C) {
+	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
+	cloud := s.newBackend(t, bucket)
+
+	// "mount" this 2nd cloud
+	in, err := s.LookUpInode(t, "dir4")
+	t.Assert(in, NotNil)
+	t.Assert(err, IsNil)
+
+	in.dir.cloud = &MountProviderBackend{
+		MountProvider: &StaticMounts{
+			[]*Mount{
+				&Mount{"cloud1", cloud, ""},
+				&Mount{"cloud2", cloud, "prefix/"},
+			},
+		},
+		inode: in,
+	}
+
+	_, err = in.MkDir("foo")
+	t.Assert(err, Equals, syscall.ENOTSUP)
+
+	err = in.Unlink("foo")
+	t.Assert(err, Equals, syscall.ENOTSUP)
+
+	err = in.RmDir("foo")
+	t.Assert(err, Equals, syscall.ENOTSUP)
+
+	err = in.Rename("foo", in, "foo2")
+	t.Assert(err, Equals, syscall.ENOTSUP)
+
+	err = in.Rename("foo", s.getRoot(t), "foo")
+	t.Assert(err, Equals, fuse.EINVAL)
+
+	err = s.getRoot(t).Rename("foo", in, "foo")
+	t.Assert(err, Equals, fuse.EINVAL)
+
+	n, _ := in.Create("foo")
+	t.Assert(n, IsNil)
+
+	_, err = s.LookUpInode(t, "dir4/huh")
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	c1, err := s.LookUpInode(t, "dir4/cloud1")
+	t.Assert(err, IsNil)
+	t.Assert(*c1.Name, Equals, "cloud1")
+
+	// check that repeated lookup is returning the same inode
+	c1_2, err := s.LookUpInode(t, "dir4/cloud1")
+	t.Assert(err, IsNil)
+	t.Assert(c1 == c1_2, Equals, true)
+
+	_, fh := c1.Create("testfile")
+	err = fh.FlushFile()
+	t.Assert(err, IsNil)
+
+	resp, err := cloud.GetBlob(&GetBlobInput{Key: "testfile"})
+	t.Assert(err, IsNil)
+	defer resp.Body.Close()
+
+	c2, err := s.LookUpInode(t, "dir4/cloud2")
+	t.Assert(err, IsNil)
+	t.Assert(*c2.Name, Equals, "cloud2")
+
+	c2_2, err := s.LookUpInode(t, "dir4/cloud2")
+	t.Assert(err, IsNil)
+	t.Assert(c2 == c2_2, Equals, true)
+
+	_, fh = c2.Create("testfile")
+	err = fh.FlushFile()
+	t.Assert(err, IsNil)
+
+	resp, err = cloud.GetBlob(&GetBlobInput{Key: "prefix/testfile"})
+	t.Assert(err, IsNil)
+	defer resp.Body.Close()
+}
+
+func (s *GoofysTest) TestMountProviderNewMounts(t *C) {
+	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
+	cloud := s.newBackend(t, bucket)
+
+	// "mount" this 2nd cloud
+	in, err := s.LookUpInode(t, "dir4")
+	t.Assert(in, NotNil)
+	t.Assert(err, IsNil)
+
+	mountprovider := &MountProviderBackend{
+		MountProvider: &StaticMounts{
+			[]*Mount{
+				&Mount{"cloud1", cloud, ""},
+			},
+		},
+		inode: in,
+	}
+	in.dir.cloud = mountprovider
+
+	s.readDirIntoCache(t, in.Id)
+
+	c1, err := s.LookUpInode(t, "dir4/cloud1")
+	t.Assert(err, IsNil)
+	t.Assert(*c1.Name, Equals, "cloud1")
+	t.Assert(c1.isMountProvider(), Equals, false)
+	t.Assert(c1.dir.cloud == cloud, Equals, true)
+
+	_, err = s.LookUpInode(t, "dir4/cloud2")
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	mounts, _ := mountprovider.MountProvider.(*StaticMounts)
+	mounts.mounts = append(mounts.mounts, &Mount{"cloud2", cloud, "cloudprefix"})
+
+	c2, err := s.LookUpInode(t, "dir4/cloud2")
+	t.Assert(err, IsNil)
+	t.Assert(*c2.Name, Equals, "cloud2")
+	t.Assert(c2.isMountProvider(), Equals, false)
+	t.Assert(c2.dir.cloud == cloud, Equals, true)
 }

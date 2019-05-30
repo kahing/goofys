@@ -29,6 +29,9 @@ import (
 )
 
 type DirInodeData struct {
+	cloud       StorageBackend
+	mountPrefix string
+
 	// these 2 refer to readdir of the Children
 	lastOpenDir     *string
 	lastOpenDirIdx  int
@@ -67,7 +70,8 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 	inode.logFuse("OpenDir")
 
 	parent := inode.Parent
-	_, isS3 := inode.cloud.(*S3Backend)
+	cloud, _ := inode.cloud()
+	_, isS3 := cloud.(*S3Backend)
 
 	if isS3 && parent != nil && inode.fs.flags.TypeCacheTTL != 0 {
 		parent.mu.Lock()
@@ -135,14 +139,25 @@ func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *ListBlobsOutput, err
 	var marker *string
 	reqPrefix := prefix
 	inode := dh.inode
-	fs := inode.fs
+
+	cloud, key := inode.cloud()
+
 	if dh.inode.Parent != nil {
 		inode = dh.inode.Parent
-		reqPrefix = *fs.key(*inode.FullName())
-		if len(*inode.FullName()) != 0 {
+		var parentCloud StorageBackend
+		parentCloud, reqPrefix = inode.cloud()
+		if parentCloud != cloud {
+			err = fmt.Errorf("cannot slurp across cloud provider")
+			return
+		}
+
+		if len(reqPrefix) != 0 {
 			reqPrefix += "/"
 		}
-		marker = fs.key(*dh.inode.FullName() + "/")
+		marker = &key
+		if len(*marker) != 0 {
+			*marker += "/"
+		}
 	}
 
 	params := &ListBlobsInput{
@@ -150,7 +165,7 @@ func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *ListBlobsOutput, err
 		StartAfter: marker,
 	}
 
-	resp, err = inode.cloud.ListBlobs(params)
+	resp, err = cloud.ListBlobs(params)
 	if err != nil {
 		s3Log.Errorf("ListObjects %v = %v", params, err)
 		return
@@ -246,7 +261,9 @@ func (dh *DirHandle) listObjects(prefix string) (resp *ListBlobsOutput, err erro
 			Prefix:            &prefix,
 		}
 
-		resp, err := dh.inode.cloud.ListBlobs(params)
+		cloud, _ := dh.inode.cloud()
+
+		resp, err := cloud.ListBlobs(params)
 		if err != nil {
 			errListChan <- err
 		} else {
@@ -354,8 +371,9 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 		// try not to hold the lock when we make the request
 		dh.mu.Unlock()
 
-		prefix := *fs.key(*dh.inode.FullName())
-		if len(*dh.inode.FullName()) != 0 {
+		var prefix string
+		_, prefix = dh.inode.cloud()
+		if len(prefix) != 0 {
 			prefix += "/"
 		}
 

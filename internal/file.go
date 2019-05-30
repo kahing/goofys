@@ -61,6 +61,10 @@ func NewFileHandle(in *Inode) *FileHandle {
 	return fh
 }
 
+func (fh *FileHandle) cloud() (StorageBackend, string) {
+	return fh.inode.cloud()
+}
+
 func (fh *FileHandle) initWrite() {
 	fh.writeInit.Do(func() {
 		fh.mpuWG.Add(1)
@@ -74,11 +78,12 @@ func (fh *FileHandle) initMPU() {
 	}()
 
 	fs := fh.inode.fs
-	fh.mpuName = fh.inode.FullName()
+	cloud, key := fh.cloud()
+	fh.mpuName = &key
 
-	resp, err := fh.inode.cloud.MultipartBlobBegin(&MultipartBlobBeginInput{
-		Key:         *fs.key(*fh.mpuName),
-		ContentType: fs.getMimeType(*fh.mpuName),
+	resp, err := cloud.MultipartBlobBegin(&MultipartBlobBeginInput{
+		Key:         *fh.mpuName,
+		ContentType: fs.flags.GetMimeType(*fh.mpuName),
 	})
 
 	fh.mu.Lock()
@@ -118,7 +123,8 @@ func (fh *FileHandle) mpuPartNoSpawn(buf *MBuf, part uint32, total int64, last b
 		}
 	}()
 
-	_, err = fh.inode.cloud.MultipartBlobAdd(&mpu)
+	cloud, _ := fh.cloud()
+	_, err = cloud.MultipartBlobAdd(&mpu)
 
 	return
 }
@@ -161,7 +167,9 @@ func (fh *FileHandle) waitForCreateMPU() (err error) {
 }
 
 func (fh *FileHandle) partSize() uint64 {
-	if _, ok := fh.inode.cloud.(*ADLv1); ok {
+	cloud, _ := fh.cloud()
+
+	if _, ok := cloud.(*ADLv1); ok {
 		// ADLv1 fails with 404 if we upload data larger than
 		// 30000000 bytes (28.6MB) (28MB also failed in reality)
 		return 20 * 1024 * 1024
@@ -172,7 +180,7 @@ func (fh *FileHandle) partSize() uint64 {
 	} else if fh.lastPartId < 2000 {
 		return 25 * 1024 * 1024
 	} else {
-		maxPartSize := fh.inode.cloud.Capabilities().MaxMultipartSize
+		maxPartSize := cloud.Capabilities().MaxMultipartSize
 		tryPartSize := uint64(125 * 1024 * 1024)
 		if maxPartSize != 0 {
 			tryPartSize = MinUInt64(tryPartSize, maxPartSize)
@@ -235,7 +243,8 @@ func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 		fh.nextWriteOffset += int64(nCopied)
 
 		if fh.buf.Full() {
-			err = fh.uploadCurrentBuf(!fh.inode.cloud.Capabilities().NoParallelMultipart)
+			cloud, _ := fh.cloud()
+			err = fh.uploadCurrentBuf(!cloud.Capabilities().NoParallelMultipart)
 			if err != nil {
 				return
 			}
@@ -261,8 +270,8 @@ type S3ReadBuffer struct {
 }
 
 func (b S3ReadBuffer) Init(fh *FileHandle, offset uint64, size uint32) *S3ReadBuffer {
-	fs := fh.inode.fs
-	b.s3 = fh.inode.cloud
+	cloud, key := fh.cloud()
+	b.s3 = cloud
 	b.offset = offset
 	b.size = size
 
@@ -273,7 +282,7 @@ func (b S3ReadBuffer) Init(fh *FileHandle, offset uint64, size uint32) *S3ReadBu
 
 	b.buf = Buffer{}.Init(mbuf, func() (io.ReadCloser, error) {
 		resp, err := b.s3.GetBlob(&GetBlobInput{
-			Key:   *fs.key(*fh.inode.FullName()),
+			Key:   key,
 			Start: offset,
 			Count: uint64(size),
 		})
@@ -532,11 +541,11 @@ func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, e
 		return
 	}
 
-	fs := fh.inode.fs
-
 	if fh.reader == nil {
-		resp, err := fh.inode.cloud.GetBlob(&GetBlobInput{
-			Key:   *fs.key(*fh.inode.FullName()),
+		cloud, key := fh.cloud()
+
+		resp, err := cloud.GetBlob(&GetBlobInput{
+			Key:   key,
 			Start: uint64(offset),
 		})
 		if err != nil {
@@ -580,10 +589,11 @@ func (fh *FileHandle) flushSmallFile() (err error) {
 	fs.replicators.Take(1, true)
 	defer fs.replicators.Return(1)
 
-	_, err = fh.inode.cloud.PutBlob(&PutBlobInput{
-		Key:         *fs.key(*fh.inode.FullName()),
+	cloud, key := fh.cloud()
+	_, err = cloud.PutBlob(&PutBlobInput{
+		Key:         key,
 		Body:        buf,
-		ContentType: fs.getMimeType(*fh.inode.FullName()),
+		ContentType: fs.flags.GetMimeType(*fh.inode.FullName()),
 	})
 	if err != nil {
 		fh.lastWriteError = err
@@ -621,7 +631,8 @@ func (fh *FileHandle) FlushFile() (err error) {
 		if err != nil {
 			if fh.mpuId != nil {
 				go func() {
-					_, _ = fh.inode.cloud.MultipartBlobAbort(fh.mpuId)
+					cloud, _ := fh.cloud()
+					_, _ = cloud.MultipartBlobAbort(fh.mpuId)
 					fh.mpuId = nil
 				}()
 			}
@@ -667,14 +678,15 @@ func (fh *FileHandle) FlushFile() (err error) {
 		fh.buf = nil
 	}
 
-	_, err = fh.inode.cloud.MultipartBlobCommit(fh.mpuId)
+	cloud, key := fh.cloud()
+	_, err = cloud.MultipartBlobCommit(fh.mpuId)
 	if err != nil {
 		return
 	}
 
 	fh.mpuId = nil
 
-	if *fh.mpuName != *fh.inode.FullName() {
+	if *fh.mpuName != key {
 		// the file was renamed
 		err = fh.inode.renameObject(fs, PUInt64(uint64(fh.nextWriteOffset)), *fh.mpuName, *fh.inode.FullName())
 	}

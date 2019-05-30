@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"mime"
 	"os"
 	"os/exec"
 	"strings"
@@ -381,6 +382,26 @@ func parseOptions(m map[string]string, s string) {
 		}
 
 		m[name] = value
+	}
+
+	return
+}
+
+func (flags *FlagStorage) GetMimeType(fileName string) (retMime *string) {
+	if flags.UseContentType {
+		dotPosition := strings.LastIndex(fileName, ".")
+		if dotPosition == -1 {
+			return nil
+		}
+		mimeType := mime.TypeByExtension(fileName[dotPosition:])
+		if mimeType == "" {
+			return nil
+		}
+		semicolonPosition := strings.LastIndex(mimeType, ";")
+		if semicolonPosition == -1 {
+			return &mimeType
+		}
+		retMime = PString(mimeType[:semicolonPosition])
 	}
 
 	return

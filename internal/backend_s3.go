@@ -41,8 +41,6 @@ type S3Backend struct {
 
 	session *session.Session
 
-	fs *Goofys
-
 	bucket    string
 	awsConfig *aws.Config
 	flags     *FlagStorage
@@ -53,10 +51,9 @@ type S3Backend struct {
 	v2Signer bool
 }
 
-func NewS3(fs *Goofys, bucket string, awsConfig *aws.Config, flags *FlagStorage) *S3Backend {
+func NewS3(bucket string, awsConfig *aws.Config, flags *FlagStorage) *S3Backend {
 	s := &S3Backend{
 		session:   session.New(awsConfig),
-		fs:        fs,
 		bucket:    bucket,
 		awsConfig: awsConfig,
 		flags:     flags,
@@ -189,10 +186,8 @@ func (s *S3Backend) detectBucketLocationByHEAD() (err error, isAws bool) {
 	return
 }
 
-func (s *S3Backend) testBucket() (err error) {
-	randomObjectName := s.fs.key(RandStringBytesMaskImprSrc(32))
-
-	_, err = s.HeadBlob(&HeadBlobInput{Key: *randomObjectName})
+func (s *S3Backend) testBucket(key string) (err error) {
+	_, err = s.HeadBlob(&HeadBlobInput{Key: key})
 	if err != nil {
 		err = mapAwsError(err)
 		if err == fuse.ENOENT {
@@ -214,7 +209,7 @@ func (s *S3Backend) fallbackV2Signer() (err error) {
 	return
 }
 
-func (s *S3Backend) Init() error {
+func (s *S3Backend) Init(key string) error {
 	var isAws bool
 	var err error
 
@@ -238,7 +233,7 @@ func (s *S3Backend) Init() error {
 	}
 
 	// try again with the credential to make sure
-	err = mapAwsError(s.testBucket())
+	err = mapAwsError(s.testBucket(key))
 	if err != nil {
 		if !isAws {
 			// EMC returns 403 because it doesn't support v4 signing
@@ -249,7 +244,7 @@ func (s *S3Backend) Init() error {
 				if err != nil {
 					return err
 				}
-				err = mapAwsError(s.testBucket())
+				err = mapAwsError(s.testBucket(key))
 			}
 		}
 
@@ -510,7 +505,7 @@ func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuI
 			Bucket:       &s.bucket,
 			Key:          &to,
 			StorageClass: &s.flags.StorageClass,
-			ContentType:  s.fs.getMimeType(to),
+			ContentType:  s.flags.GetMimeType(to),
 			Metadata:     metadataToLower(metadata),
 		}
 
@@ -602,7 +597,7 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 		CopySource:        aws.String(pathEscape(from)),
 		Key:               &param.Destination,
 		StorageClass:      &storageClass,
-		ContentType:       s.fs.getMimeType(param.Destination),
+		ContentType:       s.flags.GetMimeType(param.Destination),
 		Metadata:          metadataToLower(param.Metadata),
 		MetadataDirective: aws.String(s3.MetadataDirectiveReplace),
 	}

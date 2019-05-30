@@ -22,6 +22,8 @@ import (
 	"github.com/jacobsa/fuse"
 )
 
+var TIME_MAX = time.Unix(1<<63-62135596801, 999999999)
+
 func MaxInt(a, b int) int {
 	if a > b {
 		return a

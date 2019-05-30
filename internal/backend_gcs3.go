@@ -39,9 +39,9 @@ type GCSMultipartBlobCommitInput struct {
 	Prev *MultipartBlobAddInput
 }
 
-func NewGCS3(fs *Goofys, bucket string, awsConfig *aws.Config, flags *FlagStorage) *GCS3 {
+func NewGCS3(bucket string, awsConfig *aws.Config, flags *FlagStorage) *GCS3 {
 	s := &GCS3{
-		S3Backend: NewS3(fs, bucket, awsConfig, flags),
+		S3Backend: NewS3(bucket, awsConfig, flags),
 	}
 	s.S3Backend.gcs = true
 	s.S3Backend.cap.NoParallelMultipart = true
