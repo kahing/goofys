@@ -43,15 +43,9 @@ func (s *MinioTest) SetUpSuite(t *C) {
 
 	s.fs = &Goofys{}
 
-	s.fs.cloud = NewS3(s.fs, "", s.awsConfig, &FlagStorage{})
-	if s3, ok := s.fs.cloud.(*S3Backend); ok {
-		_, err := s3.ListBuckets(nil)
-		t.Assert(err, IsNil)
-
-		s.s3 = s3
-	} else {
-		t.Skip("only for S3")
-	}
+	s.s3 = NewS3("", s.awsConfig, &FlagStorage{})
+	_, err := s.s3.ListBuckets(nil)
+	t.Assert(err, IsNil)
 }
 
 func (s *MinioTest) SetUpTest(t *C) {

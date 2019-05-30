@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"mime"
 	"net/url"
 	"runtime/debug"
 	"strings"
@@ -48,16 +47,13 @@ import (
 type Goofys struct {
 	fuseutil.NotImplementedFileSystem
 	bucket string
-	prefix string
 
 	flags *FlagStorage
 
 	umask uint32
 
-	resolvePath func(string) (StorageBackend, error)
-	cloud       StorageBackend
-	gcs         bool
-	rootAttrs   InodeAttributes
+	gcs       bool
+	rootAttrs InodeAttributes
 
 	bufferPool *BufferPool
 
@@ -104,11 +100,14 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 		umask:  0122,
 	}
 
+	var prefix string
 	colon := strings.Index(bucket, ":")
 	if colon != -1 {
-		fs.prefix = bucket[colon+1:]
-		fs.prefix = strings.Trim(fs.prefix, "/")
-		fs.prefix += "/"
+		prefix = bucket[colon+1:]
+		prefix = strings.Trim(prefix, "/")
+		if prefix != "" {
+			prefix += "/"
+		}
 
 		fs.bucket = bucket[0:colon]
 		bucket = fs.bucket
@@ -127,6 +126,7 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 		s3Log.Level = logrus.DebugLevel
 	}
 
+	var cloud StorageBackend
 	if flags.AZAccountKey != "" {
 		if flags.Endpoint == "" {
 			if flags.AZAccountName == "" {
@@ -135,30 +135,31 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 			}
 			flags.Endpoint = AZBlobEndpoint
 		}
-		fs.cloud = NewAZBlob(fs, bucket, flags)
+		cloud = NewAZBlob(bucket, flags)
 	} else if flags.Endpoint != "" && IsADLv1Endpoint(flags.Endpoint) {
 		if flags.ADClientID == "" || flags.ADClientSecret == "" || flags.ADTenantID == "" {
 			log.Errorf("All of --ad-client-id, --ad-client-secret, and --ad-directory-id must be set")
 			return nil
 		}
-		fs.cloud = NewADLv1(fs, bucket, flags)
+		cloud = NewADLv1(bucket, flags)
 	} else if fs.gcs {
-		fs.cloud = NewGCS3(fs, bucket, awsConfig, flags)
+		cloud = NewGCS3(bucket, awsConfig, flags)
 	} else {
-		fs.cloud = NewS3(fs, bucket, awsConfig, flags)
+		cloud = NewS3(bucket, awsConfig, flags)
 	}
 
-	if fs.cloud == nil {
+	if cloud == nil {
 		return nil
 	}
 
-	err := fs.cloud.Init()
+	randomObjectName := prefix + (RandStringBytesMaskImprSrc(32))
+	err := cloud.Init(randomObjectName)
 	if err != nil {
 		log.Errorf("Unable to access '%v': %v", fs.bucket, err)
 		return nil
 	}
 
-	go fs.cloud.MultipartExpire(&MultipartExpireInput{})
+	go cloud.MultipartExpire(&MultipartExpireInput{})
 
 	now := time.Now()
 	fs.rootAttrs = InodeAttributes{
@@ -170,9 +171,11 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 
 	fs.nextInodeID = fuseops.RootInodeID + 1
 	fs.inodes = make(map[fuseops.InodeID]*Inode)
-	root := NewInode(fs, nil, aws.String(""), aws.String(""))
+	root := NewInode(fs, nil, PString(""))
 	root.Id = fuseops.RootInodeID
 	root.ToDir()
+	root.dir.cloud = cloud
+	root.dir.mountPrefix = prefix
 	root.Attributes.Mtime = fs.rootAttrs.Mtime
 
 	fs.inodes[fuseops.RootInodeID] = root
@@ -392,11 +395,6 @@ func mapAwsError(err error) error {
 	}
 }
 
-func (fs *Goofys) key(name string) *string {
-	name = fs.prefix + name
-	return &name
-}
-
 // note that this is NOT the same as url.PathEscape in golang 1.8,
 // as this preserves / and url.PathEscape converts / to %2F
 func pathEscape(path string) string {
@@ -578,8 +576,7 @@ func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) 
 
 	inode = parent.findChildUnlocked(*entry.Name, entry.Type == fuseutil.DT_Directory)
 	if inode == nil {
-		path := parent.getChildName(*entry.Name)
-		inode = NewInode(fs, parent, entry.Name, &path)
+		inode = NewInode(fs, parent, entry.Name)
 		if entry.Type == fuseutil.DT_Directory {
 			inode.ToDir()
 		} else {
@@ -611,7 +608,11 @@ func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) 
 		}
 		inode.KnownSize = &entry.Attributes.Size
 		inode.Attributes.Mtime = entry.Attributes.Mtime
-		inode.AttrTime = time.Now()
+		now := time.Now()
+		// don't want to update time if this inode is setup to never expire
+		if inode.AttrTime.Before(now) {
+			inode.AttrTime = now
+		}
 	}
 	return
 }
@@ -978,26 +979,6 @@ func (fs *Goofys) Rename(
 			newParent.insertChildUnlocked(inode)
 		}
 	}
-	return
-}
-
-func (fs *Goofys) getMimeType(fileName string) (retMime *string) {
-	if fs.flags.UseContentType {
-		dotPosition := strings.LastIndex(fileName, ".")
-		if dotPosition == -1 {
-			return nil
-		}
-		mimeType := mime.TypeByExtension(fileName[dotPosition:])
-		if mimeType == "" {
-			return nil
-		}
-		semicolonPosition := strings.LastIndex(mimeType, ";")
-		if semicolonPosition == -1 {
-			return &mimeType
-		}
-		retMime = aws.String(mimeType[:semicolonPosition])
-	}
-
 	return
 }
 

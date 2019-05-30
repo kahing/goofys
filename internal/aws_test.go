@@ -23,7 +23,7 @@ import (
 )
 
 type AwsTest struct {
-	fs *Goofys
+	s3 *S3Backend
 }
 
 var _ = Suite(&AwsTest{})
@@ -34,32 +34,22 @@ func (s *AwsTest) SetUpSuite(t *C) {
 		S3ForcePathStyle: aws.Bool(true),
 	}
 
-	s.fs = &Goofys{}
-
-	s.fs.cloud = NewS3(s.fs, "", awsConfig, &FlagStorage{})
+	s.s3 = NewS3("", awsConfig, &FlagStorage{})
 }
 
 func (s *AwsTest) TestRegionDetection(t *C) {
-	if s3, ok := s.fs.cloud.(*S3Backend); ok {
-		s3.bucket = "goofys-eu-west-1.kahing.xyz"
+	s.s3.bucket = "goofys-eu-west-1.kahing.xyz"
 
-		err, isAws := s3.detectBucketLocationByHEAD()
-		t.Assert(err, IsNil)
-		t.Assert(*s3.awsConfig.Region, Equals, "eu-west-1")
-		t.Assert(isAws, Equals, true)
-	} else {
-		t.Skip("only for S3")
-	}
+	err, isAws := s.s3.detectBucketLocationByHEAD()
+	t.Assert(err, IsNil)
+	t.Assert(*s.s3.awsConfig.Region, Equals, "eu-west-1")
+	t.Assert(isAws, Equals, true)
 }
 
 func (s *AwsTest) TestBucket404(t *C) {
-	if s3, ok := s.fs.cloud.(*S3Backend); ok {
-		s3.bucket = RandStringBytesMaskImprSrc(64)
+	s.s3.bucket = RandStringBytesMaskImprSrc(64)
 
-		err, isAws := s3.detectBucketLocationByHEAD()
-		t.Assert(err, Equals, fuse.ENOENT)
-		t.Assert(isAws, Equals, true)
-	} else {
-		t.Skip("only for S3")
-	}
+	err, isAws := s.s3.detectBucketLocationByHEAD()
+	t.Assert(err, Equals, fuse.ENOENT)
+	t.Assert(isAws, Equals, true)
 }

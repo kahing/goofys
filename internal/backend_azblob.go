@@ -36,8 +36,8 @@ import (
 )
 
 type AZBlob struct {
-	fs  *Goofys
-	cap Capabilities
+	flags *FlagStorage
+	cap   Capabilities
 
 	mu sync.Mutex
 	u  *azblob.ServiceURL
@@ -56,7 +56,7 @@ const AZBlobEndpoint = "https://%v.blob.core.windows.net?%%v"
 const AzuriteEndpoint = "http://127.0.0.1:8080/%v/?%%v"
 const AzureDirBlobMetadataKey = "hdi_isfolder"
 
-func NewAZBlob(fs *Goofys, container string, config *FlagStorage) *AZBlob {
+func NewAZBlob(container string, config *FlagStorage) *AZBlob {
 	po := azblob.PipelineOptions{
 		Log: pipeline.LogOptions{
 			Log: func(level pipeline.LogLevel, msg string) {
@@ -159,7 +159,7 @@ func NewAZBlob(fs *Goofys, container string, config *FlagStorage) *AZBlob {
 	}
 
 	b := &AZBlob{
-		fs: fs,
+		flags: config,
 		cap: Capabilities{
 			MaxMultipartSize: 100 * 1024 * 1024,
 		},
@@ -216,10 +216,8 @@ func (b *AZBlob) updateToken() (*azblob.ContainerURL, error) {
 	return b.c, nil
 }
 
-func (b *AZBlob) testBucket() (err error) {
-	randomObjectName := b.fs.key(RandStringBytesMaskImprSrc(32))
-
-	_, err = b.HeadBlob(&HeadBlobInput{Key: *randomObjectName})
+func (b *AZBlob) testBucket(key string) (err error) {
+	_, err = b.HeadBlob(&HeadBlobInput{Key: key})
 	if err != nil {
 		err = mapAZBError(err)
 		if err == fuse.ENOENT {
@@ -230,13 +228,13 @@ func (b *AZBlob) testBucket() (err error) {
 	return
 }
 
-func (b *AZBlob) Init() error {
+func (b *AZBlob) Init(key string) error {
 	_, err := b.refreshToken()
 	if err != nil {
 		return err
 	}
 
-	err = b.testBucket()
+	err = b.testBucket(key)
 	return err
 }
 
@@ -418,7 +416,7 @@ func (b *AZBlob) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 			prefixes = append(prefixes, BlobPrefixOutput{Prefix: &p.Name})
 		}
 
-		if b.fs.flags.Endpoint == AzuriteEndpoint &&
+		if b.flags.Endpoint == AzuriteEndpoint &&
 			// XXX in Azurite this is not sorted
 			!sort.IsSorted(sortBlobPrefixOutput(prefixes)) {
 			sort.Sort(sortBlobPrefixOutput(prefixes))
@@ -439,7 +437,7 @@ func (b *AZBlob) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		blobItems = resp.Segment.BlobItems
 		nextMarker = resp.NextMarker.Val
 
-		if b.fs.flags.Endpoint == AzuriteEndpoint &&
+		if b.flags.Endpoint == AzuriteEndpoint &&
 			!sort.IsSorted(sortBlobItemOutput(items)) {
 			sort.Sort(sortBlobItemOutput(items))
 		}

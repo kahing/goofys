@@ -185,7 +185,7 @@ type MakeBucketOutput struct {
 }
 
 type StorageBackend interface {
-	Init() error
+	Init(key string) error
 	Capabilities() *Capabilities
 	HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error)
 	ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error)

@@ -42,7 +42,6 @@ type Inode struct {
 	Id         fuseops.InodeID
 	Name       *string
 	fs         *Goofys
-	cloud      StorageBackend
 	Attributes InodeAttributes
 	KnownSize  *uint64
 	AttrTime   time.Time
@@ -66,17 +65,50 @@ type Inode struct {
 	refcnt uint64
 }
 
-func NewInode(fs *Goofys, parent *Inode, name *string, fullName *string) (inode *Inode) {
+func NewInode(fs *Goofys, parent *Inode, name *string) (inode *Inode) {
 	inode = &Inode{
 		Name:       name,
 		fs:         fs,
-		cloud:      fs.cloud,
 		AttrTime:   time.Now(),
 		Parent:     parent,
 		s3Metadata: make(map[string][]byte),
 		refcnt:     1,
 	}
 
+	return
+}
+
+func (inode *Inode) cloud() (cloud StorageBackend, path string) {
+	var prefix string
+	var dir *Inode
+
+	if inode.dir == nil {
+		path = *inode.Name
+		dir = inode.Parent
+	} else {
+		dir = inode
+	}
+
+	for p := dir; p != nil; p = p.Parent {
+		if p.dir.cloud != nil {
+			cloud = p.dir.cloud
+			prefix = p.dir.mountPrefix
+			break
+		}
+
+		if path == "" {
+			path = *p.Name
+		} else if p.Parent != nil {
+			// don't prepend if I am already the root node
+			path = *p.Name + "/" + path
+		}
+	}
+
+	if path == "" {
+		path = strings.TrimRight(prefix, "/")
+	} else {
+		path = prefix + path
+	}
 	return
 }
 
@@ -302,10 +334,15 @@ func (inode *Inode) DeRef(n uint64) (stale bool) {
 func (parent *Inode) Unlink(name string) (err error) {
 	parent.logFuse("Unlink", name)
 
-	fullName := parent.getChildName(name)
+	if parent.isMountProvider() {
+		return syscall.ENOTSUP
+	}
 
-	_, err = parent.cloud.DeleteBlob(&DeleteBlobInput{
-		Key: *parent.fs.key(fullName),
+	cloud, key := parent.cloud()
+	key = appendChildName(key, name)
+
+	_, err = cloud.DeleteBlob(&DeleteBlobInput{
+		Key: key,
 	})
 	if err != nil {
 		return
@@ -323,18 +360,30 @@ func (parent *Inode) Unlink(name string) (err error) {
 	return
 }
 
+func (parent *Inode) isMountProvider() bool {
+	if parent.dir == nil || parent.dir.cloud == nil {
+		return false
+	}
+	_, ok := parent.dir.cloud.(MountProvider)
+	return ok
+}
+
 func (parent *Inode) Create(
 	name string) (inode *Inode, fh *FileHandle) {
 
 	parent.logFuse("Create", name)
-	fullName := parent.getChildName(name)
+
+	if parent.isMountProvider() {
+		return nil, nil
+	}
+
 	fs := parent.fs
 
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
 	now := time.Now()
-	inode = NewInode(fs, parent, &name, &fullName)
+	inode = NewInode(fs, parent, &name)
 	inode.Attributes = InodeAttributes{
 		Size:  0,
 		Mtime: now,
@@ -355,11 +404,11 @@ func (parent *Inode) MkDir(
 
 	parent.logFuse("MkDir", name)
 
-	fullName := parent.getChildName(name)
 	fs := parent.fs
 
-	key := *fs.key(fullName)
-	if !parent.cloud.Capabilities().DirBlob {
+	cloud, key := parent.cloud()
+	key = appendChildName(key, name)
+	if !cloud.Capabilities().DirBlob {
 		key += "/"
 	}
 	params := &PutBlobInput{
@@ -368,7 +417,7 @@ func (parent *Inode) MkDir(
 		DirBlob: true,
 	}
 
-	_, err = parent.cloud.PutBlob(params)
+	_, err = cloud.PutBlob(params)
 	if err != nil {
 		return
 	}
@@ -376,7 +425,7 @@ func (parent *Inode) MkDir(
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
-	inode = NewInode(fs, parent, &name, &fullName)
+	inode = NewInode(fs, parent, &name)
 	inode.ToDir()
 	inode.touch()
 	if parent.Attributes.Mtime.Before(inode.Attributes.Mtime) {
@@ -386,16 +435,24 @@ func (parent *Inode) MkDir(
 	return
 }
 
-func (parent *Inode) isEmptyDir(fs *Goofys, fullName string) (isDir bool, err error) {
-	fullName += "/"
+func appendChildName(parent, child string) string {
+	if len(parent) != 0 {
+		parent += "/"
+	}
+	return parent + child
+}
+
+func (parent *Inode) isEmptyDir(fs *Goofys, name string) (isDir bool, err error) {
+	cloud, key := parent.cloud()
+	key = appendChildName(key, name) + "/"
 
 	params := &ListBlobsInput{
 		Delimiter: aws.String("/"),
 		MaxKeys:   PUInt32(2),
-		Prefix:    fs.key(fullName),
+		Prefix:    &key,
 	}
 
-	resp, err := parent.cloud.ListBlobs(params)
+	resp, err := cloud.ListBlobs(params)
 	if err != nil {
 		return false, mapAwsError(err)
 	}
@@ -409,7 +466,7 @@ func (parent *Inode) isEmptyDir(fs *Goofys, fullName string) (isDir bool, err er
 	if len(resp.Items) == 1 {
 		isDir = true
 
-		if *resp.Items[0].Key != *fs.key(fullName) {
+		if *resp.Items[0].Key != key {
 			err = fuse.ENOTEMPTY
 		}
 	}
@@ -420,10 +477,11 @@ func (parent *Inode) isEmptyDir(fs *Goofys, fullName string) (isDir bool, err er
 func (parent *Inode) RmDir(name string) (err error) {
 	parent.logFuse("Rmdir", name)
 
-	fullName := parent.getChildName(name)
-	fs := parent.fs
+	if parent.isMountProvider() {
+		return syscall.ENOTSUP
+	}
 
-	isDir, err := parent.isEmptyDir(fs, fullName)
+	isDir, err := parent.isEmptyDir(parent.fs, name)
 	if err != nil {
 		return
 	}
@@ -431,13 +489,14 @@ func (parent *Inode) RmDir(name string) (err error) {
 		return fuse.ENOENT
 	}
 
-	fullName += "/"
+	cloud, key := parent.cloud()
+	key = appendChildName(key, name) + "/"
 
 	params := DeleteBlobInput{
-		Key: *fs.key(fullName),
+		Key: key,
 	}
 
-	_, err = parent.cloud.DeleteBlob(&params)
+	_, err = cloud.DeleteBlob(&params)
 	if err != nil {
 		return
 	}
@@ -500,10 +559,10 @@ func (inode *Inode) fillXattr() (err error) {
 		if inode.isDir() {
 			fullName += "/"
 		}
-		fs := inode.fs
 
-		params := &HeadBlobInput{Key: *fs.key(fullName)}
-		resp, err := inode.cloud.HeadBlob(params)
+		cloud, key := inode.cloud()
+		params := &HeadBlobInput{Key: key}
+		resp, err := cloud.HeadBlob(params)
 		if err != nil {
 			err = mapAwsError(err)
 			if err == fuse.ENOENT {
@@ -566,9 +625,10 @@ func convertMetadata(meta map[string][]byte) (metadata map[string]*string) {
 
 // LOCKS_REQUIRED(inode.mu)
 func (inode *Inode) updateXattr() (err error) {
-	_, err = inode.cloud.CopyBlob(&CopyBlobInput{
-		Source:      *inode.FullName(),
-		Destination: *inode.FullName(),
+	cloud, key := inode.cloud()
+	_, err = cloud.CopyBlob(&CopyBlobInput{
+		Source:      key,
+		Destination: key,
 		Size:        &inode.Attributes.Size,
 		ETag:        aws.String(string(inode.s3Metadata["etag"])),
 		Metadata:    convertMetadata(inode.userMetadata),
@@ -682,29 +742,42 @@ func (inode *Inode) OpenFile() (fh *FileHandle, err error) {
 func (parent *Inode) Rename(from string, newParent *Inode, to string) (err error) {
 	parent.logFuse("Rename", from, newParent.getChildName(to))
 
-	fromFullName := parent.getChildName(from)
+	fromCloud, fromPath := parent.cloud()
+	toCloud, toPath := newParent.cloud()
+	if fromCloud != toCloud {
+		// cannot rename across cloud backend
+		err = fuse.EINVAL
+		return
+	}
+
+	if parent.isMountProvider() || newParent.isMountProvider() {
+		err = syscall.ENOTSUP
+		return
+	}
+
+	fromFullName := appendChildName(fromPath, from)
 	fs := parent.fs
 
 	var size *uint64
 	var fromIsDir bool
 	var toIsDir bool
 
-	fromIsDir, err = parent.isEmptyDir(fs, fromFullName)
+	fromIsDir, err = parent.isEmptyDir(fs, from)
 	if err != nil {
 		// we don't support renaming a directory that's not empty
 		return
 	}
 
-	toFullName := newParent.getChildName(to)
+	toFullName := appendChildName(toPath, to)
 
-	toIsDir, err = parent.isEmptyDir(fs, toFullName)
+	toIsDir, err = parent.isEmptyDir(fs, to)
 	if err != nil {
 		return
 	}
 
 	if fromIsDir && !toIsDir {
-		_, err = parent.cloud.HeadBlob(&HeadBlobInput{
-			Key: *fs.key(toFullName),
+		_, err = fromCloud.HeadBlob(&HeadBlobInput{
+			Key: toFullName,
 		})
 		if err == nil {
 			return fuse.ENOTDIR
@@ -729,25 +802,27 @@ func (parent *Inode) Rename(from string, newParent *Inode, to string) (err error
 }
 
 func (parent *Inode) renameObject(fs *Goofys, size *uint64, fromFullName string, toFullName string) (err error) {
-	_, err = parent.cloud.RenameBlob(&RenameBlobInput{
-		Source:      *fs.key(fromFullName),
-		Destination: *fs.key(toFullName),
+	cloud, _ := parent.cloud()
+
+	_, err = cloud.RenameBlob(&RenameBlobInput{
+		Source:      fromFullName,
+		Destination: toFullName,
 	})
 	if err == nil || err != syscall.ENOTSUP {
 		return
 	}
 
-	_, err = parent.cloud.CopyBlob(&CopyBlobInput{
-		Source:      *fs.key(fromFullName),
-		Destination: *fs.key(toFullName),
+	_, err = cloud.CopyBlob(&CopyBlobInput{
+		Source:      fromFullName,
+		Destination: toFullName,
 		Size:        size,
 	})
 	if err != nil {
 		return
 	}
 
-	_, err = parent.cloud.DeleteBlob(&DeleteBlobInput{
-		Key: *fs.key(fromFullName),
+	_, err = cloud.DeleteBlob(&DeleteBlobInput{
+		Key: fromFullName,
 	})
 	if err != nil {
 		return
@@ -878,8 +953,10 @@ func (parent *Inode) readDirFromCache(offset fuseops.DirOffset) (en *DirHandleEn
 }
 
 func (parent *Inode) LookUpInodeNotDir(name string, c chan HeadBlobOutput, errc chan error) {
-	params := &HeadBlobInput{Key: *parent.fs.key(name)}
-	resp, err := parent.cloud.HeadBlob(params)
+	cloud, key := parent.cloud()
+	key = appendChildName(key, name)
+	params := &HeadBlobInput{Key: key}
+	resp, err := cloud.HeadBlob(params)
 	if err != nil {
 		errc <- mapAwsError(err)
 		return
@@ -890,13 +967,16 @@ func (parent *Inode) LookUpInodeNotDir(name string, c chan HeadBlobOutput, errc 
 }
 
 func (parent *Inode) LookUpInodeDir(name string, c chan ListBlobsOutput, errc chan error) {
+	cloud, key := parent.cloud()
+	key = appendChildName(key, name) + "/"
+
 	params := &ListBlobsInput{
 		Delimiter: aws.String("/"),
 		MaxKeys:   PUInt32(1),
-		Prefix:    parent.fs.key(name + "/"),
+		Prefix:    &key,
 	}
 
-	resp, err := parent.cloud.ListBlobs(params)
+	resp, err := cloud.ListBlobs(params)
 	if err != nil {
 		errc <- err
 		return
@@ -917,17 +997,18 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 	checking := 3
 	var checkErr [3]error
 
-	if parent.cloud == nil {
+	cloud, _ := parent.cloud()
+	if cloud == nil {
 		panic("s3 disabled")
 	}
 
-	go parent.LookUpInodeNotDir(fullName, objectChan, errObjectChan)
-	if !parent.cloud.Capabilities().DirBlob && !parent.fs.flags.Cheap {
-		go parent.LookUpInodeNotDir(fullName+"/", objectChan, errDirBlobChan)
+	go parent.LookUpInodeNotDir(name, objectChan, errObjectChan)
+	if !cloud.Capabilities().DirBlob && !parent.fs.flags.Cheap {
+		go parent.LookUpInodeNotDir(name+"/", objectChan, errDirBlobChan)
 		if !parent.fs.flags.ExplicitDir {
 			errDirChan = make(chan error, 1)
 			dirChan = make(chan ListBlobsOutput, 1)
-			go parent.LookUpInodeDir(fullName, dirChan, errDirChan)
+			go parent.LookUpInodeDir(name, dirChan, errDirChan)
 		}
 	}
 
@@ -935,7 +1016,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 		select {
 		case resp := <-objectChan:
 			err = nil
-			inode = NewInode(parent.fs, parent, &name, &fullName)
+			inode = NewInode(parent.fs, parent, &name)
 			if !resp.IsDirBlob {
 				// XXX/TODO if both object and object/ exists, return dir
 				inode.Attributes = InodeAttributes{
@@ -950,7 +1031,9 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 
 			} else {
 				inode.ToDir()
-				inode.Attributes.Mtime = *resp.LastModified
+				if resp.LastModified != nil {
+					inode.Attributes.Mtime = *resp.LastModified
+				}
 			}
 			inode.fillXattrFromHead(&resp)
 			return
@@ -961,7 +1044,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 		case resp := <-dirChan:
 			err = nil
 			if len(resp.Prefixes) != 0 || len(resp.Items) != 0 {
-				inode = NewInode(parent.fs, parent, &name, &fullName)
+				inode = NewInode(parent.fs, parent, &name)
 				inode.ToDir()
 				if len(resp.Items) != 0 && *resp.Items[0].Key == name+"/" {
 					// it's actually a dir blob
@@ -994,14 +1077,14 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 			s3Log.Debugf("HEAD %v/ = %v", fullName, err)
 		}
 
-		if parent.cloud.Capabilities().DirBlob {
+		if cloud.Capabilities().DirBlob {
 			return
 		}
 
 		switch checking {
 		case 2:
 			if parent.fs.flags.Cheap {
-				go parent.LookUpInodeNotDir(fullName+"/", objectChan, errDirBlobChan)
+				go parent.LookUpInodeNotDir(name+"/", objectChan, errDirBlobChan)
 			}
 		case 1:
 			if parent.fs.flags.ExplicitDir {
@@ -1010,7 +1093,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 			} else if parent.fs.flags.Cheap {
 				errDirChan = make(chan error, 1)
 				dirChan = make(chan ListBlobsOutput, 1)
-				go parent.LookUpInodeDir(fullName, dirChan, errDirChan)
+				go parent.LookUpInodeDir(name, dirChan, errDirChan)
 			}
 			break
 		doneCase:

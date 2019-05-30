@@ -40,7 +40,6 @@ import (
 )
 
 type ADLv1 struct {
-	fs    *Goofys
 	cap   Capabilities
 	flags *FlagStorage
 
@@ -246,7 +245,7 @@ func IsADLv1Endpoint(endpoint string) bool {
 	return strings.HasSuffix(u.Hostname(), ".azuredatalakestore.net")
 }
 
-func NewADLv1(fs *Goofys, bucket string, flags *FlagStorage) *ADLv1 {
+func NewADLv1(bucket string, flags *FlagStorage) *ADLv1 {
 	conf := clientcredentials.Config{
 		ClientID:       flags.ADClientID,
 		ClientSecret:   flags.ADClientSecret,
@@ -286,7 +285,6 @@ func NewADLv1(fs *Goofys, bucket string, flags *FlagStorage) *ADLv1 {
 	oauth2Client := oauth2.NewClient(context.TODO(), tokenSource)
 
 	return &ADLv1{
-		fs:       fs,
 		flags:    flags,
 		client:   retryableHttpClient(oauth2Client, false),
 		endpoint: *endpoint,
@@ -465,10 +463,8 @@ func (b *ADLv1) call(op ADLv1Op, path string, arg interface{}, res interface{}) 
 	return err
 }
 
-func (b *ADLv1) Init() error {
-	randomObjectName := b.fs.key(RandStringBytesMaskImprSrc(32))
-
-	_, err := b.HeadBlob(&HeadBlobInput{Key: *randomObjectName})
+func (b *ADLv1) Init(key string) error {
+	_, err := b.HeadBlob(&HeadBlobInput{Key: key})
 	if err != nil {
 		if err == fuse.ENOENT {
 			err = nil
