@@ -405,7 +405,11 @@ func (fs *Goofys) allocateInodeId() (id fuseops.InodeID) {
 }
 
 func expired(cache time.Time, ttl time.Duration) bool {
-	return !cache.Add(ttl).After(time.Now())
+	now := time.Now()
+	if cache.After(now) {
+		return false
+	}
+	return !cache.Add(ttl).After(now)
 }
 
 func (fs *Goofys) LookUpInode(
@@ -497,9 +501,22 @@ func (fs *Goofys) LookUpInode(
 // LOCKS_REQUIRED(fs.mu)
 // LOCKS_REQUIRED(parent.mu)
 func (fs *Goofys) insertInode(parent *Inode, inode *Inode) {
-	inode.Id = fs.allocateInodeId()
+	addInode := false
+	if *inode.Name == "." {
+		inode.Id = parent.Id
+	} else if *inode.Name == ".." {
+		inode.Id = fuseops.InodeID(fuseops.RootInodeID)
+		if parent.Parent != nil {
+			inode.Id = parent.Parent.Id
+		}
+	} else {
+		inode.Id = fs.allocateInodeId()
+		addInode = true
+	}
 	parent.insertChildUnlocked(inode)
-	fs.inodes[inode.Id] = inode
+	if addInode {
+		fs.inodes[inode.Id] = inode
+	}
 }
 
 // LOCKS_EXCLUDED(fs.mu)
@@ -592,6 +609,7 @@ func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) 
 		defer fs.mu.Unlock()
 
 		fs.insertInode(parent, inode)
+		entry.Inode = inode.Id
 	} else {
 		inode.mu.Lock()
 		defer inode.mu.Unlock()
@@ -609,6 +627,7 @@ func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) 
 		if inode.AttrTime.Before(now) {
 			inode.AttrTime = now
 		}
+		entry.Inode = inode.Id
 	}
 	return
 }
@@ -617,7 +636,7 @@ func makeDirEntry(en *DirHandleEntry) fuseutil.Dirent {
 	return fuseutil.Dirent{
 		Name:   *en.Name,
 		Type:   en.Type,
-		Inode:  fuseops.RootInodeID + 1,
+		Inode:  en.Inode,
 		Offset: en.Offset,
 	}
 }
