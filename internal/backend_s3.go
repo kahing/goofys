@@ -222,13 +222,12 @@ func (s *S3Backend) Init(key string) error {
 			s.newS3(session.New(s.awsConfig))
 			s.aws = isAws
 		} else if err == fuse.ENOENT {
-			log.Errorf("bucket %v does not exist", s.bucket)
-			return nil
+			return fmt.Errorf("bucket %v does not exist", s.bucket)
 		} else {
 			// this is NOT AWS, we expect the request to fail with 403 if this is not
 			// an anonymous bucket
 			if err != syscall.EACCES {
-				log.Errorf("Unable to access '%v': %v", s.bucket, err)
+				s3Log.Errorf("Unable to access '%v': %v", s.bucket, err)
 			}
 		}
 	}

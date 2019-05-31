@@ -318,7 +318,9 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
 		t.Assert(s.fs, NotNil)
 
-		s.cloud = NewAZBlob(bucket, flags)
+		var err error
+		s.cloud, err = NewAZBlob(bucket, flags)
+		t.Assert(err, IsNil)
 		t.Assert(s.cloud, NotNil)
 	} else if cloud == "adlv1" {
 		flags.Endpoint = os.Getenv("ENDPOINT")
@@ -1661,6 +1663,9 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 		t.Assert(string(value), Equals, "\"5cd67e0e59fb85be91a515afe0f4bb24\"")
 	}
 
+	// ensure that we get the dir blob instead of list
+	s.fs.flags.Cheap = true
+
 	emptyDir2, err := s.LookUpInode(t, "empty_dir2")
 	t.Assert(err, IsNil)
 
@@ -2504,7 +2509,9 @@ func (s *GoofysTest) newBackend(t *C, bucket string) (cloud StorageBackend) {
 			}
 		}
 	case *AZBlob:
-		cloud = NewAZBlob(bucket, s.fs.flags)
+		var err error
+		cloud, err = NewAZBlob(bucket, s.fs.flags)
+		t.Assert(err, IsNil)
 	case *ADLv1:
 		cloud = NewADLv1(bucket, s.fs.flags)
 	default:
@@ -2619,12 +2626,13 @@ func (s *GoofysTest) TestMountProviderList(t *C) {
 	in, err := s.LookUpInode(t, "dir4")
 	t.Assert(in, NotNil)
 	t.Assert(err, IsNil)
+	t.Assert(int(in.Id), Equals, 2)
 
 	mountprovider := &MountProviderBackend{
 		MountProvider: &StaticMounts{
 			[]*Mount{
-				&Mount{"cloud1", cloud, ""},
-				&Mount{"cloud2", cloud, "prefix/"},
+				&Mount{"cloud1", cloud, "", false},
+				&Mount{"cloud2", cloud, "prefix/", false},
 			},
 		},
 		inode: in,
@@ -2641,12 +2649,14 @@ func (s *GoofysTest) TestMountProviderList(t *C) {
 	t.Assert(*c1.Name, Equals, "cloud1")
 	t.Assert(c1.isMountProvider(), Equals, false)
 	t.Assert(c1.dir.cloud == cloud, Equals, true)
+	t.Assert(int(c1.Id), Equals, 3)
 
 	c2, err := s.LookUpInode(t, "dir4/cloud2")
 	t.Assert(err, IsNil)
 	t.Assert(*c2.Name, Equals, "cloud2")
 	t.Assert(c2.isMountProvider(), Equals, false)
 	t.Assert(c2.dir.cloud == cloud, Equals, true)
+	t.Assert(int(c2.Id), Equals, 4)
 
 	in.dir.cloud = mountprovider
 	// pretend we've passed the normal cache ttl
@@ -2676,8 +2686,8 @@ func (s *GoofysTest) TestMountProviderNewDir(t *C) {
 	mountprovider := &MountProviderBackend{
 		MountProvider: &StaticMounts{
 			[]*Mount{
-				&Mount{"cloud1", cloud, ""},
-				&Mount{"cloud2", cloud, "prefix/"},
+				&Mount{"cloud1", cloud, "", false},
+				&Mount{"cloud2", cloud, "prefix/", false},
 			},
 		},
 		inode: in,
@@ -2710,8 +2720,8 @@ func (s *GoofysTest) TestMountProviderGet(t *C) {
 	in.dir.cloud = &MountProviderBackend{
 		MountProvider: &StaticMounts{
 			[]*Mount{
-				&Mount{"cloud1", cloud, ""},
-				&Mount{"cloud2", cloud, "prefix/"},
+				&Mount{"cloud1", cloud, "", false},
+				&Mount{"cloud2", cloud, "prefix/", false},
 			},
 		},
 		inode: in,
@@ -2787,7 +2797,7 @@ func (s *GoofysTest) TestMountProviderNewMounts(t *C) {
 	mountprovider := &MountProviderBackend{
 		MountProvider: &StaticMounts{
 			[]*Mount{
-				&Mount{"cloud1", cloud, ""},
+				&Mount{"cloud1", cloud, "", false},
 			},
 		},
 		inode: in,
@@ -2806,11 +2816,145 @@ func (s *GoofysTest) TestMountProviderNewMounts(t *C) {
 	t.Assert(err, Equals, fuse.ENOENT)
 
 	mounts, _ := mountprovider.MountProvider.(*StaticMounts)
-	mounts.mounts = append(mounts.mounts, &Mount{"cloud2", cloud, "cloudprefix"})
+	mounts.mounts = append(mounts.mounts, &Mount{"cloud2", cloud, "cloudprefix", false})
 
 	c2, err := s.LookUpInode(t, "dir4/cloud2")
 	t.Assert(err, IsNil)
 	t.Assert(*c2.Name, Equals, "cloud2")
 	t.Assert(c2.isMountProvider(), Equals, false)
 	t.Assert(c2.dir.cloud == cloud, Equals, true)
+}
+
+func (s *GoofysTest) TestMountProviderError(t *C) {
+	in, err := s.LookUpInode(t, "dir4")
+	t.Assert(in, NotNil)
+	t.Assert(err, IsNil)
+
+	mountprovider := &MountProviderBackend{
+		MountProvider: &StaticMounts{
+			[]*Mount{
+				&Mount{"error", StorageBackendInitError{fmt.Errorf("foo")}, "errprefix", false},
+			},
+		},
+		inode: in,
+	}
+	in.dir.cloud = mountprovider
+
+	errfile, err := s.LookUpInode(t, "dir4/error/"+INIT_ERR_BLOB)
+	t.Assert(err, IsNil)
+	t.Assert(errfile.isDir(), Equals, false)
+
+	_, err = s.LookUpInode(t, "dir4/error/not_there")
+	t.Assert(err, Equals, fuse.ENOENT)
+}
+
+func (s *GoofysTest) TestMountProviderMultiLevel(t *C) {
+	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+
+	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
+	cloud := s.newBackend(t, bucket)
+
+	in, err := s.LookUpInode(t, "dir4")
+	t.Assert(in, NotNil)
+	t.Assert(err, IsNil)
+
+	mountprovider := &MountProviderBackend{
+		MountProvider: &StaticMounts{
+			[]*Mount{
+				&Mount{"sub/dir", cloud, "", false},
+			},
+		},
+		inode: in,
+	}
+	in.dir.cloud = mountprovider
+
+	sub, err := s.LookUpInode(t, "dir4/sub")
+	t.Assert(err, IsNil)
+	t.Assert(sub.isDir(), Equals, true)
+
+	s.assertEntries(t, sub, []string{"dir"})
+}
+
+func (s *GoofysTest) TestMountProviderNested(t *C) {
+	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
+	cloud := s.newBackend(t, bucket)
+	s.testMountProviderNested(t, cloud, &MountProviderBackend{
+		MountProvider: &StaticMounts{
+			[]*Mount{
+				&Mount{"in/a/dir", cloud, "a/dir/", false},
+				&Mount{"in/", cloud, "b/", false},
+			},
+		},
+	})
+}
+
+// test that mount order doesn't matter for nested mounts
+func (s *GoofysTest) TestMountProviderNestedReversed(t *C) {
+	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
+	cloud := s.newBackend(t, bucket)
+	s.testMountProviderNested(t, cloud, &MountProviderBackend{
+		MountProvider: &StaticMounts{
+			[]*Mount{
+				&Mount{"in/", cloud, "b/", false},
+				&Mount{"in/a/dir", cloud, "a/dir/", false},
+			},
+		},
+	})
+}
+
+func (s *GoofysTest) testMountProviderNested(t *C, cloud StorageBackend,
+	mountprovider *MountProviderBackend) {
+
+	// "mount" this 2nd cloud
+	_, err := s.LookUpInode(t, "dir5")
+	t.Assert(err, NotNil)
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	in := NewInode(s.fs, s.getRoot(t), PString("dir5"))
+	in.ToDir()
+	in.AttrTime = TIME_MAX
+	mountprovider.inode = in
+	in.dir.cloud = mountprovider
+	s.fs.insertInode(s.getRoot(t), in)
+
+	s.readDirIntoCache(t, in.Id)
+	// unset this to make sure all the intermediate dirs never expire
+	in.dir.cloud = nil
+
+	time.Sleep(time.Second)
+	dir_in, err := s.LookUpInode(t, "dir5/in")
+	t.Assert(err, IsNil)
+	t.Assert(*dir_in.Name, Equals, "in")
+
+	s.readDirIntoCache(t, dir_in.Id)
+
+	dir_a, err := s.LookUpInode(t, "dir5/in/a")
+	t.Assert(err, IsNil)
+	t.Assert(*dir_a.Name, Equals, "a")
+
+	s.assertEntries(t, dir_a, []string{"dir"})
+
+	dir_dir, err := s.LookUpInode(t, "dir5/in/a/dir")
+	t.Assert(err, IsNil)
+	t.Assert(*dir_dir.Name, Equals, "dir")
+	t.Assert(dir_dir.dir.cloud == cloud, Equals, true)
+
+	_, fh := dir_in.Create("testfile")
+	err = fh.FlushFile()
+	t.Assert(err, IsNil)
+
+	resp, err := cloud.GetBlob(&GetBlobInput{Key: "b/testfile"})
+	t.Assert(err, IsNil)
+	defer resp.Body.Close()
+
+	_, fh = dir_dir.Create("testfile")
+	err = fh.FlushFile()
+	t.Assert(err, IsNil)
+
+	resp, err = cloud.GetBlob(&GetBlobInput{Key: "a/dir/testfile"})
+	t.Assert(err, IsNil)
+	defer resp.Body.Close()
+
+	in.dir.cloud = mountprovider
+	s.assertEntries(t, in, []string{"in"})
 }

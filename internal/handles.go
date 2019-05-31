@@ -66,6 +66,10 @@ type Inode struct {
 }
 
 func NewInode(fs *Goofys, parent *Inode, name *string) (inode *Inode) {
+	if strings.Index(*name, "/") != -1 {
+		fuseLog.Errorf("%v is not a valid name", *name)
+	}
+
 	inode = &Inode{
 		Name:       name,
 		fs:         fs,
@@ -92,7 +96,11 @@ func (inode *Inode) cloud() (cloud StorageBackend, path string) {
 	for p := dir; p != nil; p = p.Parent {
 		if p.dir.cloud != nil {
 			cloud = p.dir.cloud
-			prefix = p.dir.mountPrefix
+			// the error backend produces a mount.err file
+			// at the root and is not aware of prefix
+			if _, ok := cloud.(StorageBackendInitError); !ok {
+				prefix = p.dir.mountPrefix
+			}
 			break
 		}
 
@@ -170,6 +178,27 @@ func (inode *Inode) ToDir() {
 		inode.dir = &DirInodeData{}
 		inode.KnownSize = &inode.fs.rootAttrs.Size
 	}
+}
+
+func (parent *Inode) findPath(path string) (inode *Inode) {
+	dir := parent
+
+	for dir != nil {
+		if !dir.isDir() {
+			return nil
+		}
+
+		idx := strings.Index(path, "/")
+		if idx == -1 {
+			return dir.findChild(path)
+		}
+		dirName := path[0:idx]
+		path = path[idx+1:]
+
+		dir = dir.findChild(dirName)
+	}
+
+	return nil
 }
 
 func (parent *Inode) findChild(name string) (inode *Inode) {

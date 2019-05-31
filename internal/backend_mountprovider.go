@@ -16,13 +16,18 @@ package internal
 
 import (
 	"fmt"
+	"strings"
 	"syscall"
+	"time"
+
+	"github.com/jacobsa/fuse"
 )
 
 type Mount struct {
-	name   string
-	cloud  StorageBackend
-	prefix string
+	name    string
+	cloud   StorageBackend
+	prefix  string
+	mounted bool
 }
 
 type MountProvider interface {
@@ -45,20 +50,70 @@ func (m *MountProviderBackend) Capabilities() *Capabilities {
 	}
 }
 
-// LOCKS_REQUIRED(m.inode.mu)
-// LOCKS_REQUIRED(m.inode.fs.mu)
 func (m *MountProviderBackend) mount(b *Mount) {
+	if b.mounted {
+		return
+	}
+
 	fs := m.inode.fs
 
-	prev := m.inode.findChildUnlockedFull(b.name)
+	mp := m.inode
+	name := strings.Trim(b.name, "/")
+
+	for {
+		idx := strings.Index(name, "/")
+		if idx == -1 {
+			break
+		}
+		dirName := name[0:idx]
+		name = name[idx+1:]
+
+		mp.mu.Lock()
+		dirInode := mp.findChildUnlockedFull(dirName)
+		if dirInode == nil {
+			fs.mu.Lock()
+
+			dirInode = NewInode(fs, mp, &dirName)
+			dirInode.ToDir()
+			dirInode.AttrTime = TIME_MAX
+			// if nothing is mounted here, set DirTime to
+			// infinite so listing will always use cache
+			dirInode.dir.DirTime = TIME_MAX
+
+			fs.insertInode(mp, dirInode)
+
+			// insert the fake . and ..
+			dot := NewInode(fs, dirInode, PString("."))
+			dot.ToDir()
+			dot.AttrTime = TIME_MAX
+			fs.insertInode(dirInode, dot)
+
+			dot = NewInode(fs, dirInode, PString(".."))
+			dot.ToDir()
+			dot.AttrTime = TIME_MAX
+			fs.insertInode(dirInode, dot)
+			fs.mu.Unlock()
+		}
+		mp.mu.Unlock()
+		mp = dirInode
+	}
+
+	mp.mu.Lock()
+	defer mp.mu.Unlock()
+
+	prev := mp.findChildUnlockedFull(name)
 	if prev == nil {
-		mountInode := NewInode(fs, m.inode, &b.name)
+		mountInode := NewInode(fs, mp, &name)
 		mountInode.ToDir()
 		mountInode.dir.cloud = b.cloud
 		mountInode.dir.mountPrefix = b.prefix
 		mountInode.AttrTime = TIME_MAX
 
-		fs.insertInode(m.inode, mountInode)
+		fs.mu.Lock()
+		defer fs.mu.Unlock()
+
+		fs.insertInode(mp, mountInode)
+		prev = mountInode
 	} else {
 		if !prev.isDir() {
 			panic(fmt.Sprintf("inode %v is not a directory", *prev.FullName()))
@@ -69,61 +124,95 @@ func (m *MountProviderBackend) mount(b *Mount) {
 		prev.dir.cloud = b.cloud
 		prev.dir.mountPrefix = b.prefix
 		prev.AttrTime = TIME_MAX
+		// unset this so that if there was a specific mount
+		// for a/b and we are mounted at a/, listing would
+		// actually list this backend
+		prev.dir.DirTime = time.Time{}
 	}
+	fuseLog.Infof("mounted /%v", *prev.FullName())
+	b.mounted = true
+}
+
+func (m *MountProviderBackend) refreshMounts() error {
+	mounts, err := m.List()
+	if err != nil {
+		return err
+	}
+
+	for _, b := range mounts {
+		m.mount(b)
+	}
+
+	return nil
 }
 
 func (m *MountProviderBackend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
-	b, err := m.Lookup(param.Key)
+	err := m.refreshMounts()
 	if err != nil {
 		return nil, err
 	}
 
-	m.inode.mu.Lock()
-	defer m.inode.mu.Unlock()
-	fs := m.inode.fs
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
-	m.mount(b)
-
-	return &HeadBlobOutput{
-		BlobItemOutput: BlobItemOutput{
-			Key: &b.name,
-		},
-		IsDirBlob: true,
-	}, nil
+	node := m.inode.findPath(param.Key)
+	if node == nil {
+		return nil, fuse.ENOENT
+	} else {
+		return &HeadBlobOutput{
+			BlobItemOutput: BlobItemOutput{
+				Key:          &param.Key,
+				LastModified: &node.Attributes.Mtime,
+				Size:         node.Attributes.Size,
+			},
+			IsDirBlob: node.isDir(),
+		}, nil
+	}
 }
 
 func (m *MountProviderBackend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 	if param.Delimiter == nil || *param.Delimiter != "/" ||
-		(param.Prefix != nil && *param.Prefix != "") ||
+		(param.Prefix != nil && *param.Prefix != "" && !strings.HasSuffix(*param.Prefix, "/")) ||
 		param.StartAfter != nil || param.ContinuationToken != nil || param.MaxKeys != nil {
 		return nil, syscall.ENOTSUP
 	}
 
-	mounts, err := m.List()
+	err := m.refreshMounts()
 	if err != nil {
 		return nil, err
 	}
 
-	m.inode.mu.Lock()
-	defer m.inode.mu.Unlock()
-
-	fs := m.inode.fs
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
+	var dir *Inode
+	var prefix string
+	if param.Prefix == nil || *param.Prefix == "" {
+		dir = m.inode
+	} else {
+		prefix = *param.Prefix
+		dir = m.inode.findPath(strings.TrimRight(prefix, "/"))
+		if !dir.isDir() {
+			return &ListBlobsOutput{}, nil
+		}
+	}
 
 	var prefixes []BlobPrefixOutput
-	for _, b := range mounts {
-		prefixes = append(prefixes, BlobPrefixOutput{
-			Prefix: PString(b.name + "/"),
-		})
+	var items []BlobItemOutput
 
-		m.mount(b)
+	for _, c := range m.inode.dir.Children {
+		if *c.Name != "." && *c.Name != ".." {
+			if c.isDir() {
+				prefixes = append(prefixes, BlobPrefixOutput{
+					Prefix: PString(prefix + *c.Name + "/"),
+				})
+			} else {
+				items = append(items, BlobItemOutput{
+					Key:          PString(prefix + *c.Name),
+					LastModified: &c.Attributes.Mtime,
+					Size:         c.Attributes.Size,
+				})
+			}
+		}
 	}
 
 	return &ListBlobsOutput{
 		Prefixes: prefixes,
+		Items:    items,
 	}, nil
 }
 

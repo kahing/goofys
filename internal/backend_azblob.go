@@ -56,7 +56,7 @@ const AZBlobEndpoint = "https://%v.blob.core.windows.net?%%v"
 const AzuriteEndpoint = "http://127.0.0.1:8080/%v/?%%v"
 const AzureDirBlobMetadataKey = "hdi_isfolder"
 
-func NewAZBlob(container string, config *FlagStorage) *AZBlob {
+func NewAZBlob(container string, config *FlagStorage) (*AZBlob, error) {
 	po := azblob.PipelineOptions{
 		Log: pipeline.LogOptions{
 			Log: func(level pipeline.LogLevel, msg string) {
@@ -110,8 +110,7 @@ func NewAZBlob(container string, config *FlagStorage) *AZBlob {
 	} else {
 		credential, err := azblob.NewSharedKeyCredential(config.AZAccountName, config.AZAccountKey)
 		if err != nil {
-			s3Log.Errorf("Unable to construct credential: %v", err)
-			return nil
+			return nil, fmt.Errorf("Unable to construct credential: %v", err)
 		}
 
 		if config.Endpoint == AzuriteEndpoint {
@@ -122,7 +121,7 @@ func NewAZBlob(container string, config *FlagStorage) *AZBlob {
 
 			u, err := url.Parse(bareURL)
 			if err != nil {
-				return nil
+				return nil, err
 			}
 
 			serviceURL := azblob.NewServiceURL(*u, p)
@@ -171,7 +170,7 @@ func NewAZBlob(container string, config *FlagStorage) *AZBlob {
 		c:                bc,
 	}
 
-	return b
+	return b, nil
 }
 
 func (b *AZBlob) Capabilities() *Capabilities {

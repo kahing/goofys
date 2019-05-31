@@ -92,7 +92,7 @@ type Goofys struct {
 
 var s3Log = GetLogger("s3")
 
-func NewBackend(bucket string, flags *FlagStorage, awsConfig *aws.Config) (cloud StorageBackend) {
+func NewBackend(bucket string, flags *FlagStorage, awsConfig *aws.Config) (cloud StorageBackend, err error) {
 	if flags.AZAccountKey != "" {
 		if flags.Endpoint == "" {
 			if flags.AZAccountName == "" {
@@ -101,7 +101,7 @@ func NewBackend(bucket string, flags *FlagStorage, awsConfig *aws.Config) (cloud
 			}
 			flags.Endpoint = AZBlobEndpoint
 		}
-		cloud = NewAZBlob(bucket, flags)
+		cloud, err = NewAZBlob(bucket, flags)
 	} else if flags.Endpoint != "" && IsADLv1Endpoint(flags.Endpoint) {
 		if flags.ADClientID == "" || flags.ADClientSecret == "" || flags.ADTenantID == "" {
 			log.Errorf("All of --ad-client-id, --ad-client-secret, and --ad-directory-id must be set")
@@ -142,14 +142,15 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 		s3Log.Level = logrus.DebugLevel
 	}
 
-	cloud := NewBackend(bucket, flags, awsConfig)
-	if cloud == nil {
+	cloud, err := NewBackend(bucket, flags, awsConfig)
+	if err != nil {
+		log.Errorf("Unable to setup backend: %v", err)
 		return nil
 	}
 	_, fs.gcs = cloud.(*GCS3)
 
 	randomObjectName := prefix + (RandStringBytesMaskImprSrc(32))
-	err := cloud.Init(randomObjectName)
+	err = cloud.Init(randomObjectName)
 	if err != nil {
 		log.Errorf("Unable to access '%v': %v", bucket, err)
 		return nil
