@@ -5,8 +5,6 @@ import (
 
 	"context"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"time"
@@ -78,26 +76,11 @@ func Mount(
 
 	var flags FlagStorage
 	copier.Copy(&flags, config)
-	awsConfig := (&aws.Config{
-		Region: &flags.Region,
-		Logger: GetLogger("s3"),
-		//LogLevel: aws.LogLevel(aws.LogDebug),
-	}).WithHTTPClient(&http.Client{
-		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-				DualStack: true,
-			}).DialContext,
-			MaxIdleConns:          1000,
-			MaxIdleConnsPerHost:   1000,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 10 * time.Second,
-		},
-		Timeout: flags.HTTPTimeout,
-	})
+
+	awsConfig := internal.NewAwsConfig(&flags)
+	if flags.DebugS3 {
+		internal.SetCloudLogLevel(logrus.DebugLevel)
+	}
 
 	if config.AccessKey != "" {
 		awsConfig.Credentials = credentials.NewStaticCredentials(config.AccessKey, config.SecretKey, "")

@@ -16,6 +16,7 @@ package internal
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -859,4 +860,32 @@ func (s *S3Backend) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error
 		return nil, mapAwsError(err)
 	}
 	return &MakeBucketOutput{}, nil
+}
+
+var S3_HTTP_TRANSPORT = http.Transport{
+	Proxy: http.ProxyFromEnvironment,
+	DialContext: (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		DualStack: true,
+	}).DialContext,
+	MaxIdleConns:          1000,
+	MaxIdleConnsPerHost:   1000,
+	IdleConnTimeout:       90 * time.Second,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ExpectContinueTimeout: 10 * time.Second,
+}
+
+func NewAwsConfig(flags *FlagStorage) *aws.Config {
+	awsConfig := (&aws.Config{
+		Region: &flags.Region,
+		Logger: GetLogger("s3"),
+	}).WithHTTPClient(&http.Client{
+		Transport: &S3_HTTP_TRANSPORT,
+		Timeout:   flags.HTTPTimeout,
+	})
+	if flags.DebugS3 {
+		awsConfig.LogLevel = aws.LogLevel(aws.LogDebug | aws.LogDebugWithRequestErrors)
+	}
+	return awsConfig
 }

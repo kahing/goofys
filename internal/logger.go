@@ -51,6 +51,14 @@ func InitLoggers(logToSyslog bool) {
 	}
 }
 
+func SetCloudLogLevel(level logrus.Level) {
+	for k, logr := range loggers {
+		if k != log.name && k != fuseLog.name {
+			logr.Level = level
+		}
+	}
+}
+
 type LogHandle struct {
 	logrus.Logger
 

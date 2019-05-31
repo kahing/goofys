@@ -92,6 +92,31 @@ type Goofys struct {
 
 var s3Log = GetLogger("s3")
 
+func NewBackend(bucket string, flags *FlagStorage, awsConfig *aws.Config) (cloud StorageBackend) {
+	if flags.AZAccountKey != "" {
+		if flags.Endpoint == "" {
+			if flags.AZAccountName == "" {
+				log.Errorf("At least one of Azure account name and endpoint must be set")
+				return
+			}
+			flags.Endpoint = AZBlobEndpoint
+		}
+		cloud = NewAZBlob(bucket, flags)
+	} else if flags.Endpoint != "" && IsADLv1Endpoint(flags.Endpoint) {
+		if flags.ADClientID == "" || flags.ADClientSecret == "" || flags.ADTenantID == "" {
+			log.Errorf("All of --ad-client-id, --ad-client-secret, and --ad-directory-id must be set")
+			return
+		}
+		cloud = NewADLv1(bucket, flags)
+	} else if strings.HasSuffix(flags.Endpoint, "/storage.googleapis.com") {
+		cloud = NewGCS3(bucket, awsConfig, flags)
+	} else {
+		cloud = NewS3(bucket, awsConfig, flags)
+	}
+
+	return
+}
+
 func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys {
 	// Set up the basic struct.
 	fs := &Goofys{
@@ -114,51 +139,21 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 	}
 
 	if flags.DebugS3 {
-		awsConfig.LogLevel = aws.LogLevel(aws.LogDebug | aws.LogDebugWithRequestErrors)
 		s3Log.Level = logrus.DebugLevel
 	}
 
-	if strings.HasSuffix(flags.Endpoint, "/storage.googleapis.com") {
-		fs.gcs = true
-	}
-
-	if flags.DebugS3 {
-		s3Log.Level = logrus.DebugLevel
-	}
-
-	var cloud StorageBackend
-	if flags.AZAccountKey != "" {
-		if flags.Endpoint == "" {
-			if flags.AZAccountName == "" {
-				log.Errorf("At least one of Azure account name and endpoint must be set")
-				return nil
-			}
-			flags.Endpoint = AZBlobEndpoint
-		}
-		cloud = NewAZBlob(bucket, flags)
-	} else if flags.Endpoint != "" && IsADLv1Endpoint(flags.Endpoint) {
-		if flags.ADClientID == "" || flags.ADClientSecret == "" || flags.ADTenantID == "" {
-			log.Errorf("All of --ad-client-id, --ad-client-secret, and --ad-directory-id must be set")
-			return nil
-		}
-		cloud = NewADLv1(bucket, flags)
-	} else if fs.gcs {
-		cloud = NewGCS3(bucket, awsConfig, flags)
-	} else {
-		cloud = NewS3(bucket, awsConfig, flags)
-	}
-
+	cloud := NewBackend(bucket, flags, awsConfig)
 	if cloud == nil {
 		return nil
 	}
+	_, fs.gcs = cloud.(*GCS3)
 
 	randomObjectName := prefix + (RandStringBytesMaskImprSrc(32))
 	err := cloud.Init(randomObjectName)
 	if err != nil {
-		log.Errorf("Unable to access '%v': %v", fs.bucket, err)
+		log.Errorf("Unable to access '%v': %v", bucket, err)
 		return nil
 	}
-
 	go cloud.MultipartExpire(&MultipartExpireInput{})
 
 	now := time.Now()
