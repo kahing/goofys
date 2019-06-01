@@ -350,6 +350,7 @@ type FlagStorage struct {
 	ADClientID     string
 	ADClientSecret string
 	ADTenantID     string
+	ADRefreshUrl   string
 
 	// Tuning
 	Cheap        bool
