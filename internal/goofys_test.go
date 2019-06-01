@@ -287,6 +287,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 
 	cloud := os.Getenv("CLOUD")
 
+	var err error
 	if cloud == "s3" {
 		s.waitForEmulator(t)
 
@@ -318,7 +319,6 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
 		t.Assert(s.fs, NotNil)
 
-		var err error
 		s.cloud, err = NewAZBlob(bucket, flags)
 		t.Assert(err, IsNil)
 		t.Assert(s.cloud, NotNil)
@@ -336,7 +336,8 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
 		t.Assert(s.fs, NotNil)
 
-		s.cloud = NewADLv1(bucket, flags)
+		s.cloud, err = NewADLv1(bucket, flags)
+		t.Assert(err, IsNil)
 		t.Assert(s.cloud, NotNil)
 	} else {
 		t.Fatal("Unsupported backend")
@@ -2496,6 +2497,7 @@ func (s *GoofysTest) TestAzureDirBlob(t *C) {
 }
 
 func (s *GoofysTest) newBackend(t *C, bucket string) (cloud StorageBackend) {
+	var err error
 	switch s.cloud.(type) {
 	case *S3Backend:
 		cloud = NewS3(bucket, s.awsConfig, s.fs.flags)
@@ -2509,16 +2511,16 @@ func (s *GoofysTest) newBackend(t *C, bucket string) (cloud StorageBackend) {
 			}
 		}
 	case *AZBlob:
-		var err error
 		cloud, err = NewAZBlob(bucket, s.fs.flags)
 		t.Assert(err, IsNil)
 	case *ADLv1:
-		cloud = NewADLv1(bucket, s.fs.flags)
+		cloud, err = NewADLv1(bucket, s.fs.flags)
+		t.Assert(err, IsNil)
 	default:
 		t.Fatal("unknown backend")
 	}
 
-	_, err := cloud.MakeBucket(&MakeBucketInput{})
+	_, err = cloud.MakeBucket(&MakeBucketInput{})
 	t.Assert(err, IsNil)
 
 	return

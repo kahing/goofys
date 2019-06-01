@@ -96,18 +96,20 @@ func NewBackend(bucket string, flags *FlagStorage, awsConfig *aws.Config) (cloud
 	if flags.AZAccountKey != "" {
 		if flags.Endpoint == "" {
 			if flags.AZAccountName == "" {
-				log.Errorf("At least one of Azure account name and endpoint must be set")
+				err = fmt.Errorf("At least one of Azure account name and endpoint must be set")
 				return
 			}
 			flags.Endpoint = AZBlobEndpoint
 		}
 		cloud, err = NewAZBlob(bucket, flags)
-	} else if flags.Endpoint != "" && IsADLv1Endpoint(flags.Endpoint) {
-		if flags.ADClientID == "" || flags.ADClientSecret == "" || flags.ADTenantID == "" {
-			log.Errorf("All of --ad-client-id, --ad-client-secret, and --ad-directory-id must be set")
-			return
+	} else if flags.Endpoint != "" && (IsADLv1Endpoint(flags.Endpoint) ||
+		flags.ADClientID+flags.ADClientSecret+flags.ADTenantID+flags.ADRefreshUrl != "") {
+
+		if flags.ADClientID == "" || flags.ADClientSecret == "" ||
+			(flags.ADTenantID == "" && flags.ADRefreshUrl == "") {
+			return nil, fmt.Errorf("Incomplete configurations")
 		}
-		cloud = NewADLv1(bucket, flags)
+		cloud, err = NewADLv1(bucket, flags)
 	} else if strings.HasSuffix(flags.Endpoint, "/storage.googleapis.com") {
 		cloud = NewGCS3(bucket, awsConfig, flags)
 	} else {

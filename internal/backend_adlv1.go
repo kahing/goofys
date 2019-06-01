@@ -33,7 +33,6 @@ import (
 	"github.com/google/uuid"
 	retryablehttp "github.com/hashicorp/go-retryablehttp"
 	"github.com/jacobsa/fuse"
-	"github.com/sirupsen/logrus"
 	hdfs "github.com/vladimirvivien/gowfs"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
@@ -245,24 +244,38 @@ func IsADLv1Endpoint(endpoint string) bool {
 	return strings.HasSuffix(u.Hostname(), ".azuredatalakestore.net")
 }
 
-func NewADLv1(bucket string, flags *FlagStorage) *ADLv1 {
+func NewADLv1(bucket string, flags *FlagStorage) (*ADLv1, error) {
+	tokenURL := flags.ADRefreshUrl
+	if tokenURL == "" {
+		tokenURL = fmt.Sprintf("https://login.microsoftonline.com/%v/oauth2/token", flags.ADTenantID)
+	}
+
 	conf := clientcredentials.Config{
 		ClientID:       flags.ADClientID,
 		ClientSecret:   flags.ADClientSecret,
-		TokenURL:       fmt.Sprintf("https://login.microsoftonline.com/%v/oauth2/token", flags.ADTenantID),
+		TokenURL:       tokenURL,
 		EndpointParams: url.Values{"resource": {"https://management.core.windows.net/"}},
 	}
 	conf.AuthStyle = oauth2.AuthStyleInParams
 
 	endpoint, err := url.Parse(flags.Endpoint)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
+	if endpoint.Host == "" {
+		// if endpoint doesn't have scheme: foobar.com or foobar.com/a,
+		// it will get parsed as the Path
+		newEndpoint := "https://" + flags.Endpoint
+		endpoint, err = url.Parse(newEndpoint)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if endpoint.Scheme == "" {
+		endpoint.Scheme = "https"
+	}
 	endpoint.Path = "/webhdfs/v1/"
-
-	_ = logrus.DebugLevel
-	//s3Log.Level = logrus.DebugLevel
 
 	ctx := context.WithValue(context.TODO(), oauth2.HTTPClient,
 		&http.Client{
@@ -293,7 +306,7 @@ func NewADLv1(bucket string, flags *FlagStorage) *ADLv1 {
 			NoParallelMultipart: true,
 			DirBlob:             true,
 		},
-	}
+	}, nil
 }
 
 func toOauth2Error(err error) *oauth2.RetrieveError {
@@ -309,10 +322,16 @@ func mapADLv1Error(op *ADLv1Op, resp *http.Response, err error) error {
 	if err != nil {
 		oauth2Err := toOauth2Error(err)
 		if oauth2Err != nil {
+			if op.rawError {
+				return fmt.Errorf("%v", oauth2Err.Error())
+			}
 			err = mapHttpError(oauth2Err.Response.StatusCode)
 			if err != nil {
 				return err
 			}
+		}
+		if op.rawError {
+			return err
 		}
 		return syscall.EAGAIN
 	}
@@ -464,14 +483,7 @@ func (b *ADLv1) call(op ADLv1Op, path string, arg interface{}, res interface{}) 
 }
 
 func (b *ADLv1) Init(key string) error {
-	_, err := b.HeadBlob(&HeadBlobInput{Key: key})
-	if err != nil {
-		if err == fuse.ENOENT {
-			err = nil
-		}
-	}
-
-	return err
+	return b.get(ADL1_GETFILESTATUS.New().RawError(), key, nil)
 }
 
 func (b *ADLv1) Capabilities() *Capabilities {
