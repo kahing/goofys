@@ -274,15 +274,14 @@ type StorageBackendInitWrapper struct {
 const INIT_ERR_BLOB = "mount.err"
 
 func (s *StorageBackendInitWrapper) Init(key string) error {
-	var err error
 	s.init.Do(func() {
-		err = s.StorageBackend.Init(s.initKey)
-		if err != nil {
-			s3Log.Errorf("Init: %v", err)
-			s.StorageBackend = StorageBackendInitError{err}
+		s.initErr = s.StorageBackend.Init(s.initKey)
+		if s.initErr != nil {
+			log.Errorf("%T Init: %v", s.StorageBackend, s.initErr)
+			s.StorageBackend = StorageBackendInitError{s.initErr}
 		}
 	})
-	return err
+	return s.initErr
 }
 
 func (s *StorageBackendInitWrapper) Capabilities() *Capabilities {

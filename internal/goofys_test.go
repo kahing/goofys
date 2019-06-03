@@ -243,7 +243,7 @@ func (s *GoofysTest) setupBlobs(t *C, env map[string]io.ReadSeeker) {
 	}
 }
 
-func (s *GoofysTest) setupEnv(t *C, bucket string, env map[string]io.ReadSeeker, public bool) {
+func (s *GoofysTest) setupEnv(t *C, env map[string]io.ReadSeeker, public bool) {
 	if public {
 		s.fs.flags.ACL = "public-read"
 	}
@@ -269,7 +269,7 @@ func (s *GoofysTest) setupDefaultEnv(t *C, public bool) {
 		"zero":            bytes.NewReader([]byte{}),
 	}
 
-	s.setupEnv(t, s.fs.bucket, s.env, public)
+	s.setupEnv(t, s.env, public)
 }
 
 func (s *GoofysTest) SetUpTest(t *C) {
@@ -290,9 +290,6 @@ func (s *GoofysTest) SetUpTest(t *C) {
 	var err error
 	if cloud == "s3" {
 		s.waitForEmulator(t)
-
-		s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
-		t.Assert(s.fs, NotNil)
 
 		s.cloud = NewS3(bucket, s.awsConfig, flags)
 		if s3, ok := s.cloud.(*S3Backend); ok {
@@ -316,9 +313,6 @@ func (s *GoofysTest) SetUpTest(t *C) {
 			s.waitForEmulator(t)
 		}
 
-		s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
-		t.Assert(s.fs, NotNil)
-
 		s.cloud, err = NewAZBlob(bucket, flags)
 		t.Assert(err, IsNil)
 		t.Assert(s.cloud, NotNil)
@@ -333,9 +327,6 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		t.Assert(flags.ADClientSecret, Not(Equals), "")
 		t.Assert(flags.ADTenantID, Not(Equals), "")
 
-		s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
-		t.Assert(s.fs, NotNil)
-
 		s.cloud, err = NewADLv1(bucket, flags)
 		t.Assert(err, IsNil)
 		t.Assert(s.cloud, NotNil)
@@ -344,6 +335,9 @@ func (s *GoofysTest) SetUpTest(t *C) {
 	}
 
 	s.setupDefaultEnv(t, false)
+
+	s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
+	t.Assert(s.fs, NotNil)
 
 	s.ctx = context.Background()
 
@@ -2496,7 +2490,7 @@ func (s *GoofysTest) TestAzureDirBlob(t *C) {
 	s.assertEntries(t, in, []string{"dir2", "dir3", "dir3,", "dir345_is_a_file"})
 }
 
-func (s *GoofysTest) newBackend(t *C, bucket string) (cloud StorageBackend) {
+func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud StorageBackend) {
 	var err error
 	switch s.cloud.(type) {
 	case *S3Backend:
@@ -2520,15 +2514,17 @@ func (s *GoofysTest) newBackend(t *C, bucket string) (cloud StorageBackend) {
 		t.Fatal("unknown backend")
 	}
 
-	_, err = cloud.MakeBucket(&MakeBucketInput{})
-	t.Assert(err, IsNil)
+	if createBucket {
+		_, err = cloud.MakeBucket(&MakeBucketInput{})
+		t.Assert(err, IsNil)
+	}
 
 	return
 }
 
 func (s *GoofysTest) TestVFS(t *C) {
 	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
-	cloud2 := s.newBackend(t, bucket)
+	cloud2 := s.newBackend(t, bucket, true)
 
 	// "mount" this 2nd cloud
 	in, err := s.LookUpInode(t, "dir4")
@@ -2622,7 +2618,7 @@ func (m *StaticMounts) Lookup(name string) (*Mount, error) {
 
 func (s *GoofysTest) TestMountProviderList(t *C) {
 	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
-	cloud := s.newBackend(t, bucket)
+	cloud := s.newBackend(t, bucket, true)
 
 	// "mount" this 2nd cloud
 	in, err := s.LookUpInode(t, "dir4")
@@ -2675,7 +2671,7 @@ func (s *GoofysTest) TestMountProviderList(t *C) {
 
 func (s *GoofysTest) TestMountProviderNewDir(t *C) {
 	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
-	cloud := s.newBackend(t, bucket)
+	cloud := s.newBackend(t, bucket, true)
 
 	// "mount" this 2nd cloud on a dir that didn't exist
 	_, err := s.LookUpInode(t, "dir5")
@@ -2712,7 +2708,7 @@ func (s *GoofysTest) TestMountProviderNewDir(t *C) {
 
 func (s *GoofysTest) TestMountProviderGet(t *C) {
 	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
-	cloud := s.newBackend(t, bucket)
+	cloud := s.newBackend(t, bucket, true)
 
 	// "mount" this 2nd cloud
 	in, err := s.LookUpInode(t, "dir4")
@@ -2789,7 +2785,7 @@ func (s *GoofysTest) TestMountProviderGet(t *C) {
 
 func (s *GoofysTest) TestMountProviderNewMounts(t *C) {
 	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
-	cloud := s.newBackend(t, bucket)
+	cloud := s.newBackend(t, bucket, true)
 
 	// "mount" this 2nd cloud
 	in, err := s.LookUpInode(t, "dir4")
@@ -2832,21 +2828,45 @@ func (s *GoofysTest) TestMountProviderError(t *C) {
 	t.Assert(in, NotNil)
 	t.Assert(err, IsNil)
 
+	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
+	var cloud StorageBackend
+	if _, ok := s.cloud.(*S3Backend); ok {
+		// S3Backend currently doesn't detect bucket doesn't exist
+		cloud = s.newBackend(t, bucket, true)
+		s.awsConfig.Endpoint = PString("0.0.0.0:0")
+		cloud = s.newBackend(t, bucket, false)
+	} else {
+		cloud = s.newBackend(t, bucket, false)
+	}
+
 	mountprovider := &MountProviderBackend{
 		MountProvider: &StaticMounts{
 			[]*Mount{
-				&Mount{"error", StorageBackendInitError{fmt.Errorf("foo")}, "errprefix", false},
+				&Mount{"newerror", StorageBackendInitError{
+					fmt.Errorf("foo"),
+				}, "errprefix1", false},
+				&Mount{"initerror", &StorageBackendInitWrapper{
+					StorageBackend: cloud,
+					initKey:        "foobar",
+				}, "errprefix2", false},
 			},
 		},
 		inode: in,
 	}
 	in.dir.cloud = mountprovider
 
-	errfile, err := s.LookUpInode(t, "dir4/error/"+INIT_ERR_BLOB)
+	errfile, err := s.LookUpInode(t, "dir4/newerror/"+INIT_ERR_BLOB)
 	t.Assert(err, IsNil)
 	t.Assert(errfile.isDir(), Equals, false)
 
-	_, err = s.LookUpInode(t, "dir4/error/not_there")
+	_, err = s.LookUpInode(t, "dir4/newerror/not_there")
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	errfile, err = s.LookUpInode(t, "dir4/initerror/"+INIT_ERR_BLOB)
+	t.Assert(err, IsNil)
+	t.Assert(errfile.isDir(), Equals, false)
+
+	_, err = s.LookUpInode(t, "dir4/initerror/not_there")
 	t.Assert(err, Equals, fuse.ENOENT)
 }
 
@@ -2854,7 +2874,7 @@ func (s *GoofysTest) TestMountProviderMultiLevel(t *C) {
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 
 	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
-	cloud := s.newBackend(t, bucket)
+	cloud := s.newBackend(t, bucket, true)
 
 	in, err := s.LookUpInode(t, "dir4")
 	t.Assert(in, NotNil)
@@ -2879,7 +2899,7 @@ func (s *GoofysTest) TestMountProviderMultiLevel(t *C) {
 
 func (s *GoofysTest) TestMountProviderNested(t *C) {
 	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
-	cloud := s.newBackend(t, bucket)
+	cloud := s.newBackend(t, bucket, true)
 	s.testMountProviderNested(t, cloud, &MountProviderBackend{
 		MountProvider: &StaticMounts{
 			[]*Mount{
@@ -2893,7 +2913,7 @@ func (s *GoofysTest) TestMountProviderNested(t *C) {
 // test that mount order doesn't matter for nested mounts
 func (s *GoofysTest) TestMountProviderNestedReversed(t *C) {
 	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
-	cloud := s.newBackend(t, bucket)
+	cloud := s.newBackend(t, bucket, true)
 	s.testMountProviderNested(t, cloud, &MountProviderBackend{
 		MountProvider: &StaticMounts{
 			[]*Mount{

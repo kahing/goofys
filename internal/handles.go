@@ -98,7 +98,19 @@ func (inode *Inode) cloud() (cloud StorageBackend, path string) {
 			cloud = p.dir.cloud
 			// the error backend produces a mount.err file
 			// at the root and is not aware of prefix
-			if _, ok := cloud.(StorageBackendInitError); !ok {
+			_, isErr := cloud.(StorageBackendInitError)
+			if !isErr {
+				// we call init here instead of
+				// relying on the wrapper to call init
+				// because we want to return the right
+				// prefix
+				if c, ok := cloud.(*StorageBackendInitWrapper); ok {
+					err := c.Init("")
+					isErr = err != nil
+				}
+			}
+
+			if !isErr {
 				prefix = p.dir.mountPrefix
 			}
 			break

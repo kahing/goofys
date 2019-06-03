@@ -350,7 +350,6 @@ func mapADLv1Error(op *ADLv1Op, resp *http.Response, err error) error {
 				jsonErr := decoder.Decode(&adlErr)
 
 				if jsonErr == nil {
-					adls1Log.Errorf("%v %v %v", resp.Request.Method, resp.Request.URL.String(), adlErr)
 					adlErr.resp = resp
 					return adlErr
 				} else {
@@ -485,7 +484,13 @@ func (b *ADLv1) call(op ADLv1Op, path string, arg interface{}, res interface{}) 
 }
 
 func (b *ADLv1) Init(key string) error {
-	return b.get(ADL1_GETFILESTATUS.New().RawError(), key, nil)
+	err := b.get(ADL1_GETFILESTATUS.New().RawError(), key, nil)
+	if adlErr, ok := err.(ADLv1Err); ok {
+		if adlErr.RemoteException.Exception == "FileNotFoundException" {
+			return nil
+		}
+	}
+	return err
 }
 
 func (b *ADLv1) Capabilities() *Capabilities {
