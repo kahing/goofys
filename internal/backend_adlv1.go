@@ -131,6 +131,8 @@ func (op ADLv1Op) RawError() ADLv1Op {
 
 const ADL1_REQUEST_ID = "X-Ms-Request-Id"
 
+var adls1Log = GetLogger("adlv1")
+
 // APPEND and CREATE additionally supports "append=true" and
 // "write=true" to prevent initial 307 redirect because it just
 // redirects to the same domain anyway
@@ -197,7 +199,7 @@ func retryableHttpClient(c *http.Client, oauth bool) *retryablehttp.Client {
 	return &retryablehttp.Client{
 		HTTPClient:   c,
 		Backoff:      retryablehttp.LinearJitterBackoff,
-		Logger:       RetryHTTPLogger{s3Log},
+		Logger:       RetryHTTPLogger{adls1Log},
 		RetryWaitMax: 1 * time.Second,
 		// XXX figure out a better number
 		RetryMax:   20,
@@ -209,15 +211,15 @@ func retryableHttpClient(c *http.Client, oauth bool) *retryablehttp.Client {
 				newRequestId := uuid.New().String()
 				r.Header.Set(ADL1_REQUEST_ID, newRequestId)
 
-				s3Log.Debugf("%v %v %v retry#%v as %v", r.Method, r.URL,
+				adls1Log.Debugf("%v %v %v retry#%v as %v", r.Method, r.URL,
 					oldRequestId, nRetry, newRequestId)
 			} else {
-				s3Log.Debugf("%v %v %v", r.Method, r.URL,
+				adls1Log.Debugf("%v %v %v", r.Method, r.URL,
 					r.Header.Get(ADL1_REQUEST_ID))
 			}
 		},
 		ResponseLogHook: func(_ retryablehttp.Logger, r *http.Response) {
-			s3Log.Debugf("%v %v %v %v %v", r.Request.Method, r.Request.URL,
+			adls1Log.Debugf("%v %v %v %v %v", r.Request.Method, r.Request.URL,
 				r.Request.Header.Get(ADL1_REQUEST_ID), r.Status, r.Header)
 		},
 	}
@@ -348,11 +350,11 @@ func mapADLv1Error(op *ADLv1Op, resp *http.Response, err error) error {
 				jsonErr := decoder.Decode(&adlErr)
 
 				if jsonErr == nil {
-					s3Log.Errorf("%v %v %v", resp.Request.Method, resp.Request.URL.String(), adlErr)
+					adls1Log.Errorf("%v %v %v", resp.Request.Method, resp.Request.URL.String(), adlErr)
 					adlErr.resp = resp
 					return adlErr
 				} else {
-					s3Log.Errorf("%v %v %v", resp.Request.Method, resp.Request.URL.String(), body)
+					adls1Log.Errorf("%v %v %v", resp.Request.Method, resp.Request.URL.String(), body)
 				}
 			} else {
 				// we cannot read the error body,
@@ -366,7 +368,7 @@ func mapADLv1Error(op *ADLv1Op, resp *http.Response, err error) error {
 		} else {
 			op := resp.Request.URL.Query().Get("op")
 			requestId := resp.Header.Get(ADL1_REQUEST_ID)
-			s3Log.Errorf("%v %v %v %v", op, resp.Request.URL.String(), requestId, resp.Status)
+			adls1Log.Errorf("%v %v %v %v", op, resp.Request.URL.String(), requestId, resp.Status)
 			return syscall.EINVAL
 		}
 	}
@@ -403,7 +405,7 @@ func (b *ADLv1) call(op ADLv1Op, path string, arg interface{}, res interface{}) 
 				defer func() {
 					err := closer.Close()
 					if err != nil {
-						s3Log.Errorf("%v close: %v", endpoint.String(), err)
+						adls1Log.Errorf("%v close: %v", endpoint.String(), err)
 					}
 				}()
 			}
@@ -411,7 +413,7 @@ func (b *ADLv1) call(op ADLv1Op, path string, arg interface{}, res interface{}) 
 		} else {
 			buf, err := json.Marshal(arg)
 			if err != nil {
-				s3Log.Errorf("json error: %v", err)
+				adls1Log.Errorf("json error: %v", err)
 				return fuse.EINVAL
 			}
 			body = bytes.NewReader(buf)
@@ -422,7 +424,7 @@ func (b *ADLv1) call(op ADLv1Op, path string, arg interface{}, res interface{}) 
 
 	req, err := retryablehttp.NewRequest(op.method, endpoint.String(), body)
 	if err != nil {
-		s3Log.Errorf("NewRequest error: %v", err)
+		adls1Log.Errorf("NewRequest error: %v", err)
 		return fuse.EINVAL
 	}
 
@@ -440,14 +442,14 @@ func (b *ADLv1) call(op ADLv1Op, path string, arg interface{}, res interface{}) 
 		if resp.StatusCode == http.StatusTemporaryRedirect {
 			location, err := resp.Location()
 			if err != nil {
-				s3Log.Errorf("redirect from %v but no Location header", endpoint)
+				adls1Log.Errorf("redirect from %v but no Location header", endpoint)
 				return syscall.EAGAIN
 			}
-			s3Log.Infof("redirect %v %v -> %v", req.Method, req.URL.String(), location)
+			adls1Log.Infof("redirect %v %v -> %v", req.Method, req.URL.String(), location)
 			body.Seek(0, 0)
 			req, err = retryablehttp.NewRequest(op.method, location.String(), body)
 			if err != nil {
-				s3Log.Errorf("NewRequest error: %v", err)
+				adls1Log.Errorf("NewRequest error: %v", err)
 				return fuse.EINVAL
 			}
 		} else {
@@ -455,7 +457,7 @@ func (b *ADLv1) call(op ADLv1Op, path string, arg interface{}, res interface{}) 
 		}
 	}
 	if i == 10 {
-		s3Log.Errorf("too many redirects for %v %v", req.Method, req.URL.String())
+		adls1Log.Errorf("too many redirects for %v %v", req.Method, req.URL.String())
 	}
 
 	if res != nil {

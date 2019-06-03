@@ -56,6 +56,8 @@ const AZBlobEndpoint = "https://%v.blob.core.windows.net?%%v"
 const AzuriteEndpoint = "http://127.0.0.1:8080/%v/?%%v"
 const AzureDirBlobMetadataKey = "hdi_isfolder"
 
+var azbLog = GetLogger("azblob")
+
 func NewAZBlob(container string, config *FlagStorage) (*AZBlob, error) {
 	po := azblob.PipelineOptions{
 		Log: pipeline.LogOptions{
@@ -70,7 +72,7 @@ func NewAZBlob(container string, config *FlagStorage) (*AZBlob, error) {
 					// that here
 					level = pipeline.LogInfo
 				}
-				s3Log.Log(logrus.Level(uint32(level)), msg)
+				azbLog.Log(logrus.Level(uint32(level)), msg)
 			},
 			ShouldLog: func(level pipeline.LogLevel) bool {
 				if level == pipeline.LogError {
@@ -81,7 +83,7 @@ func NewAZBlob(container string, config *FlagStorage) (*AZBlob, error) {
 					// that here
 					level = pipeline.LogInfo
 				}
-				return s3Log.IsLevelEnabled(logrus.Level(uint32(level)))
+				return azbLog.IsLevelEnabled(logrus.Level(uint32(level)))
 			},
 		},
 		RequestLog: azblob.RequestLogOptions{
@@ -255,7 +257,7 @@ func mapAZBError(err error) error {
 		case azblob.ServiceCodeContainerDisabled:
 			return syscall.EACCES
 		case azblob.ServiceCodeContainerNotFound:
-			return fuse.ENOENT
+			return syscall.ENODEV
 		case azblob.ServiceCodeCopyAcrossAccountsNotSupported:
 			return fuse.EINVAL
 		case azblob.ServiceCodeSourceConditionNotMet:
@@ -291,7 +293,7 @@ func mapAZBError(err error) error {
 			if err != nil {
 				return err
 			} else {
-				s3Log.Errorf("code=%v status=%v err=%v", stgErr.ServiceCode(), stgErr.Response().Status, stgErr)
+				azbLog.Errorf("code=%v status=%v err=%v", stgErr.ServiceCode(), stgErr.Response().Status, stgErr)
 				return stgErr
 			}
 		}
