@@ -104,7 +104,7 @@ func NewAZBlob(container string, config *FlagStorage) (*AZBlob, error) {
 	var bu *azblob.ServiceURL
 	var bc *azblob.ContainerURL
 
-	if strings.HasPrefix(config.AZAccountKey, "sig=") {
+	if q, err := url.ParseQuery(config.AZAccountKey); err == nil && q.Get("sig") != "" {
 		// it's a SAS signature
 		sasTokenProvider = func() (string, error) {
 			return config.AZAccountKey, nil
