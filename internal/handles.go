@@ -375,10 +375,6 @@ func (inode *Inode) DeRef(n uint64) (stale bool) {
 func (parent *Inode) Unlink(name string) (err error) {
 	parent.logFuse("Unlink", name)
 
-	if parent.isMountProvider() {
-		return syscall.ENOTSUP
-	}
-
 	cloud, key := parent.cloud()
 	key = appendChildName(key, name)
 
@@ -401,22 +397,10 @@ func (parent *Inode) Unlink(name string) (err error) {
 	return
 }
 
-func (parent *Inode) isMountProvider() bool {
-	if parent.dir == nil || parent.dir.cloud == nil {
-		return false
-	}
-	_, ok := parent.dir.cloud.(MountProvider)
-	return ok
-}
-
 func (parent *Inode) Create(
 	name string) (inode *Inode, fh *FileHandle) {
 
 	parent.logFuse("Create", name)
-
-	if parent.isMountProvider() {
-		return nil, nil
-	}
 
 	fs := parent.fs
 
@@ -517,10 +501,6 @@ func (parent *Inode) isEmptyDir(fs *Goofys, name string) (isDir bool, err error)
 
 func (parent *Inode) RmDir(name string) (err error) {
 	parent.logFuse("Rmdir", name)
-
-	if parent.isMountProvider() {
-		return syscall.ENOTSUP
-	}
 
 	isDir, err := parent.isEmptyDir(parent.fs, name)
 	if err != nil {
@@ -788,11 +768,6 @@ func (parent *Inode) Rename(from string, newParent *Inode, to string) (err error
 	if fromCloud != toCloud {
 		// cannot rename across cloud backend
 		err = fuse.EINVAL
-		return
-	}
-
-	if parent.isMountProvider() || newParent.isMountProvider() {
-		err = syscall.ENOTSUP
 		return
 	}
 

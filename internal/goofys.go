@@ -236,6 +236,103 @@ func (fs *Goofys) getInodeOrDie(id fuseops.InodeID) (inode *Inode) {
 	return
 }
 
+type Mount struct {
+	name    string
+	cloud   StorageBackend
+	prefix  string
+	mounted bool
+}
+
+func (fs *Goofys) mount(mp *Inode, b *Mount) {
+	if b.mounted {
+		return
+	}
+
+	name := strings.Trim(b.name, "/")
+
+	for {
+		idx := strings.Index(name, "/")
+		if idx == -1 {
+			break
+		}
+		dirName := name[0:idx]
+		name = name[idx+1:]
+
+		mp.mu.Lock()
+		dirInode := mp.findChildUnlockedFull(dirName)
+		if dirInode == nil {
+			fs.mu.Lock()
+
+			dirInode = NewInode(fs, mp, &dirName)
+			dirInode.ToDir()
+			dirInode.AttrTime = TIME_MAX
+			// if nothing is mounted here, set DirTime to
+			// infinite so listing will always use cache
+			dirInode.dir.DirTime = TIME_MAX
+
+			fs.insertInode(mp, dirInode)
+
+			// insert the fake . and ..
+			dot := NewInode(fs, dirInode, PString("."))
+			dot.ToDir()
+			dot.AttrTime = TIME_MAX
+			fs.insertInode(dirInode, dot)
+
+			dot = NewInode(fs, dirInode, PString(".."))
+			dot.ToDir()
+			dot.AttrTime = TIME_MAX
+			fs.insertInode(dirInode, dot)
+			fs.mu.Unlock()
+		}
+		mp.mu.Unlock()
+		mp = dirInode
+	}
+
+	mp.mu.Lock()
+	defer mp.mu.Unlock()
+
+	prev := mp.findChildUnlockedFull(name)
+	if prev == nil {
+		mountInode := NewInode(fs, mp, &name)
+		mountInode.ToDir()
+		mountInode.dir.cloud = b.cloud
+		mountInode.dir.mountPrefix = b.prefix
+		mountInode.AttrTime = TIME_MAX
+
+		fs.mu.Lock()
+		defer fs.mu.Unlock()
+
+		fs.insertInode(mp, mountInode)
+		prev = mountInode
+	} else {
+		if !prev.isDir() {
+			panic(fmt.Sprintf("inode %v is not a directory", *prev.FullName()))
+		}
+
+		prev.mu.Lock()
+		defer prev.mu.Unlock()
+		prev.dir.cloud = b.cloud
+		prev.dir.mountPrefix = b.prefix
+		prev.AttrTime = TIME_MAX
+		// unset this so that if there was a specific mount
+		// for a/b and we are mounted at a/, listing would
+		// actually list this backend
+		prev.dir.DirTime = time.Time{}
+	}
+	fuseLog.Infof("mounted /%v", *prev.FullName())
+	b.mounted = true
+}
+
+func (fs *Goofys) MountAll(mounts []*Mount) {
+	fs.mu.Lock()
+	root := fs.getInodeOrDie(fuseops.RootInodeID)
+	fs.mu.Unlock()
+
+	for _, m := range mounts {
+		fs.mount(root, m)
+	}
+}
+
 func (fs *Goofys) StatFS(
 	ctx context.Context,
 	op *fuseops.StatFSOp) (err error) {
