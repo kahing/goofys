@@ -2580,9 +2580,13 @@ func (s *GoofysTest) TestVFS(t *C) {
 	_, err = in.MkDir("subdir")
 	t.Assert(err, IsNil)
 
-	resp, err = cloud2.GetBlob(&GetBlobInput{Key: "cloud2Prefix/subdir/"})
+	subdirKey := "cloud2Prefix/subdir"
+	if !cloud2.Capabilities().DirBlob {
+		subdirKey += "/"
+	}
+
+	_, err = cloud2.HeadBlob(&HeadBlobInput{Key: subdirKey})
 	t.Assert(err, IsNil)
-	defer resp.Body.Close()
 
 	subdir, err := s.LookUpInode(t, "dir4/subdir")
 	t.Assert(err, IsNil)
@@ -2743,6 +2747,11 @@ func (s *GoofysTest) TestMountsError(t *C) {
 		cloud = s.newBackend(t, bucket, true)
 		s.awsConfig.Endpoint = PString("0.0.0.0:0")
 		cloud = s.newBackend(t, bucket, false)
+	} else if _, ok := s.cloud.(*ADLv1); ok {
+		cloud = s.newBackend(t, bucket, true)
+		adlCloud, _ := cloud.(*ADLv1)
+		adlCloud.endpoint.Scheme = "foo"
+		adlCloud.client.RetryMax = 0
 	} else {
 		cloud = s.newBackend(t, bucket, false)
 	}
