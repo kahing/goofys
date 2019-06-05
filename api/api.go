@@ -46,10 +46,6 @@ type Config struct {
 	ACL            string
 	Subdomain      bool
 
-	// Azure
-	AZAccountName string
-	AZAccountKey  string
-
 	// Azure Datalake v1
 	ADClientID     string
 	ADClientSecret string

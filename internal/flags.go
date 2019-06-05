@@ -342,9 +342,7 @@ type FlagStorage struct {
 	ACL            string
 	Subdomain      bool
 
-	// Azure
-	AZAccountName string
-	AZAccountKey  string
+	Backend interface{}
 
 	// Azure Datalake v1
 	ADClientID     string
@@ -447,10 +445,6 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		KMSKeyID:       c.String("sse-kms"),
 		ACL:            c.String("acl"),
 		Subdomain:      c.Bool("subdomain"),
-
-		// Azure:
-		AZAccountName: c.String("azure-account-name"),
-		AZAccountKey:  c.String("azure-account-key"),
 
 		ADClientID:     c.String("ad-client-id"),
 		ADClientSecret: c.String("ad-client-secret"),
