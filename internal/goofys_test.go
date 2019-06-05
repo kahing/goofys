@@ -241,7 +241,7 @@ func (s *GoofysTest) setupBlobs(t *C, env map[string]io.ReadSeeker) {
 	// double check
 	for path := range env {
 		wg.Add(1)
-		func(path string) {
+		go func(path string) {
 			defer wg.Done()
 			params := &HeadBlobInput{Key: path}
 			res, err := s.cloud.HeadBlob(params)

@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -671,43 +672,30 @@ func (b *ADLv1) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error) {
 	return &DeleteBlobOutput{}, nil
 }
 
-func (b *ADLv1) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error) {
-	progress := true
-	toDelete := param.Items
+func (b *ADLv1) DeleteBlobs(param *DeleteBlobsInput) (ret *DeleteBlobsOutput, err error) {
+	// if we delete a directory that's not empty, ADLv1 returns
+	// 403. That can happen if we want to delete both "dir1" and
+	// "dir1/file" but delete them in the wrong order for example
+	// sort the blobs so the deepest tree are deleted first to
+	// avoid this problem unfortunately because of this dependency
+	// it's difficult to delete in parallel
+	sort.Slice(param.Items, func(i, j int) bool {
+		depth1 := len(strings.Split(strings.TrimRight(param.Items[i], "/"), "/"))
+		depth2 := len(strings.Split(strings.TrimRight(param.Items[j], "/"), "/"))
+		if depth1 != depth2 {
+			return depth2 < depth1
+		} else {
+			return strings.Compare(param.Items[i], param.Items[j]) < 0
+		}
+	})
 
-	for progress {
-		progress = false
-		var dirs []string
-
-		for _, i := range toDelete {
-			_, err := b.DeleteBlob(&DeleteBlobInput{i})
-			if err != nil {
-				if err != fuse.ENOENT {
-					// if we delete a directory that's not
-					// empty, ADLv1 returns 403. That can
-					// happen if we want to delete both
-					// "dir1" and "dir1/file" but delete
-					// them in the wrong order for example
-					if err == syscall.EACCES {
-						dirs = append(dirs, i)
-					} else {
-						return nil, err
-					}
-				} else {
-					progress = true
-				}
-			} else {
-				progress = true
-			}
+	for _, i := range param.Items {
+		_, err := b.DeleteBlob(&DeleteBlobInput{i})
+		if err != nil {
+			return nil, err
 		}
 
-		if len(dirs) == 0 {
-			break
-		}
-
-		toDelete = dirs
 	}
-
 	return &DeleteBlobsOutput{}, nil
 }
 
