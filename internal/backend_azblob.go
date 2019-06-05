@@ -496,17 +496,40 @@ func (b *AZBlob) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error) {
 	return &DeleteBlobOutput{}, nil
 }
 
-func (b *AZBlob) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error) {
+func (b *AZBlob) DeleteBlobs(param *DeleteBlobsInput) (ret *DeleteBlobsOutput, deleteError error) {
+	var wg sync.WaitGroup
+	defer func() {
+		wg.Wait()
+		if deleteError != nil {
+			ret = nil
+		} else {
+			ret = &DeleteBlobsOutput{}
+		}
+	}()
+
 	for _, i := range param.Items {
-		_, err := b.DeleteBlob(&DeleteBlobInput{i})
-		if err != nil {
-			err = mapAZBError(err)
-			if err != fuse.ENOENT {
-				return nil, err
+		SmallActionsGate.Take(1, true)
+		defer SmallActionsGate.Return(1)
+		wg.Add(1)
+
+		go func(key string) {
+			defer wg.Done()
+
+			_, err := b.DeleteBlob(&DeleteBlobInput{key})
+			if err != nil {
+				err = mapAZBError(err)
+				if err != fuse.ENOENT {
+					deleteError = err
+				}
 			}
+		}(i)
+
+		if deleteError != nil {
+			return
 		}
 	}
-	return &DeleteBlobsOutput{}, nil
+
+	return
 }
 
 func (b *AZBlob) RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error) {
