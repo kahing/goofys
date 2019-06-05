@@ -216,6 +216,8 @@ type StorageBackend interface {
 	MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error)
 }
 
+var SmallActionsGate = Ticket{Total: 100}.Init()
+
 type sortBlobPrefixOutput []BlobPrefixOutput
 
 func (p sortBlobPrefixOutput) Len() int {
