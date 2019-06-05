@@ -93,16 +93,14 @@ type Goofys struct {
 var s3Log = GetLogger("s3")
 
 func NewBackend(bucket string, flags *FlagStorage, awsConfig *aws.Config) (cloud StorageBackend, err error) {
-	if flags.AZAccountKey != "" {
-		if flags.Endpoint == "" {
-			if flags.AZAccountName == "" {
-				err = fmt.Errorf("At least one of Azure account name and endpoint must be set")
-				return
-			}
-			flags.Endpoint = AZBlobEndpoint
-		}
-		cloud, err = NewAZBlob(bucket, flags)
-	} else if flags.Endpoint != "" && (IsADLv1Endpoint(flags.Endpoint) ||
+	switch flags.Backend.(type) {
+	case *AZBlobConfig:
+		config, _ := flags.Backend.(*AZBlobConfig)
+		cloud, err = NewAZBlob(bucket, config)
+		return
+	}
+
+	if flags.Endpoint != "" && (IsADLv1Endpoint(flags.Endpoint) ||
 		flags.ADClientID+flags.ADClientSecret+flags.ADTenantID+flags.ADRefreshUrl != "") {
 
 		if flags.ADClientID == "" || flags.ADClientSecret == "" ||

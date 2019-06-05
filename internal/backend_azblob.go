@@ -36,8 +36,8 @@ import (
 )
 
 type AZBlob struct {
-	flags *FlagStorage
-	cap   Capabilities
+	config *AZBlobConfig
+	cap    Capabilities
 
 	mu sync.Mutex
 	u  *azblob.ServiceURL
@@ -58,7 +58,19 @@ const AzureDirBlobMetadataKey = "hdi_isfolder"
 
 var azbLog = GetLogger("azblob")
 
-func NewAZBlob(container string, config *FlagStorage) (*AZBlob, error) {
+type AZBlobConfig struct {
+	Endpoint    string
+	AccountName string
+	AccountKey  string
+	SasToken    SASTokenProvider
+	ForceSas    bool
+}
+
+func (config *AZBlobConfig) Init() {
+	config.Endpoint = AZBlobEndpoint
+}
+
+func NewAZBlob(container string, config *AZBlobConfig) (*AZBlob, error) {
 	po := azblob.PipelineOptions{
 		Log: pipeline.LogOptions{
 			Log: func(level pipeline.LogLevel, msg string) {
@@ -93,81 +105,48 @@ func NewAZBlob(container string, config *FlagStorage) (*AZBlob, error) {
 
 	p := azblob.NewPipeline(azblob.NewAnonymousCredential(), po)
 	var bareURL string
-	if config.AZAccountName != "" {
-		bareURL = fmt.Sprintf(config.Endpoint, config.AZAccountName)
+	if config.AccountName != "" {
+		bareURL = fmt.Sprintf(config.Endpoint, config.AccountName)
 	} else {
 		// endpoint already contains account name
 		bareURL = config.Endpoint
 	}
 
-	var sasTokenProvider SASTokenProvider
 	var bu *azblob.ServiceURL
 	var bc *azblob.ContainerURL
 
-	if q, err := url.ParseQuery(config.AZAccountKey); err == nil && q.Get("sig") != "" {
-		// it's a SAS signature
-		sasTokenProvider = func() (string, error) {
-			return config.AZAccountKey, nil
-		}
-	} else {
-		credential, err := azblob.NewSharedKeyCredential(config.AZAccountName, config.AZAccountKey)
+	if config.SasToken == nil {
+		credential, err := azblob.NewSharedKeyCredential(config.AccountName, config.AccountKey)
 		if err != nil {
 			return nil, fmt.Errorf("Unable to construct credential: %v", err)
 		}
 
-		if config.Endpoint == AzuriteEndpoint {
-			// Azurite's SAS is buggy, ex: https://github.com/Azure/Azurite/issues/216
-			p = azblob.NewPipeline(credential, po)
-			// rid the URL of the SAS token param
-			bareURL = fmt.Sprintf(bareURL, "")
+		// Azurite's SAS is buggy, ex: https://github.com/Azure/Azurite/issues/216
+		p = azblob.NewPipeline(credential, po)
+		// rid the URL of the SAS token param
+		bareURL = fmt.Sprintf(bareURL, "")
 
-			u, err := url.Parse(bareURL)
-			if err != nil {
-				return nil, err
-			}
-
-			serviceURL := azblob.NewServiceURL(*u, p)
-			containerURL := serviceURL.NewContainerURL(container)
-
-			bu = &serviceURL
-			bc = &containerURL
-		} else {
-			sasTokenProvider = func() (string, error) {
-				sasQueryParams, err := azblob.AccountSASSignatureValues{
-					Protocol:   azblob.SASProtocolHTTPSandHTTP,
-					ExpiryTime: time.Now().UTC().Add(48 * time.Hour),
-					Services:   azblob.AccountSASServices{Blob: true}.String(),
-					ResourceTypes: azblob.AccountSASResourceTypes{
-						Service:   true,
-						Container: true,
-						Object:    true,
-					}.String(),
-					Permissions: azblob.AccountSASPermissions{
-						Read:   true,
-						Write:  true,
-						Delete: true,
-						List:   true,
-						Create: true,
-					}.String(),
-				}.NewSASQueryParameters(credential)
-				if err != nil {
-					return "", err
-				}
-
-				return sasQueryParams.Encode(), nil
-			}
+		u, err := url.Parse(bareURL)
+		if err != nil {
+			return nil, err
 		}
+
+		serviceURL := azblob.NewServiceURL(*u, p)
+		containerURL := serviceURL.NewContainerURL(container)
+
+		bu = &serviceURL
+		bc = &containerURL
 	}
 
 	b := &AZBlob{
-		flags: config,
+		config: config,
 		cap: Capabilities{
 			MaxMultipartSize: 100 * 1024 * 1024,
 		},
 		pipeline:         p,
 		bucket:           container,
 		bareURL:          bareURL,
-		sasTokenProvider: sasTokenProvider,
+		sasTokenProvider: config.SasToken,
 		u:                bu,
 		c:                bc,
 	}
@@ -417,7 +396,7 @@ func (b *AZBlob) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 			prefixes = append(prefixes, BlobPrefixOutput{Prefix: &p.Name})
 		}
 
-		if b.flags.Endpoint == AzuriteEndpoint &&
+		if b.config.Endpoint == AzuriteEndpoint &&
 			// XXX in Azurite this is not sorted
 			!sort.IsSorted(sortBlobPrefixOutput(prefixes)) {
 			sort.Sort(sortBlobPrefixOutput(prefixes))
@@ -438,7 +417,7 @@ func (b *AZBlob) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		blobItems = resp.Segment.BlobItems
 		nextMarker = resp.NextMarker.Val
 
-		if b.flags.Endpoint == AzuriteEndpoint &&
+		if b.config.Endpoint == AzuriteEndpoint &&
 			!sort.IsSorted(sortBlobItemOutput(items)) {
 			sort.Sort(sortBlobItemOutput(items))
 		}

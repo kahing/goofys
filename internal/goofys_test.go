@@ -304,16 +304,20 @@ func (s *GoofysTest) SetUpTest(t *C) {
 			t.Assert(err, IsNil)
 		}
 	} else if cloud == "azblob" {
-		flags.Endpoint = os.Getenv("ENDPOINT")
-		flags.AZAccountName = os.Getenv("ACCOUNT_NAME")
-		flags.AZAccountKey = os.Getenv("ACCOUNT_KEY")
-		if flags.Endpoint == AzuriteEndpoint {
+		var config AZBlobConfig
+		config.Init()
+
+		config.Endpoint = os.Getenv("ENDPOINT")
+		config.AccountName = os.Getenv("ACCOUNT_NAME")
+		config.AccountKey = os.Getenv("ACCOUNT_KEY")
+		if config.Endpoint == AzuriteEndpoint {
 			s.azurite = true
 			s.emulator = true
 			s.waitForEmulator(t)
 		}
+		flags.Backend = &config
 
-		s.cloud, err = NewAZBlob(bucket, flags)
+		s.cloud, err = NewAZBlob(bucket, &config)
 		t.Assert(err, IsNil)
 		t.Assert(s.cloud, NotNil)
 	} else if cloud == "adlv1" {
@@ -2505,7 +2509,8 @@ func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud S
 			}
 		}
 	case *AZBlob:
-		cloud, err = NewAZBlob(bucket, s.fs.flags)
+		config, _ := s.fs.flags.Backend.(*AZBlobConfig)
+		cloud, err = NewAZBlob(bucket, config)
 		t.Assert(err, IsNil)
 	case *ADLv1:
 		cloud, err = NewADLv1(bucket, s.fs.flags)
