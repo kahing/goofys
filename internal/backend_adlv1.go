@@ -39,8 +39,10 @@ import (
 )
 
 type ADLv1 struct {
-	cap   Capabilities
-	flags *FlagStorage
+	cap Capabilities
+
+	flags  *FlagStorage
+	config *ADLv1Config
 
 	client   *retryablehttp.Client
 	endpoint url.URL
@@ -49,6 +51,17 @@ type ADLv1 struct {
 	// existing credentials). This bucket is more like a backend
 	// level prefix mostly to ease testing
 	bucket string
+}
+
+type ADLv1Config struct {
+	Endpoint     string
+	ClientID     string
+	ClientSecret string
+	TenantID     string
+	RefreshUrl   string
+}
+
+func (config *ADLv1Config) Init() {
 }
 
 type ADLv1Op struct {
@@ -246,21 +259,21 @@ func IsADLv1Endpoint(endpoint string) bool {
 	return strings.HasSuffix(u.Hostname(), ".azuredatalakestore.net")
 }
 
-func NewADLv1(bucket string, flags *FlagStorage) (*ADLv1, error) {
-	tokenURL := flags.ADRefreshUrl
+func NewADLv1(bucket string, flags *FlagStorage, config *ADLv1Config) (*ADLv1, error) {
+	tokenURL := config.RefreshUrl
 	if tokenURL == "" {
-		tokenURL = fmt.Sprintf("https://login.microsoftonline.com/%v/oauth2/token", flags.ADTenantID)
+		tokenURL = fmt.Sprintf("https://login.microsoftonline.com/%v/oauth2/token", config.TenantID)
 	}
 
 	conf := clientcredentials.Config{
-		ClientID:       flags.ADClientID,
-		ClientSecret:   flags.ADClientSecret,
+		ClientID:       config.ClientID,
+		ClientSecret:   config.ClientSecret,
 		TokenURL:       tokenURL,
 		EndpointParams: url.Values{"resource": {"https://management.core.windows.net/"}},
 	}
 	conf.AuthStyle = oauth2.AuthStyleInParams
 
-	endpoint, err := url.Parse(flags.Endpoint)
+	endpoint, err := url.Parse(config.Endpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +281,7 @@ func NewADLv1(bucket string, flags *FlagStorage) (*ADLv1, error) {
 	if endpoint.Host == "" {
 		// if endpoint doesn't have scheme: foobar.com or foobar.com/a,
 		// it will get parsed as the Path
-		newEndpoint := "https://" + flags.Endpoint
+		newEndpoint := "https://" + config.Endpoint
 		endpoint, err = url.Parse(newEndpoint)
 		if err != nil {
 			return nil, err
@@ -301,6 +314,7 @@ func NewADLv1(bucket string, flags *FlagStorage) (*ADLv1, error) {
 
 	return &ADLv1{
 		flags:    flags,
+		config:   config,
 		client:   retryableHttpClient(oauth2Client, false),
 		endpoint: *endpoint,
 		bucket:   bucket,

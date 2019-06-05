@@ -47,12 +47,6 @@ type Config struct {
 	ACL            string
 	Subdomain      bool
 
-	// Azure Datalake v1
-	ADClientID     string
-	ADClientSecret string
-	ADTenantID     string
-	ADRefreshUrl   string
-
 	// Tuning
 	Cheap        bool
 	ExplicitDir  bool
