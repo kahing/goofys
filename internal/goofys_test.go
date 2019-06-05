@@ -203,44 +203,57 @@ func (s *GoofysTest) TearDownSuite(t *C) {
 }
 
 func (s *GoofysTest) setupBlobs(t *C, env map[string]io.ReadSeeker) {
+	var wg sync.WaitGroup
+
 	for path, r := range env {
-		dir := false
-		if r == nil {
-			if strings.HasSuffix(path, "/") {
-				if s.cloud.Capabilities().DirBlob {
-					path = strings.TrimRight(path, "/")
+		wg.Add(1)
+		go func(path string, r io.ReadSeeker) {
+			dir := false
+			if r == nil {
+				if strings.HasSuffix(path, "/") {
+					if s.cloud.Capabilities().DirBlob {
+						path = strings.TrimRight(path, "/")
+					}
+					dir = true
+					r = bytes.NewReader([]byte{})
+				} else {
+					r = bytes.NewReader([]byte(path))
 				}
-				dir = true
-				r = bytes.NewReader([]byte{})
-			} else {
-				r = bytes.NewReader([]byte(path))
 			}
-		}
 
-		params := &PutBlobInput{
-			Key:  path,
-			Body: r,
-			Metadata: map[string]*string{
-				"name": aws.String(path + "+/#%00"),
-			},
-			DirBlob: dir,
-		}
+			defer wg.Done()
 
-		_, err := s.cloud.PutBlob(params)
-		t.Assert(err, IsNil)
+			params := &PutBlobInput{
+				Key:  path,
+				Body: r,
+				Metadata: map[string]*string{
+					"name": aws.String(path + "+/#%00"),
+				},
+				DirBlob: dir,
+			}
+
+			_, err := s.cloud.PutBlob(params)
+			t.Assert(err, IsNil)
+		}(path, r)
 	}
+	wg.Wait()
 
 	// double check
 	for path := range env {
-		params := &HeadBlobInput{Key: path}
-		res, err := s.cloud.HeadBlob(params)
-		t.Assert(err, IsNil)
-		if strings.HasSuffix(path, "/") || path == "zero" {
-			t.Assert(res.Size, Equals, uint64(0))
-		} else {
-			t.Assert(res.Size, Equals, uint64(len(path)))
-		}
+		wg.Add(1)
+		func(path string) {
+			defer wg.Done()
+			params := &HeadBlobInput{Key: path}
+			res, err := s.cloud.HeadBlob(params)
+			t.Assert(err, IsNil)
+			if strings.HasSuffix(path, "/") || path == "zero" {
+				t.Assert(res.Size, Equals, uint64(0))
+			} else {
+				t.Assert(res.Size, Equals, uint64(len(path)))
+			}
+		}(path)
 	}
+	wg.Wait()
 }
 
 func (s *GoofysTest) setupEnv(t *C, env map[string]io.ReadSeeker, public bool) {
