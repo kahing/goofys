@@ -98,17 +98,13 @@ func NewBackend(bucket string, flags *FlagStorage, awsConfig *aws.Config) (cloud
 		config, _ := flags.Backend.(*AZBlobConfig)
 		cloud, err = NewAZBlob(bucket, config)
 		return
+	case *ADLv1Config:
+		config, _ := flags.Backend.(*ADLv1Config)
+		cloud, err = NewADLv1(bucket, flags, config)
+		return
 	}
 
-	if flags.Endpoint != "" && (IsADLv1Endpoint(flags.Endpoint) ||
-		flags.ADClientID+flags.ADClientSecret+flags.ADTenantID+flags.ADRefreshUrl != "") {
-
-		if flags.ADClientID == "" || flags.ADClientSecret == "" ||
-			(flags.ADTenantID == "" && flags.ADRefreshUrl == "") {
-			return nil, fmt.Errorf("Incomplete configurations")
-		}
-		cloud, err = NewADLv1(bucket, flags)
-	} else if strings.HasSuffix(flags.Endpoint, "/storage.googleapis.com") {
+	if strings.HasSuffix(flags.Endpoint, "/storage.googleapis.com") {
 		cloud = NewGCS3(bucket, awsConfig, flags)
 	} else {
 		cloud = NewS3(bucket, awsConfig, flags)

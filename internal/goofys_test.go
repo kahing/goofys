@@ -321,17 +321,21 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		t.Assert(err, IsNil)
 		t.Assert(s.cloud, NotNil)
 	} else if cloud == "adlv1" {
-		flags.Endpoint = os.Getenv("ENDPOINT")
-		flags.ADClientID = os.Getenv("ADLV1_CLIENT_ID")
-		flags.ADClientSecret = os.Getenv("ADLV1_CLIENT_CREDENTIAL")
-		flags.ADTenantID = os.Getenv("ADLV1_TENANT_ID")
+		var config ADLv1Config
+		config.Init()
+		config.Endpoint = os.Getenv("ENDPOINT")
+		config.ClientID = os.Getenv("ADLV1_CLIENT_ID")
+		config.ClientSecret = os.Getenv("ADLV1_CLIENT_CREDENTIAL")
+		config.TenantID = os.Getenv("ADLV1_TENANT_ID")
 
-		t.Assert(flags.Endpoint, Not(Equals), "")
-		t.Assert(flags.ADClientID, Not(Equals), "")
-		t.Assert(flags.ADClientSecret, Not(Equals), "")
-		t.Assert(flags.ADTenantID, Not(Equals), "")
+		t.Assert(config.Endpoint, Not(Equals), "")
+		t.Assert(config.ClientID, Not(Equals), "")
+		t.Assert(config.ClientSecret, Not(Equals), "")
+		t.Assert(config.TenantID, Not(Equals), "")
 
-		s.cloud, err = NewADLv1(bucket, flags)
+		flags.Backend = &config
+
+		s.cloud, err = NewADLv1(bucket, flags, &config)
 		t.Assert(err, IsNil)
 		t.Assert(s.cloud, NotNil)
 	} else {
@@ -2513,7 +2517,8 @@ func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud S
 		cloud, err = NewAZBlob(bucket, config)
 		t.Assert(err, IsNil)
 	case *ADLv1:
-		cloud, err = NewADLv1(bucket, s.fs.flags)
+		config, _ := s.fs.flags.Backend.(*ADLv1Config)
+		cloud, err = NewADLv1(bucket, s.fs.flags, config)
 		t.Assert(err, IsNil)
 	default:
 		t.Fatal("unknown backend")

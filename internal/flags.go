@@ -344,12 +344,6 @@ type FlagStorage struct {
 
 	Backend interface{}
 
-	// Azure Datalake v1
-	ADClientID     string
-	ADClientSecret string
-	ADTenantID     string
-	ADRefreshUrl   string
-
 	// Tuning
 	Cheap        bool
 	ExplicitDir  bool
@@ -445,10 +439,6 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		KMSKeyID:       c.String("sse-kms"),
 		ACL:            c.String("acl"),
 		Subdomain:      c.Bool("subdomain"),
-
-		ADClientID:     c.String("ad-client-id"),
-		ADClientSecret: c.String("ad-client-secret"),
-		ADTenantID:     c.String("ad-directory-id"),
 
 		// Debugging,
 		DebugFuse:  c.Bool("debug_fuse"),
