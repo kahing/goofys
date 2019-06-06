@@ -266,6 +266,14 @@ func NewADLv1(bucket string, flags *FlagStorage, config *ADLv1Config) (*ADLv1, e
 		tokenURL = fmt.Sprintf("https://login.microsoftonline.com/%v/oauth2/token", config.TenantID)
 	}
 
+	u, err := url.Parse(tokenURL)
+	if err != nil {
+		return nil, err
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return nil, fmt.Errorf("Invalid refresh url: %v", tokenURL)
+	}
+
 	conf := clientcredentials.Config{
 		ClientID:       config.ClientID,
 		ClientSecret:   config.ClientSecret,
