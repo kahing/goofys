@@ -31,6 +31,7 @@ var loggers = make(map[string]*LogHandle)
 
 var log = GetLogger("main")
 var fuseLog = GetLogger("fuse")
+var cloudLogLevel = logrus.InfoLevel
 
 var syslogHook *logrus_syslog.SyslogHook
 
@@ -52,6 +53,8 @@ func InitLoggers(logToSyslog bool) {
 }
 
 func SetCloudLogLevel(level logrus.Level) {
+	cloudLogLevel = level
+
 	for k, logr := range loggers {
 		if k != log.name && k != fuseLog.name {
 			logr.Level = level
@@ -116,10 +119,16 @@ func GetLogger(name string) *LogHandle {
 	defer mu.Unlock()
 
 	if logger, ok := loggers[name]; ok {
+		if name != "main" && name != "fuse" {
+			logger.Level = cloudLogLevel
+		}
 		return logger
 	} else {
 		logger := NewLogger(name)
 		loggers[name] = logger
+		if name != "main" && name != "fuse" {
+			logger.Level = cloudLogLevel
+		}
 		return logger
 	}
 }
