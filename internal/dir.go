@@ -367,7 +367,7 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 		}
 	}
 
-	if dh.Entries == nil {
+	for dh.Entries == nil {
 		// try not to hold the lock when we make the request
 		dh.mu.Unlock()
 
@@ -462,6 +462,13 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 
 		if resp.IsTruncated {
 			dh.Marker = resp.NextContinuationToken
+			if len(dh.Entries) == 0 {
+				// there's nothing returned but there
+				// are more results. Set this to nil
+				// so we will retry with the
+				// continuation token
+				dh.Entries = nil
+			}
 		} else {
 			dh.Marker = nil
 		}
