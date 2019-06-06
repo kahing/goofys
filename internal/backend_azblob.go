@@ -222,7 +222,9 @@ func (b *AZBlob) refreshToken() (*azblob.ContainerURL, error) {
 	return b.c, nil
 }
 
-func parseSasToken(token string) (expire time.Time, err error) {
+func parseSasToken(token string) (expire time.Time) {
+	expire = TIME_MAX
+
 	parts, err := url.ParseQuery(token)
 	if err != nil {
 		return
@@ -230,11 +232,18 @@ func parseSasToken(token string) (expire time.Time, err error) {
 
 	se := parts.Get("se")
 	if se == "" {
-		err = fmt.Errorf("token missing 'se' param")
+		azbLog.Error("token missing 'se' param")
 		return
 	}
 
 	expire, err = time.Parse("2006-01-02T15:04:05Z", se)
+	if err != nil {
+		// sometimes they only have the date
+		expire, err = time.Parse("2006-01-02", se)
+		if err != nil {
+			expire = TIME_MAX
+		}
+	}
 	return
 }
 
@@ -245,11 +254,7 @@ func (b *AZBlob) updateToken() (*azblob.ContainerURL, error) {
 		return nil, syscall.EACCES
 	}
 
-	expire, err := parseSasToken(token)
-	if err != nil {
-		azbLog.Errorf("Invalid token: %v", err)
-		return nil, syscall.EACCES
-	}
+	expire := parseSasToken(token)
 	azbLog.Infof("new token will expire at %v", expire)
 
 	sUrl := fmt.Sprintf(b.bareURL, token)
