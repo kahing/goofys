@@ -16,7 +16,6 @@ package internal
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -42,23 +41,19 @@ type DirInodeData struct {
 }
 
 type DirHandleEntry struct {
-	Name   *string
+	Name   string
 	Inode  fuseops.InodeID
 	Type   fuseutil.DirentType
 	Offset fuseops.DirOffset
-
-	Attributes   *InodeAttributes
-	ETag         *string
-	StorageClass *string
 }
 
 type DirHandle struct {
 	inode *Inode
 
-	mu         sync.Mutex // everything below is protected by mu
-	Entries    []*DirHandleEntry
-	Marker     *string
-	BaseOffset int
+	mu sync.Mutex // everything below is protected by mu
+
+	Marker        *string
+	lastFromCloud *string
 }
 
 func NewDirHandle(inode *Inode) (dh *DirHandle) {
@@ -79,10 +74,12 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 
 		num := len(parent.dir.Children)
 
-		if parent.dir.lastOpenDir == nil && num > 0 && *parent.dir.Children[0].Name == *inode.Name {
+		// we are opening the first child (after . and ..)
+		if parent.dir.lastOpenDir == nil && num > 2 && *parent.dir.Children[2].Name == *inode.Name {
 			if parent.dir.seqOpenDirScore < 255 {
 				parent.dir.seqOpenDirScore += 1
 			}
+			parent.dir.lastOpenDirIdx = 2
 			// 2.1) if I open a/a, a/'s score is now 2
 			// ie: handle the depth first search case
 			if parent.dir.seqOpenDirScore >= 2 {
@@ -127,13 +124,6 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 	dh = NewDirHandle(inode)
 	return
 }
-
-// Dirents, sorted by name.
-type sortedDirents []*DirHandleEntry
-
-func (p sortedDirents) Len() int           { return len(p) }
-func (p sortedDirents) Less(i, j int) bool { return *p[i].Name < *p[j].Name }
-func (p sortedDirents) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *ListBlobsOutput, err error) {
 	var marker *string
@@ -235,11 +225,13 @@ func (dh *DirHandle) listObjects(prefix string) (resp *ListBlobsOutput, err erro
 
 	fs := dh.inode.fs
 
-	// try to list without delimiter to see if we have slurp up
+	// try to list without delimiter to see if we can slurp up
 	// multiple directories
+	parent := dh.inode.Parent
+
 	if dh.Marker == nil &&
 		fs.flags.TypeCacheTTL != 0 &&
-		(dh.inode.Parent != nil && dh.inode.Parent.dir.seqOpenDirScore >= 2) {
+		(parent != nil && parent.dir.seqOpenDirScore >= 2) {
 		go func() {
 			resp, err := dh.listObjectsSlurp(prefix)
 			if err != nil {
@@ -297,78 +289,31 @@ func (dh *DirHandle) listObjects(prefix string) (resp *ListBlobsOutput, err erro
 	}
 }
 
-func objectToDirEntry(fs *Goofys, obj *BlobItemOutput, name string, isDir bool) (en *DirHandleEntry) {
-	if isDir {
-		en = &DirHandleEntry{
-			Name:       &name,
-			Type:       fuseutil.DT_Directory,
-			Attributes: &fs.rootAttrs,
-		}
-	} else {
-		en = &DirHandleEntry{
-			Name: &name,
-			Type: fuseutil.DT_File,
-			Attributes: &InodeAttributes{
-				Size:  obj.Size,
-				Mtime: *obj.LastModified,
-			},
-			ETag:         obj.ETag,
-			StorageClass: obj.StorageClass,
-		}
-	}
-
-	return
-}
-
 // LOCKS_REQUIRED(dh.mu)
+// LOCKS_EXCLUDED(dh.inode.mu)
+// LOCKS_EXCLUDED(dh.inode.fs)
 func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err error) {
-	// If the request is for offset zero, we assume that either this is the first
-	// call or rewinddir has been called. Reset state.
-	if offset == 0 {
-		dh.Entries = nil
-	}
-
 	en, ok := dh.inode.readDirFromCache(offset)
 	if ok {
 		return
 	}
 
-	fs := dh.inode.fs
+	parent := dh.inode
+	fs := parent.fs
 
-	if offset == 0 {
-		en = &DirHandleEntry{
-			Name:       aws.String("."),
-			Type:       fuseutil.DT_Directory,
-			Attributes: &fs.rootAttrs,
-			Offset:     1,
-		}
-		return
-	} else if offset == 1 {
-		en = &DirHandleEntry{
-			Name:       aws.String(".."),
-			Type:       fuseutil.DT_Directory,
-			Attributes: &fs.rootAttrs,
-			Offset:     2,
-		}
-		return
-	}
-
-	i := int(offset) - dh.BaseOffset - 2
-	if i < 0 {
-		panic(fmt.Sprintf("invalid offset %v, base=%v", offset, dh.BaseOffset))
-	}
-
-	if i >= len(dh.Entries) {
-		if dh.Marker != nil {
-			// we need to fetch the next page
-			dh.Entries = nil
-			dh.BaseOffset += i
-			i = 0
-		}
-	}
-
-	for dh.Entries == nil {
-		// try not to hold the lock when we make the request
+	// the dir expired, so we need to fetch from the cloud. there
+	// maybe static directories that we want to keep, so cloud
+	// listing should not overwrite them. here's what we do:
+	//
+	// 1. list from cloud and add them all to the tree, remember
+	//    which one we added last
+	//
+	// 2. serve from cache
+	//
+	// 3. when we serve the entry we added last, signal that next
+	//    time we need to list from cloud again with continuation
+	//    token
+	for dh.lastFromCloud == nil {
 		dh.mu.Unlock()
 
 		var prefix string
@@ -380,13 +325,13 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 		resp, err := dh.listObjects(prefix)
 		if err != nil {
 			dh.mu.Lock()
-			return nil, mapAwsError(err)
+			return nil, err
 		}
 
 		s3Log.Debug(resp)
 		dh.mu.Lock()
-
-		dh.Entries = make([]*DirHandleEntry, 0, len(resp.Prefixes)+len(resp.Items))
+		parent.mu.Lock()
+		fs.mu.Lock()
 
 		// this is only returned for non-slurped responses
 		for _, dir := range resp.Prefixes {
@@ -397,16 +342,22 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 			if len(dirName) == 0 {
 				continue
 			}
-			en = &DirHandleEntry{
-				Name:       &dirName,
-				Type:       fuseutil.DT_Directory,
-				Attributes: &fs.rootAttrs,
+
+			if inode := parent.findChildUnlockedFull(dirName); inode != nil {
+				inode.AttrTime = time.Now()
+			} else {
+				inode := NewInode(fs, parent, &dirName)
+				inode.ToDir()
+				fs.insertInode(parent, inode)
+				// these are fake dir entries, we will
+				// realize the refcnt when lookup is
+				// done
+				inode.refcnt = 0
 			}
 
-			dh.Entries = append(dh.Entries, en)
+			dh.lastFromCloud = &dirName
 		}
 
-		lastDir := ""
 		for _, obj := range resp.Items {
 			if !strings.HasPrefix(*obj.Key, prefix) {
 				// other slurped objects that we cached
@@ -421,67 +372,75 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 					// shouldn't happen
 					continue
 				}
-				dh.Entries = append(dh.Entries,
-					objectToDirEntry(fs, &obj, baseName, false))
+
+				inode := parent.findChildUnlockedFull(baseName)
+				if inode == nil {
+					inode = NewInode(fs, parent, &baseName)
+					// these are fake dir entries,
+					// we will realize the refcnt
+					// when lookup is done
+					inode.refcnt = 0
+					fs.insertInode(parent, inode)
+				}
+				inode.SetFromBlobItem(&obj)
 			} else {
 				// this is a slurped up object which
-				// was already cached, unless it's a
-				// directory right under this dir that
-				// we need to return
-				dirName := baseName[:slash]
-				if dirName != lastDir && lastDir != "" {
-					// make a copy so we can take the address
-					dir := lastDir
-					en := &DirHandleEntry{
-						Name:       &dir,
-						Type:       fuseutil.DT_Directory,
-						Attributes: &fs.rootAttrs,
-					}
-					dh.Entries = append(dh.Entries, en)
-				}
-				lastDir = dirName
+				// was already cached
+				baseName = baseName[:slash]
+			}
+
+			if dh.lastFromCloud == nil ||
+				strings.Compare(*dh.lastFromCloud, baseName) < 0 {
+				dh.lastFromCloud = &baseName
 			}
 		}
-		if lastDir != "" {
-			en := &DirHandleEntry{
-				Name:       &lastDir,
-				Type:       fuseutil.DT_Directory,
-				Attributes: &fs.rootAttrs,
-			}
-			dh.Entries = append(dh.Entries, en)
-		}
 
-		sort.Sort(sortedDirents(dh.Entries))
-
-		// Fix up offset fields.
-		for i := 0; i < len(dh.Entries); i++ {
-			en := dh.Entries[i]
-			// offset is 1 based, also need to account for "." and ".."
-			en.Offset = fuseops.DirOffset(i+dh.BaseOffset) + 1 + 2
-		}
+		parent.mu.Unlock()
+		fs.mu.Unlock()
 
 		if resp.IsTruncated {
 			dh.Marker = resp.NextContinuationToken
-			if len(dh.Entries) == 0 {
-				// there's nothing returned but there
-				// are more results. Set this to nil
-				// so we will retry with the
-				// continuation token
-				dh.Entries = nil
-			}
 		} else {
 			dh.Marker = nil
+			break
 		}
 	}
 
-	if i == len(dh.Entries) {
-		// we've reached the end
-		return nil, nil
-	} else if i > len(dh.Entries) {
-		return nil, fuse.EINVAL
-	}
+	parent.mu.Lock()
+	numChildren := fuseops.DirOffset(len(parent.dir.Children))
+	if offset < numChildren {
+		child := parent.dir.Children[offset]
+		parent.mu.Unlock()
+		child.mu.Lock()
+		defer child.mu.Unlock()
 
-	return dh.Entries[i], nil
+		en := DirHandleEntry{
+			Name:   *child.Name,
+			Inode:  child.Id,
+			Offset: offset + 1,
+		}
+		if child.isDir() {
+			en.Type = fuseutil.DT_Directory
+		} else {
+			en.Type = fuseutil.DT_File
+		}
+
+		if dh.lastFromCloud != nil && en.Name == *dh.lastFromCloud {
+			dh.lastFromCloud = &en.Name
+		}
+		return &en, nil
+	} else {
+		if offset == numChildren {
+			// we've reached the end
+			parent.dir.DirTime = time.Now()
+			parent.Attributes.Mtime = parent.findChildMaxTime()
+			parent.mu.Unlock()
+			return nil, nil
+		} else {
+			parent.mu.Unlock()
+			return nil, fuse.EINVAL
+		}
+	}
 }
 
 func (dh *DirHandle) CloseDir() error {

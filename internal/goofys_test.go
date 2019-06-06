@@ -502,12 +502,12 @@ func (s *GoofysTest) readDirFully(t *C, dh *DirHandle) (entries []DirHandleEntry
 	en, err := dh.ReadDir(fuseops.DirOffset(0))
 	t.Assert(err, IsNil)
 	t.Assert(en, NotNil)
-	t.Assert(*en.Name, Equals, ".")
+	t.Assert(en.Name, Equals, ".")
 
 	en, err = dh.ReadDir(fuseops.DirOffset(1))
 	t.Assert(err, IsNil)
 	t.Assert(en, NotNil)
-	t.Assert(*en.Name, Equals, "..")
+	t.Assert(en.Name, Equals, "..")
 
 	for i := fuseops.DirOffset(2); ; i++ {
 		en, err = dh.ReadDir(i)
@@ -523,7 +523,7 @@ func (s *GoofysTest) readDirFully(t *C, dh *DirHandle) (entries []DirHandleEntry
 
 func namesOf(entries []DirHandleEntry) (names []string) {
 	for _, en := range entries {
-		names = append(names, *en.Name)
+		names = append(names, en.Name)
 	}
 	return
 }
@@ -586,7 +586,7 @@ func (s *GoofysTest) TestReadDir(t *C) {
 	s.assertEntries(t, in, []string{"dir3"})
 
 	// test listing dir2/dir3/
-	in, err = in.LookUp("dir3")
+	in, err = s.LookUpInode(t, "dir2/dir3")
 	t.Assert(err, IsNil)
 	s.assertEntries(t, in, []string{"file4"})
 }
@@ -613,7 +613,7 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 
 	for _, en := range entries {
 		if en.Type == fuseutil.DT_File {
-			in, err := parent.LookUp(*en.Name)
+			in, err := parent.LookUp(en.Name)
 			t.Assert(err, IsNil)
 
 			fh, err := in.OpenFile()
@@ -622,12 +622,12 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 			buf := make([]byte, 4096)
 
 			nread, err := fh.ReadFile(0, buf)
-			if *en.Name == "zero" {
+			if en.Name == "zero" {
 				t.Assert(nread, Equals, 0)
 			} else {
-				t.Assert(nread, Equals, len(*en.Name))
+				t.Assert(nread, Equals, len(en.Name))
 				buf = buf[0:nread]
-				t.Assert(string(buf), Equals, *en.Name)
+				t.Assert(string(buf), Equals, en.Name)
 			}
 		} else {
 
@@ -1971,20 +1971,20 @@ func (s *GoofysTest) TestInodeInsert(t *C) {
 	in := NewInode(s.fs, root, aws.String("2"))
 	in.Attributes = InodeAttributes{}
 	root.insertChild(in)
-	t.Assert(*root.dir.Children[0].Name, Equals, "2")
+	t.Assert(*root.dir.Children[2].Name, Equals, "2")
 
 	in = NewInode(s.fs, root, aws.String("1"))
 	in.Attributes = InodeAttributes{}
 	root.insertChild(in)
-	t.Assert(*root.dir.Children[0].Name, Equals, "1")
-	t.Assert(*root.dir.Children[1].Name, Equals, "2")
+	t.Assert(*root.dir.Children[2].Name, Equals, "1")
+	t.Assert(*root.dir.Children[3].Name, Equals, "2")
 
 	in = NewInode(s.fs, root, aws.String("4"))
 	in.Attributes = InodeAttributes{}
 	root.insertChild(in)
-	t.Assert(*root.dir.Children[0].Name, Equals, "1")
-	t.Assert(*root.dir.Children[1].Name, Equals, "2")
-	t.Assert(*root.dir.Children[2].Name, Equals, "4")
+	t.Assert(*root.dir.Children[2].Name, Equals, "1")
+	t.Assert(*root.dir.Children[3].Name, Equals, "2")
+	t.Assert(*root.dir.Children[4].Name, Equals, "4")
 
 	inode := root.findChild("1")
 	t.Assert(inode, NotNil)
@@ -2004,10 +2004,10 @@ func (s *GoofysTest) TestInodeInsert(t *C) {
 	inode = root.findChild("3")
 	t.Assert(inode, IsNil)
 
-	root.removeChild(root.dir.Children[1])
-	root.removeChild(root.dir.Children[0])
-	root.removeChild(root.dir.Children[0])
-	t.Assert(len(root.dir.Children), Equals, 0)
+	root.removeChild(root.dir.Children[3])
+	root.removeChild(root.dir.Children[2])
+	root.removeChild(root.dir.Children[2])
+	t.Assert(len(root.dir.Children), Equals, 2)
 }
 
 func (s *GoofysTest) TestReadDirSlurpSubtree(t *C) {
@@ -2015,18 +2015,22 @@ func (s *GoofysTest) TestReadDirSlurpSubtree(t *C) {
 		t.Skip("only for S3")
 	}
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+	s.fs.flags.StatCacheTTL = 1 * time.Minute
 
 	s.getRoot(t).dir.seqOpenDirScore = 2
 	in, err := s.LookUpInode(t, "dir2")
 	t.Assert(err, IsNil)
+	t.Assert(s.getRoot(t).dir.seqOpenDirScore, Equals, uint8(2))
 
 	s.readDirIntoCache(t, in.Id)
-
-	in, err = s.LookUpInode(t, "dir2/dir3")
-	t.Assert(err, IsNil)
+	// should have incremented the score
+	t.Assert(s.getRoot(t).dir.seqOpenDirScore, Equals, uint8(3))
 
 	// reading dir2 should cause dir2/dir3 to have cached readdir
 	s.disableS3()
+
+	in, err = s.LookUpInode(t, "dir2/dir3")
+	t.Assert(err, IsNil)
 
 	s.assertEntries(t, in, []string{"file4"})
 }
@@ -2049,9 +2053,9 @@ func (s *GoofysTest) TestReadDirCached(t *C) {
 	for _, en := range entries {
 		if en.Type == fuseutil.DT_Directory {
 			t.Assert(noMoreDir, Equals, false)
-			dirs = append(dirs, *en.Name)
+			dirs = append(dirs, en.Name)
 		} else {
-			files = append(files, *en.Name)
+			files = append(files, en.Name)
 			noMoreDir = true
 		}
 	}
@@ -2333,9 +2337,7 @@ func (s *GoofysTest) TestDirMTime(t *C) {
 	m1 = attr1.Mtime
 	t.Assert(m1, Equals, m2)
 
-	// simulate forget inode so we will retrieve the inode again
-	dir1.removeChild(dir2)
-
+	// we never added the inode so this will do the lookup again
 	dir2, err = dir1.LookUp("dir2")
 	t.Assert(err, IsNil)
 
@@ -2418,8 +2420,8 @@ func (s *GoofysTest) TestIssue326(t *C) {
 	t.Assert(err, IsNil)
 
 	s.readDirIntoCache(t, root.Id)
-	t.Assert(*root.dir.Children[7].Name, Equals, "folder#1#")
-	t.Assert(*root.dir.Children[8].Name, Equals, "folder@name.something")
+	s.assertEntries(t, root, []string{"dir1", "dir2", "dir4", "empty_dir", "empty_dir2",
+		"folder#1#", "folder@name.something", "file1", "file2", "zero"})
 }
 
 func (s *GoofysTest) TestSlurpFileAndDir(t *C) {
@@ -2448,10 +2450,12 @@ func (s *GoofysTest) TestSlurpFileAndDir(t *C) {
 
 	in, err := s.LookUpInode(t, prefix[0:len(prefix)-1])
 	t.Assert(err, IsNil)
+	t.Assert(in.dir, NotNil)
 
 	s.getRoot(t).dir.seqOpenDirScore = 2
 	s.readDirIntoCache(t, in.Id)
 
+	// should have slurped these
 	in = in.findChild("fileAndDir")
 	t.Assert(in, NotNil)
 	t.Assert(in.dir, NotNil)
@@ -2676,11 +2680,6 @@ func (s *GoofysTest) TestMountsList(t *C) {
 	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
 	cloud := s.newBackend(t, bucket, true)
 
-	in, err := s.LookUpInode(t, "dir4")
-	t.Assert(in, NotNil)
-	t.Assert(err, IsNil)
-	t.Assert(int(in.Id), Equals, 2)
-
 	root := s.getRoot(t)
 	rootCloud := root.dir.cloud
 
@@ -2688,23 +2687,22 @@ func (s *GoofysTest) TestMountsList(t *C) {
 		&Mount{"dir4/cloud1", cloud, "", false},
 	})
 
+	in, err := s.LookUpInode(t, "dir4")
+	t.Assert(in, NotNil)
+	t.Assert(err, IsNil)
+	t.Assert(int(in.Id), Equals, 2)
+
 	s.readDirIntoCache(t, in.Id)
 	// ensure that listing is listing mounts and root bucket in one go
 	root.dir.cloud = nil
+
+	s.assertEntries(t, in, []string{"cloud1", "file5"})
 
 	c1, err := s.LookUpInode(t, "dir4/cloud1")
 	t.Assert(err, IsNil)
 	t.Assert(*c1.Name, Equals, "cloud1")
 	t.Assert(c1.dir.cloud == cloud, Equals, true)
 	t.Assert(int(c1.Id), Equals, 3)
-
-	// we should still see files belonging to the root bucket
-	f, err := s.LookUpInode(t, "dir4/file5")
-	t.Assert(err, IsNil)
-	file5Cloud, path := f.cloud()
-	t.Assert(path, Equals, "dir4/file5")
-	// dir4/file5's cloud isn't really nil, but we set it to nil above
-	t.Assert(file5Cloud, IsNil)
 
 	// pretend we've passed the normal cache ttl
 	s.fs.flags.TypeCacheTTL = 0
@@ -2714,6 +2712,8 @@ func (s *GoofysTest) TestMountsList(t *C) {
 	root.dir.cloud = rootCloud
 
 	s.readDirIntoCache(t, in.Parent.Id)
+	s.assertEntries(t, in, []string{"cloud1", "file5"})
+
 	c1, err = s.LookUpInode(t, "dir4/cloud1")
 	t.Assert(err, IsNil)
 	t.Assert(*c1.Name, Equals, "cloud1")
@@ -2869,9 +2869,8 @@ func (s *GoofysTest) testMountsNested(t *C, cloud StorageBackend,
 	t.Assert(err, IsNil)
 
 	s.readDirIntoCache(t, in.Id)
-	// unset this to make sure all the intermediate dirs never expire
-	s.getRoot(t).dir.cloud = nil
 
+	// make sure all the intermediate dirs never expire
 	time.Sleep(time.Second)
 	dir_in, err := s.LookUpInode(t, "dir5/in")
 	t.Assert(err, IsNil)

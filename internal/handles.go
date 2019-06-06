@@ -82,6 +82,35 @@ func NewInode(fs *Goofys, parent *Inode, name *string) (inode *Inode) {
 	return
 }
 
+func (inode *Inode) SetFromBlobItem(item *BlobItemOutput) {
+	inode.mu.Lock()
+	defer inode.mu.Unlock()
+
+	inode.Attributes.Size = item.Size
+	size := item.Size
+	inode.KnownSize = &size
+	if item.LastModified != nil {
+		inode.Attributes.Mtime = *item.LastModified
+	} else {
+		inode.Attributes.Mtime = inode.fs.rootAttrs.Mtime
+	}
+	if item.ETag != nil {
+		inode.s3Metadata["etag"] = []byte(*item.ETag)
+	} else {
+		delete(inode.s3Metadata, "etag")
+	}
+	if item.StorageClass != nil {
+		inode.s3Metadata["storage-class"] = []byte(*item.StorageClass)
+	} else {
+		delete(inode.s3Metadata, "storage-class")
+	}
+	now := time.Now()
+	// don't want to update time if this inode is setup to never expire
+	if inode.AttrTime.Before(now) {
+		inode.AttrTime = now
+	}
+}
+
 func (inode *Inode) cloud() (cloud StorageBackend, path string) {
 	var prefix string
 	var dir *Inode
@@ -848,28 +877,6 @@ func (parent *Inode) renameObject(fs *Goofys, size *uint64, fromFullName string,
 	return
 }
 
-func (parent *Inode) addDotAndDotDot() {
-	fs := parent.fs
-	en := &DirHandleEntry{
-		Name:       aws.String("."),
-		Type:       fuseutil.DT_Directory,
-		Attributes: &parent.Attributes,
-		Offset:     1,
-	}
-	fs.insertInodeFromDirEntry(parent, en)
-	dotDotAttr := &parent.Attributes
-	if parent.Parent != nil {
-		dotDotAttr = &parent.Parent.Attributes
-	}
-	en = &DirHandleEntry{
-		Name:       aws.String(".."),
-		Type:       fuseutil.DT_Directory,
-		Attributes: dotDotAttr,
-		Offset:     2,
-	}
-	fs.insertInodeFromDirEntry(parent, en)
-}
-
 // if I had seen a/ and a/b, and now I get a/c, that means a/b is
 // done, but not a/
 func (parent *Inode) isParentOf(inode *Inode) bool {
@@ -886,36 +893,54 @@ func sealPastDirs(dirs map[*Inode]bool, d *Inode) {
 	dirs[d] = false
 }
 
+// LOCKS_REQUIRED(parent.mu)
+// LOCKS_REQUIRED(parent.fs.mu)
 func (parent *Inode) insertSubTree(path string, obj *BlobItemOutput, dirs map[*Inode]bool) {
 	fs := parent.fs
 	slash := strings.Index(path, "/")
 	if slash == -1 {
-		fs.insertInodeFromDirEntry(parent, objectToDirEntry(fs, obj, path, false))
+		inode := parent.findChildUnlockedFull(path)
+		if inode == nil {
+			inode = NewInode(fs, parent, &path)
+			inode.refcnt = 0
+			fs.insertInode(parent, inode)
+		}
+		inode.SetFromBlobItem(obj)
 		sealPastDirs(dirs, parent)
 	} else {
 		dir := path[:slash]
 		path = path[slash+1:]
 
 		if len(path) == 0 {
-			inode := fs.insertInodeFromDirEntry(parent, objectToDirEntry(fs, obj, dir, true))
-			inode.addDotAndDotDot()
-
+			inode := parent.findChildUnlockedFull(dir)
+			if inode == nil {
+				inode = NewInode(fs, parent, &dir)
+				inode.ToDir()
+				inode.refcnt = 0
+				fs.insertInode(parent, inode)
+			} else if !inode.isDir() {
+				inode.ToDir()
+				fs.addDotAndDotDot(inode)
+			}
+			inode.SetFromBlobItem(obj)
 			sealPastDirs(dirs, inode)
 		} else {
 			// ensure that the potentially implicit dir is added
-			en := &DirHandleEntry{
-				Name:       &dir,
-				Type:       fuseutil.DT_Directory,
-				Attributes: &fs.rootAttrs,
-				Offset:     1,
+			inode := parent.findChildUnlockedFull(dir)
+			if inode == nil {
+				inode = NewInode(fs, parent, &dir)
+				inode.ToDir()
+				inode.refcnt = 0
+				fs.insertInode(parent, inode)
+			} else if !inode.isDir() {
+				inode.ToDir()
+				fs.addDotAndDotDot(inode)
 			}
-			inode := fs.insertInodeFromDirEntry(parent, en)
+
 			// mark this dir but don't seal anything else
 			// until we get to the leaf
 			dirs[inode] = false
 
-			inode.ToDir()
-			inode.addDotAndDotDot()
 			inode.insertSubTree(path, obj, dirs)
 		}
 	}
@@ -953,10 +978,9 @@ func (parent *Inode) readDirFromCache(offset fuseops.DirOffset) (en *DirHandleEn
 		child := parent.dir.Children[offset]
 
 		en = &DirHandleEntry{
-			Name:       child.Name,
-			Inode:      child.Id,
-			Offset:     offset + 1,
-			Attributes: &child.Attributes,
+			Name:   *child.Name,
+			Inode:  child.Id,
+			Offset: offset + 1,
 		}
 		if child.isDir() {
 			en.Type = fuseutil.DT_Directory
