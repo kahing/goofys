@@ -48,6 +48,9 @@ type AZBlob struct {
 	bucket           string
 	bareURL          string
 	sasTokenProvider SASTokenProvider
+	tokenExpire      time.Time
+	tokenRenewBuffer time.Duration
+	tokenRenewGate   *Ticket
 }
 
 type SASTokenProvider func() (string, error)
@@ -59,15 +62,16 @@ const AzureDirBlobMetadataKey = "hdi_isfolder"
 var azbLog = GetLogger("azblob")
 
 type AZBlobConfig struct {
-	Endpoint    string
-	AccountName string
-	AccountKey  string
-	SasToken    SASTokenProvider
-	ForceSas    bool
+	Endpoint         string
+	AccountName      string
+	AccountKey       string
+	SasToken         SASTokenProvider
+	TokenRenewBuffer time.Duration
 }
 
 func (config *AZBlobConfig) Init() {
 	config.Endpoint = AZBlobEndpoint
+	config.TokenRenewBuffer = 15 * time.Minute
 }
 
 func NewAZBlob(container string, config *AZBlobConfig) (*AZBlob, error) {
@@ -149,6 +153,8 @@ func NewAZBlob(container string, config *AZBlobConfig) (*AZBlob, error) {
 		sasTokenProvider: config.SasToken,
 		u:                bu,
 		c:                bc,
+		tokenRenewBuffer: config.TokenRenewBuffer,
+		tokenRenewGate:   Ticket{Total: 1}.Init(),
 	}
 
 	return b, nil
@@ -168,20 +174,89 @@ func (b *AZBlob) refreshToken() (*azblob.ContainerURL, error) {
 	if b.c == nil {
 		b.mu.Unlock()
 		return b.updateToken()
+	} else if b.tokenExpire.Before(time.Now().UTC()) {
+		// our token totally expired, renew inline before using it
+		b.mu.Unlock()
+		b.tokenRenewGate.Take(1, true)
+		defer b.tokenRenewGate.Return(1)
+
+		b.mu.Lock()
+		// check again, because in the mean time maybe it's renewed
+		if b.tokenExpire.Before(time.Now().UTC()) {
+			b.mu.Unlock()
+			azbLog.Warnf("token expired: %v", b.tokenExpire)
+			_, err := b.updateToken()
+			if err != nil {
+				azbLog.Errorf("Unable to refresh token: %v", err)
+				return nil, syscall.EACCES
+			}
+		} else {
+			// another concurrent goroutine renewed it for us
+			b.mu.Unlock()
+		}
+	} else if b.tokenExpire.Add(b.tokenRenewBuffer).Before(time.Now().UTC()) {
+		b.mu.Unlock()
+		// only allow one token renew at a time
+		if b.tokenRenewGate.Take(1, false) {
+
+			go func() {
+				defer b.tokenRenewGate.Return(1)
+				_, err := b.updateToken()
+				if err != nil {
+					azbLog.Errorf("Unable to refresh token: %v", err)
+				}
+			}()
+
+			// if we cannot renew token, treat it as a
+			// transient failure because the token is
+			// still valid for a while. When the grace
+			// period is over we will get an error when we
+			// actually access the blob store
+		} else {
+			// another goroutine is already renewing
+			azbLog.Infof("token renewal already in progress")
+		}
 	} else {
-		defer b.mu.Unlock()
-		return b.c, nil
+		b.mu.Unlock()
 	}
+	return b.c, nil
+}
+
+func parseSasToken(token string) (expire time.Time, err error) {
+	parts, err := url.ParseQuery(token)
+	if err != nil {
+		return
+	}
+
+	se := parts.Get("se")
+	if se == "" {
+		err = fmt.Errorf("token missing 'se' param")
+		return
+	}
+
+	expire, err = time.Parse("2006-01-02T15:04:05Z", se)
+	return
 }
 
 func (b *AZBlob) updateToken() (*azblob.ContainerURL, error) {
 	token, err := b.sasTokenProvider()
 	if err != nil {
-		return nil, err
+		azbLog.Errorf("Unable to generate SAS token: %v", err)
+		return nil, syscall.EACCES
 	}
-	u, err := url.Parse(fmt.Sprintf(b.bareURL, token))
+
+	expire, err := parseSasToken(token)
 	if err != nil {
-		return nil, err
+		azbLog.Errorf("Invalid token: %v", err)
+		return nil, syscall.EACCES
+	}
+	azbLog.Infof("new token will expire at %v", expire)
+
+	sUrl := fmt.Sprintf(b.bareURL, token)
+	u, err := url.Parse(sUrl)
+	if err != nil {
+		azbLog.Errorf("Unable to construct service URL: %v", sUrl)
+		return nil, fuse.EINVAL
 	}
 
 	serviceURL := azblob.NewServiceURL(*u, b.pipeline)
@@ -192,6 +267,7 @@ func (b *AZBlob) updateToken() (*azblob.ContainerURL, error) {
 
 	b.u = &serviceURL
 	b.c = &containerURL
+	b.tokenExpire = expire
 
 	return b.c, nil
 }
