@@ -171,6 +171,7 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 	root.Attributes.Mtime = fs.rootAttrs.Mtime
 
 	fs.inodes[fuseops.RootInodeID] = root
+	fs.addDotAndDotDot(root)
 
 	fs.nextHandleID = 1
 	fs.dirHandles = make(map[fuseops.HandleID]*DirHandle)
@@ -244,6 +245,11 @@ func (fs *Goofys) mount(mp *Inode, b *Mount) {
 
 	name := strings.Trim(b.name, "/")
 
+	// create path for the mount. AttrTime is set to TIME_MAX so
+	// they will never expire and be removed. But DirTime is not
+	// so we will still consult the underlining cloud for listing
+	// (which will then be merged with the cached result)
+
 	for {
 		idx := strings.Index(name, "/")
 		if idx == -1 {
@@ -260,22 +266,8 @@ func (fs *Goofys) mount(mp *Inode, b *Mount) {
 			dirInode = NewInode(fs, mp, &dirName)
 			dirInode.ToDir()
 			dirInode.AttrTime = TIME_MAX
-			// if nothing is mounted here, set DirTime to
-			// infinite so listing will always use cache
-			dirInode.dir.DirTime = TIME_MAX
 
 			fs.insertInode(mp, dirInode)
-
-			// insert the fake . and ..
-			dot := NewInode(fs, dirInode, PString("."))
-			dot.ToDir()
-			dot.AttrTime = TIME_MAX
-			fs.insertInode(dirInode, dot)
-
-			dot = NewInode(fs, dirInode, PString(".."))
-			dot.ToDir()
-			dot.AttrTime = TIME_MAX
-			fs.insertInode(dirInode, dot)
 			fs.mu.Unlock()
 		}
 		mp.mu.Unlock()
@@ -603,13 +595,34 @@ func (fs *Goofys) insertInode(parent *Inode, inode *Inode) {
 			inode.Id = parent.Parent.Id
 		}
 	} else {
+		if inode.Id != 0 {
+			panic(fmt.Sprintf("inode id is set: %v %v", *inode.Name, inode.Id))
+		}
 		inode.Id = fs.allocateInodeId()
 		addInode = true
 	}
 	parent.insertChildUnlocked(inode)
 	if addInode {
 		fs.inodes[inode.Id] = inode
+
+		// if we are inserting a new directory, also create
+		// the child . and ..
+		if inode.isDir() {
+			fs.addDotAndDotDot(inode)
+		}
 	}
+}
+
+func (fs *Goofys) addDotAndDotDot(dir *Inode) {
+	dot := NewInode(fs, dir, PString("."))
+	dot.ToDir()
+	dot.AttrTime = TIME_MAX
+	fs.insertInode(dir, dot)
+
+	dot = NewInode(fs, dir, PString(".."))
+	dot.ToDir()
+	dot.AttrTime = TIME_MAX
+	fs.insertInode(dir, dot)
 }
 
 // LOCKS_EXCLUDED(fs.mu)
@@ -665,69 +678,9 @@ func (fs *Goofys) OpenDir(
 	return
 }
 
-// LOCKS_EXCLUDED(fs.mu)
-func (fs *Goofys) insertInodeFromDirEntry(parent *Inode, entry *DirHandleEntry) (inode *Inode) {
-	parent.mu.Lock()
-	defer parent.mu.Unlock()
-
-	if entry.Type == fuseutil.DT_Directory {
-		// it's possible that both "a" and "a/b" exist, in
-		// which case we need to turn this file into a
-		// directory
-		inode = parent.findChildUnlocked(*entry.Name, false)
-		if inode != nil {
-			parent.removeChildUnlocked(inode)
-		}
-	}
-
-	inode = parent.findChildUnlocked(*entry.Name, entry.Type == fuseutil.DT_Directory)
-	if inode == nil {
-		inode = NewInode(fs, parent, entry.Name)
-		if entry.Type == fuseutil.DT_Directory {
-			inode.ToDir()
-		} else {
-			inode.Attributes = *entry.Attributes
-		}
-		if entry.ETag != nil {
-			inode.s3Metadata["etag"] = []byte(*entry.ETag)
-		}
-		if entry.StorageClass != nil {
-			inode.s3Metadata["storage-class"] = []byte(*entry.StorageClass)
-		}
-		// these are fake dir entries, we will realize the refcnt when
-		// lookup is done
-		inode.refcnt = 0
-
-		fs.mu.Lock()
-		defer fs.mu.Unlock()
-
-		fs.insertInode(parent, inode)
-		entry.Inode = inode.Id
-	} else {
-		inode.mu.Lock()
-		defer inode.mu.Unlock()
-
-		if entry.ETag != nil {
-			inode.s3Metadata["etag"] = []byte(*entry.ETag)
-		}
-		if entry.StorageClass != nil {
-			inode.s3Metadata["storage-class"] = []byte(*entry.StorageClass)
-		}
-		inode.KnownSize = &entry.Attributes.Size
-		inode.Attributes.Mtime = entry.Attributes.Mtime
-		now := time.Now()
-		// don't want to update time if this inode is setup to never expire
-		if inode.AttrTime.Before(now) {
-			inode.AttrTime = now
-		}
-		entry.Inode = inode.Id
-	}
-	return
-}
-
 func makeDirEntry(en *DirHandleEntry) fuseutil.Dirent {
 	return fuseutil.Dirent{
-		Name:   *en.Name,
+		Name:   en.Name,
 		Type:   en.Type,
 		Inode:  en.Inode,
 		Offset: en.Offset,
@@ -754,26 +707,17 @@ func (fs *Goofys) ReadDir(
 	dh.mu.Lock()
 	defer dh.mu.Unlock()
 
-	readFromS3 := false
-
 	for i := op.Offset; ; i++ {
 		e, err := dh.ReadDir(i)
 		if err != nil {
 			return err
 		}
 		if e == nil {
-			// we've reached the end, if this was read
-			// from S3 then update the cache time
-			if readFromS3 {
-				inode.dir.DirTime = time.Now()
-				inode.Attributes.Mtime = inode.findChildMaxTime()
-			}
 			break
 		}
 
 		if e.Inode == 0 {
-			readFromS3 = true
-			fs.insertInodeFromDirEntry(inode, e)
+			panic(fmt.Sprintf("unset inode %v", e.Name))
 		}
 
 		n := fuseutil.WriteDirent(op.Dst[op.BytesRead:], makeDirEntry(e))
@@ -781,7 +725,7 @@ func (fs *Goofys) ReadDir(
 			break
 		}
 
-		dh.inode.logFuse("<-- ReadDir", *e.Name, e.Offset)
+		dh.inode.logFuse("<-- ReadDir", e.Name, e.Offset)
 
 		op.BytesRead += n
 	}
