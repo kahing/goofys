@@ -40,6 +40,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/corehandlers"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 
+	"github.com/Azure/azure-storage-blob-go/azblob"
+
 	"github.com/kahing/go-xattr"
 
 	"github.com/jacobsa/fuse"
@@ -328,6 +330,42 @@ func (s *GoofysTest) SetUpTest(t *C) {
 			s.emulator = true
 			s.waitForEmulator(t)
 		}
+
+		if os.Getenv("SAS_EXPIRE") != "" {
+			expire, err := time.ParseDuration(os.Getenv("SAS_EXPIRE"))
+			t.Assert(err, IsNil)
+
+			config.TokenRenewBuffer = expire / 2
+			credential, err := azblob.NewSharedKeyCredential(config.AccountName, config.AccountKey)
+			t.Assert(err, IsNil)
+
+			// test sas token config
+			config.SasToken = func() (string, error) {
+				sasQueryParams, err := azblob.AccountSASSignatureValues{
+					Protocol:   azblob.SASProtocolHTTPSandHTTP,
+					StartTime:  time.Now().UTC().Add(-1 * time.Hour),
+					ExpiryTime: time.Now().UTC().Add(expire),
+					Services:   azblob.AccountSASServices{Blob: true}.String(),
+					ResourceTypes: azblob.AccountSASResourceTypes{
+						Service:   true,
+						Container: true,
+						Object:    true,
+					}.String(),
+					Permissions: azblob.AccountSASPermissions{
+						Read:   true,
+						Write:  true,
+						Delete: true,
+						List:   true,
+						Create: true,
+					}.String(),
+				}.NewSASQueryParameters(credential)
+				if err != nil {
+					return "", err
+				}
+				return sasQueryParams.Encode(), nil
+			}
+		}
+
 		flags.Backend = &config
 
 		s.cloud, err = NewAZBlob(bucket, &config)
@@ -704,11 +742,12 @@ func (s *GoofysTest) testWriteFile(t *C, fileName string, size int64, write_size
 
 func (s *GoofysTest) testWriteFileAt(t *C, fileName string, offset int64, size int64, write_size int) {
 	var fh *FileHandle
+	root := s.getRoot(t)
 
 	if offset == 0 {
-		_, fh = s.getRoot(t).Create(fileName)
+		_, fh = root.Create(fileName)
 	} else {
-		in, err := s.getRoot(t).LookUp(fileName)
+		in, err := root.LookUp(fileName)
 		t.Assert(err, IsNil)
 
 		fh, err = in.OpenFile()
