@@ -255,7 +255,7 @@ func (b *AZBlob) updateToken() (*azblob.ContainerURL, error) {
 	}
 
 	expire := parseSasToken(token)
-	azbLog.Infof("new token will expire at %v", expire)
+	azbLog.Infof("token for %v refreshed, next expire at %v", b.bucket, expire.String())
 
 	sUrl := fmt.Sprintf(b.bareURL, token)
 	u, err := url.Parse(sUrl)
