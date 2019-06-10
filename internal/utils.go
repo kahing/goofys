@@ -20,6 +20,8 @@ import (
 	"unicode"
 
 	"github.com/jacobsa/fuse"
+
+	"hash/fnv"
 )
 
 func MaxInt(a, b int) int {
@@ -100,4 +102,10 @@ func TryUnmount(mountPoint string) (err error) {
 		}
 	}
 	return
+}
+
+func makeInodeID(path string) uint64 {
+	hash := fnv.New64a()
+	hash.Write([]byte(path))
+	return hash.Sum64()
 }

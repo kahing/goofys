@@ -75,17 +75,17 @@ type Goofys struct {
 	// from per-inode locks). Make sure to see the notes on lock ordering above.
 	mu sync.Mutex
 
-	// The next inode ID to hand out. We assume that this will never overflow,
-	// since even if we were handing out inode IDs at 4 GHz, it would still take
+	// The next Link ID to hand out. We assume that this will never overflow,
+	// since even if we were handing out link IDs at 4 GHz, it would still take
 	// over a century to do so.
 	//
 	// GUARDED_BY(mu)
-	nextInodeID fuseops.InodeID
+	nextLinkID fuseops.InodeID
 
 	// The collection of live inodes, keyed by inode ID. No ID less than
 	// fuseops.RootInodeID is ever used.
 	//
-	// INVARIANT: For all keys k, fuseops.RootInodeID <= k < nextInodeID
+	// INVARIANT: For all keys k, fuseops.RootInodeID <= k
 	// INVARIANT: For all keys k, inodes[k].ID() == k
 	// INVARIANT: inodes[fuseops.RootInodeID] is missing or of type inode.DirInode
 	// INVARIANT: For all v, if IsDirName(v.Name()) then v is inode.DirInode
@@ -197,8 +197,9 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 
 	fs.bufferPool = BufferPool{}.Init()
 
-	fs.nextInodeID = fuseops.RootInodeID + 1
+	fs.nextLinkID = fuseops.RootInodeID + 1
 	fs.inodes = make(map[fuseops.InodeID]*Inode)
+
 	root := NewInode(fs, nil, aws.String(""), aws.String(""))
 	root.Id = fuseops.RootInodeID
 	root.ToDir()
@@ -584,9 +585,9 @@ func pathEscape(path string) string {
 	return u.EscapedPath()
 }
 
-func (fs *Goofys) allocateInodeId() (id fuseops.InodeID) {
-	id = fs.nextInodeID
-	fs.nextInodeID++
+func (fs *Goofys) allocateLinkId() (id fuseops.InodeID) {
+	id = fs.nextLinkID
+	fs.nextLinkID++
 	return
 }
 
@@ -683,7 +684,17 @@ func (fs *Goofys) LookUpInode(
 // LOCKS_REQUIRED(fs.mu)
 // LOCKS_REQUIRED(parent.mu)
 func (fs *Goofys) insertInode(parent *Inode, inode *Inode) {
-	inode.Id = fs.allocateInodeId()
+	newID := fuseops.InodeID(makeInodeID(*inode.FullName()))
+
+	originalInode := fs.inodes[newID]
+	if originalInode == nil {
+		inode.Id = newID
+	} else {
+		// handle case with repeated call of InsertInode() with the same file path
+		// It is actually appear in special test cases that called TestSlurpFileAndDir
+		inode.Id = fs.allocateLinkId()
+	}
+
 	parent.insertChildUnlocked(inode)
 	fs.inodes[inode.Id] = inode
 }
