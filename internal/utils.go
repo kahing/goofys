@@ -88,7 +88,19 @@ func MinUInt64(a, b uint64) uint64 {
 	}
 }
 
+func PBool(v bool) *bool {
+	return &v
+}
+
+func PInt32(v int32) *int32 {
+	return &v
+}
+
 func PUInt32(v uint32) *uint32 {
+	return &v
+}
+
+func PInt64(v int64) *int64 {
 	return &v
 }
 

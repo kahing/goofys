@@ -41,6 +41,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 
 	"github.com/Azure/azure-storage-blob-go/azblob"
+	azureauth "github.com/Azure/go-autorest/autorest/azure/auth"
 
 	"github.com/kahing/go-xattr"
 
@@ -262,6 +263,7 @@ func (s *GoofysTest) setupEnv(t *C, env map[string]io.ReadSeeker, public bool) {
 	if public {
 		s.fs.flags.ACL = "public-read"
 	}
+
 	_, err := s.cloud.MakeBucket(&MakeBucketInput{})
 	t.Assert(err, IsNil)
 
@@ -372,17 +374,18 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		t.Assert(err, IsNil)
 		t.Assert(s.cloud, NotNil)
 	} else if cloud == "adlv1" {
-		var config ADLv1Config
-		config.Init()
-		config.Endpoint = os.Getenv("ENDPOINT")
-		config.ClientID = os.Getenv("ADLV1_CLIENT_ID")
-		config.ClientSecret = os.Getenv("ADLV1_CLIENT_CREDENTIAL")
-		config.TenantID = os.Getenv("ADLV1_TENANT_ID")
+		cred := azureauth.NewClientCredentialsConfig(
+			os.Getenv("ADLV1_CLIENT_ID"),
+			os.Getenv("ADLV1_CLIENT_CREDENTIAL"),
+			os.Getenv("ADLV1_TENANT_ID"))
+		auth, err := cred.Authorizer()
+		t.Assert(err, IsNil)
 
-		t.Assert(config.Endpoint, Not(Equals), "")
-		t.Assert(config.ClientID, Not(Equals), "")
-		t.Assert(config.ClientSecret, Not(Equals), "")
-		t.Assert(config.TenantID, Not(Equals), "")
+		config := ADLv1Config{
+			Endpoint:   os.Getenv("ENDPOINT"),
+			Authorizer: auth,
+		}
+		config.Init()
 
 		flags.Backend = &config
 
@@ -2789,8 +2792,7 @@ func (s *GoofysTest) TestMountsError(t *C) {
 	} else if _, ok := s.cloud.(*ADLv1); ok {
 		cloud = s.newBackend(t, bucket, true)
 		adlCloud, _ := cloud.(*ADLv1)
-		adlCloud.endpoint.Scheme = "foo"
-		adlCloud.client.RetryMax = 0
+		adlCloud.account = ""
 	} else {
 		cloud = s.newBackend(t, bucket, false)
 	}

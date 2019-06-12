@@ -71,11 +71,48 @@ func Mount(
 	if flags.DebugS3 {
 		internal.SetCloudLogLevel(logrus.DebugLevel)
 	}
+	// Mount the file system.
+	mountCfg := &fuse.MountConfig{
+		FSName:                  bucketName,
+		Options:                 flags.MountOptions,
+		ErrorLogger:             GetStdLogger(NewLogger("fuse"), logrus.ErrorLevel),
+		DisableWritebackCaching: true,
+	}
+
+	if flags.DebugFuse {
+		fuseLog := GetLogger("fuse")
+		fuseLog.Level = logrus.DebugLevel
+		log.Level = logrus.DebugLevel
+		mountCfg.DebugLogger = GetStdLogger(fuseLog, logrus.DebugLevel)
+	}
 
 	if config.AccessKey != "" {
 		awsConfig.Credentials = credentials.NewStaticCredentials(config.AccessKey, config.SecretKey, "")
 	} else if len(flags.Profile) > 0 {
 		awsConfig.Credentials = credentials.NewSharedCredentials("", flags.Profile)
+	} else {
+		if spec, err := internal.ParseBucketSpec(bucketName); err == nil {
+			switch spec.Scheme {
+			case "adl":
+				auth, err := internal.AzureAuthorizerConfig{}.Authorizer()
+				if err != nil {
+					err = fmt.Errorf("couldn't load azure credentials: %v",
+						err)
+					return nil, nil, err
+				}
+				flags.Backend = &internal.ADLv1Config{
+					Endpoint:   spec.Bucket,
+					Authorizer: auth,
+				}
+				// adlv1 doesn't really have bucket
+				// names, but we will rebuild the
+				// prefix
+				bucketName = ""
+				if spec.Prefix != "" {
+					bucketName = ":" + spec.Prefix
+				}
+			}
+		}
 	}
 
 	if len(flags.Endpoint) > 0 {
@@ -90,22 +127,6 @@ func Mount(
 		return
 	}
 	server := fuseutil.NewFileSystemServer(fs)
-
-	fuseLog := GetLogger("fuse")
-
-	// Mount the file system.
-	mountCfg := &fuse.MountConfig{
-		FSName:                  bucketName,
-		Options:                 flags.MountOptions,
-		ErrorLogger:             GetStdLogger(NewLogger("fuse"), logrus.ErrorLevel),
-		DisableWritebackCaching: true,
-	}
-
-	if flags.DebugFuse {
-		fuseLog.Level = logrus.DebugLevel
-		log.Level = logrus.DebugLevel
-		mountCfg.DebugLogger = GetStdLogger(fuseLog, logrus.DebugLevel)
-	}
 
 	mfs, err = fuse.Mount(flags.MountPoint, server, mountCfg)
 	if err != nil {
