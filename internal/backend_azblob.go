@@ -55,8 +55,7 @@ type AZBlob struct {
 
 type SASTokenProvider func() (string, error)
 
-const AZBlobEndpoint = "https://%v.blob.core.windows.net?%%v"
-const AzuriteEndpoint = "http://127.0.0.1:8080/%v/?%%v"
+const AzuriteEndpoint = "http://127.0.0.1:8080/devstoreaccount1/"
 const AzureDirBlobMetadataKey = "hdi_isfolder"
 
 var azbLog = GetLogger("azblob")
@@ -70,7 +69,6 @@ type AZBlobConfig struct {
 }
 
 func (config *AZBlobConfig) Init() {
-	config.Endpoint = AZBlobEndpoint
 	config.TokenRenewBuffer = 15 * time.Minute
 }
 
@@ -108,13 +106,7 @@ func NewAZBlob(container string, config *AZBlobConfig) (*AZBlob, error) {
 	}
 
 	p := azblob.NewPipeline(azblob.NewAnonymousCredential(), po)
-	var bareURL string
-	if config.AccountName != "" {
-		bareURL = fmt.Sprintf(config.Endpoint, config.AccountName)
-	} else {
-		// endpoint already contains account name
-		bareURL = config.Endpoint
-	}
+	bareURL := config.Endpoint
 
 	var bu *azblob.ServiceURL
 	var bc *azblob.ContainerURL
@@ -125,10 +117,7 @@ func NewAZBlob(container string, config *AZBlobConfig) (*AZBlob, error) {
 			return nil, fmt.Errorf("Unable to construct credential: %v", err)
 		}
 
-		// Azurite's SAS is buggy, ex: https://github.com/Azure/Azurite/issues/216
 		p = azblob.NewPipeline(credential, po)
-		// rid the URL of the SAS token param
-		bareURL = fmt.Sprintf(bareURL, "")
 
 		u, err := url.Parse(bareURL)
 		if err != nil {
@@ -257,7 +246,7 @@ func (b *AZBlob) updateToken() (*azblob.ContainerURL, error) {
 	expire := parseSasToken(token)
 	azbLog.Infof("token for %v refreshed, next expire at %v", b.bucket, expire.String())
 
-	sUrl := fmt.Sprintf(b.bareURL, token)
+	sUrl := b.bareURL + "?" + token
 	u, err := url.Parse(sUrl)
 	if err != nil {
 		azbLog.Errorf("Unable to construct service URL: %v", sUrl)

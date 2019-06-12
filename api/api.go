@@ -111,6 +111,16 @@ func Mount(
 				if spec.Prefix != "" {
 					bucketName = ":" + spec.Prefix
 				}
+			case "wasb":
+				config, err := internal.AzureBlobConfig(flags.Endpoint)
+				if err != nil {
+					return nil, nil, err
+				}
+				flags.Backend = &config
+				bucketName = spec.Bucket
+				if spec.Prefix != "" {
+					bucketName = ":" + spec.Prefix
+				}
 			}
 		}
 	}

@@ -304,7 +304,6 @@ func (s *GoofysTest) SetUpTest(t *C) {
 
 	cloud := os.Getenv("CLOUD")
 
-	var err error
 	if cloud == "s3" {
 		s.waitForEmulator(t)
 
@@ -321,18 +320,16 @@ func (s *GoofysTest) SetUpTest(t *C) {
 			t.Assert(err, IsNil)
 		}
 	} else if cloud == "azblob" {
-		var config AZBlobConfig
-		config.Init()
+		config, err := AzureBlobConfig(os.Getenv("ENDPOINT"))
+		t.Assert(err, IsNil)
 
-		config.Endpoint = os.Getenv("ENDPOINT")
-		config.AccountName = os.Getenv("ACCOUNT_NAME")
-		config.AccountKey = os.Getenv("ACCOUNT_KEY")
 		if config.Endpoint == AzuriteEndpoint {
 			s.azurite = true
 			s.emulator = true
 			s.waitForEmulator(t)
 		}
 
+		// Azurite's SAS is buggy, ex: https://github.com/Azure/Azurite/issues/216
 		if os.Getenv("SAS_EXPIRE") != "" {
 			expire, err := time.ParseDuration(os.Getenv("SAS_EXPIRE"))
 			t.Assert(err, IsNil)
