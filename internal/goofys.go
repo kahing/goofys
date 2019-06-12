@@ -113,6 +113,42 @@ func NewBackend(bucket string, flags *FlagStorage, awsConfig *aws.Config) (cloud
 	return
 }
 
+type BucketSpec struct {
+	Scheme string
+	Bucket string
+	Prefix string
+}
+
+func ParseBucketSpec(bucket string) (spec BucketSpec, err error) {
+	if strings.Index(bucket, "://") != -1 {
+		var u *url.URL
+		u, err = url.Parse(bucket)
+		if err != nil {
+			return
+		}
+
+		spec.Scheme = u.Scheme
+		spec.Bucket = u.Host
+		spec.Prefix = u.Path
+	} else {
+		spec.Scheme = "s3"
+
+		colon := strings.Index(bucket, ":")
+		if colon != -1 {
+			spec.Prefix = bucket[colon+1:]
+			spec.Bucket = bucket[0:colon]
+		} else {
+			spec.Bucket = bucket
+		}
+	}
+
+	spec.Prefix = strings.Trim(spec.Prefix, "/")
+	if spec.Prefix != "" {
+		spec.Prefix += "/"
+	}
+	return
+}
+
 func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys {
 	// Set up the basic struct.
 	fs := &Goofys{

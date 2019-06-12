@@ -19,24 +19,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"io/ioutil"
-	"net"
 	"net/http"
-	"net/url"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
-	retryablehttp "github.com/hashicorp/go-retryablehttp"
 	"github.com/jacobsa/fuse"
-	hdfs "github.com/vladimirvivien/gowfs"
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/clientcredentials"
+	uuid "github.com/satori/go.uuid"
+	"github.com/sirupsen/logrus"
+
+	adl "github.com/Azure/azure-sdk-for-go/services/datalake/store/2016-11-01/filesystem"
+	"github.com/Azure/go-autorest/autorest"
 )
 
 type ADLv1 struct {
@@ -45,43 +40,22 @@ type ADLv1 struct {
 	flags  *FlagStorage
 	config *ADLv1Config
 
-	client   *retryablehttp.Client
-	endpoint url.URL
+	client  *adl.Client
+	account string
 	// ADLv1 doesn't actually have the concept of buckets (defined
 	// by me as a top level container that can be created with
-	// existing credentials). This bucket is more like a backend
-	// level prefix mostly to ease testing
+	// existing credentials). We could create new adl filesystems
+	// but that seems more involved. This bucket is more like a
+	// backend level prefix mostly to ease testing
 	bucket string
 }
 
 type ADLv1Config struct {
-	Endpoint     string
-	ClientID     string
-	ClientSecret string
-	TenantID     string
-	RefreshUrl   string
+	Endpoint   string
+	Authorizer autorest.Authorizer
 }
 
 func (config *ADLv1Config) Init() {
-}
-
-type ADLv1Op struct {
-	method   string
-	params   url.Values
-	headers  http.Header
-	rawError bool
-}
-
-func newADLv1Op(method, op string) ADLv1Op {
-	return ADLv1Op{
-		method:  method,
-		params:  url.Values{"op": []string{op}},
-		headers: http.Header{},
-	}
-}
-
-func (op ADLv1Op) String() string {
-	return op.params.Encode()
 }
 
 type ADLv1Err struct {
@@ -97,417 +71,144 @@ func (err ADLv1Err) Error() string {
 	return fmt.Sprintf("%v %v", err.resp.Status, err.RemoteException)
 }
 
-func (op ADLv1Op) New() ADLv1Op {
-	// stupid golang doesn't have an easy way to copy map
-	res := ADLv1Op{
-		method:   op.method,
-		params:   url.Values{},
-		headers:  http.Header{},
-		rawError: op.rawError,
-	}
-
-	for k, v := range op.params {
-		var values []string
-		for _, s := range v {
-			values = append(values, s)
-		}
-		res.params[k] = values
-	}
-	for k, v := range op.headers {
-		var values []string
-		for _, s := range v {
-			values = append(values, s)
-		}
-		res.headers[k] = values
-	}
-
-	return res
-}
-
-func (op ADLv1Op) Param(k, v string) ADLv1Op {
-	op.params.Add(k, v)
-	return op
-}
-
-func (op ADLv1Op) Perm(mode os.FileMode) ADLv1Op {
-	return op.Param("permission", fmt.Sprintf("0%o", mode))
-}
-
-func (op ADLv1Op) Header(k, v string) ADLv1Op {
-	op.headers.Add(k, v)
-	return op
-}
-
-func (op ADLv1Op) RawError() ADLv1Op {
-	op.rawError = true
-	return op
-}
-
 const ADL1_REQUEST_ID = "X-Ms-Request-Id"
 
 var adls1Log = GetLogger("adlv1")
-
-// APPEND and CREATE additionally supports "append=true" and
-// "write=true" to prevent initial 307 redirect because it just
-// redirects to the same domain anyway
-//
-// there's no such thing as abort, but at least we should release the
-// lease which technically is more like a commit than abort. In this
-// case we are not sending data so there's no reason to do expect
-// 100-continue
-var ADL1_ABORT = newADLv1Op("POST", "APPEND").
-	Param("append", "true").
-	Param("syncFlag", "CLOSE")
-var ADL1_APPEND = newADLv1Op("POST", "APPEND").
-	Param("append", "true").
-	Param("syncFlag", "DATA").
-	Header("Expect", "100-continue").
-	RawError()
-var ADL1_CLOSE = newADLv1Op("POST", "APPEND").
-	Param("append", "true").
-	Param("syncFlag", "CLOSE").
-	RawError()
-var ADL1_CREATE = newADLv1Op("PUT", "CREATE").
-	Param("write", "true").
-	Param("overwrite", "true").
-	Header("Expect", "100-continue")
-var ADL1_DELETE = newADLv1Op("DELETE", "DELETE").Param("recursive", "false")
-var ADL1_GETFILESTATUS = newADLv1Op("GET", "GETFILESTATUS")
-var ADL1_LISTSTATUS = newADLv1Op("GET", "LISTSTATUS")
-var ADL1_MKDIRS = newADLv1Op("PUT", "MKDIRS")
-var ADL1_OPEN = newADLv1Op("GET", "OPEN").Param("read", "true")
-var ADL1_RENAME = newADLv1Op("PUT", "RENAME").Param("renameoptions", "OVERWRITE")
-
-type ListStatusResult struct {
-	FileStatuses struct {
-		FileStatus        []hdfs.FileStatus
-		ContinuationToken string
-	}
-}
-type BooleanResult struct {
-	Boolean bool
-}
 
 type ADLv1MultipartBlobCommitInput struct {
 	Size uint64
 }
 
-func retryableHttpClient(c *http.Client, oauth bool) *retryablehttp.Client {
-	retryPolicy := func(ctx context.Context, resp *http.Response, err error) (bool, error) {
-		// do not retry on context.Canceled or context.DeadlineExceeded
-		if ctx.Err() != nil {
-			return false, ctx.Err()
-		}
-
-		if oauth2Err := toOauth2Error(err); oauth2Err != nil {
-			if oauth2Err.Response != nil {
-				return retryablehttp.DefaultRetryPolicy(ctx, oauth2Err.Response, nil)
-			} else {
-				return true, oauth2Err
-			}
-		}
-
-		return retryablehttp.DefaultRetryPolicy(ctx, resp, err)
-	}
-
-	return &retryablehttp.Client{
-		HTTPClient:   c,
-		Backoff:      retryablehttp.LinearJitterBackoff,
-		Logger:       RetryHTTPLogger{adls1Log},
-		RetryWaitMax: 1 * time.Second,
-		// XXX figure out a better number
-		RetryMax:   20,
-		CheckRetry: retryPolicy,
-		RequestLogHook: func(_ retryablehttp.Logger, r *http.Request, nRetry int) {
-			if nRetry != 0 {
-				// generate a new request id
-				oldRequestId := r.Header.Get(ADL1_REQUEST_ID)
-				newRequestId := uuid.New().String()
-				r.Header.Set(ADL1_REQUEST_ID, newRequestId)
-
-				adls1Log.Debugf("%v %v %v retry#%v as %v", r.Method, r.URL,
-					oldRequestId, nRetry, newRequestId)
-			} else {
-				adls1Log.Debugf("%v %v %v", r.Method, r.URL,
-					r.Header.Get(ADL1_REQUEST_ID))
-			}
-		},
-		ResponseLogHook: func(_ retryablehttp.Logger, r *http.Response) {
-			adls1Log.Debugf("%v %v %v %v %v", r.Request.Method, r.Request.URL,
-				r.Request.Header.Get(ADL1_REQUEST_ID), r.Status, r.Header)
-		},
-	}
-}
-
-type RetryClient struct {
-	client *retryablehttp.Client
-}
-
-func (c RetryClient) RoundTrip(r *http.Request) (*http.Response, error) {
-	req, err := retryablehttp.NewRequest(r.Method, r.URL.String(), r.Body)
-	if err != nil {
-		return nil, err
-	}
-	req.Request = r
-	return c.client.Do(req)
-}
-
 func IsADLv1Endpoint(endpoint string) bool {
-	u, err := url.Parse(endpoint)
-	if err != nil {
-		return false
+	return strings.HasPrefix(endpoint, "adl://")
+	//return strings.HasSuffix(endpoint, ".azuredatalakestore.net")
+}
+
+func adlLogResp(level logrus.Level, r *http.Response) {
+	if adls1Log.IsLevelEnabled(level) {
+		op := r.Request.URL.Query().Get("op")
+		requestId := r.Request.Header.Get(ADL1_REQUEST_ID)
+		respId := r.Header.Get(ADL1_REQUEST_ID)
+		adls1Log.Logf(level, "%v %v %v %v %v", op, r.Request.URL.String(),
+			requestId, r.Status, respId)
 	}
-	return strings.HasSuffix(u.Hostname(), ".azuredatalakestore.net")
 }
 
 func NewADLv1(bucket string, flags *FlagStorage, config *ADLv1Config) (*ADLv1, error) {
-	tokenURL := config.RefreshUrl
-	if tokenURL == "" {
-		tokenURL = fmt.Sprintf("https://login.microsoftonline.com/%v/oauth2/token", config.TenantID)
+	parts := strings.SplitN(config.Endpoint, ".", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("Invalid endpoint: %v", config.Endpoint)
 	}
 
-	u, err := url.Parse(tokenURL)
-	if err != nil {
-		return nil, err
-	}
-	if u.Scheme == "" || u.Host == "" {
-		return nil, fmt.Errorf("Invalid refresh url: %v", tokenURL)
-	}
+	LogRequest := func(p autorest.Preparer) autorest.Preparer {
+		return autorest.PreparerFunc(func(r *http.Request) (*http.Request, error) {
+			// the autogenerated permission bits are
+			// incorrect, it should be a string in base 8
+			// instead of base 10
+			q := r.URL.Query()
+			if perm := q.Get("permission"); perm != "" {
+				perm, err := strconv.ParseInt(perm, 10, 32)
+				if err == nil {
+					q.Set("permission",
+						fmt.Sprintf("0%o", perm))
+					r.URL.RawQuery = q.Encode()
+				}
+			}
 
-	conf := clientcredentials.Config{
-		ClientID:       config.ClientID,
-		ClientSecret:   config.ClientSecret,
-		TokenURL:       tokenURL,
-		EndpointParams: url.Values{"resource": {"https://management.core.windows.net/"}},
-	}
-	conf.AuthStyle = oauth2.AuthStyleInParams
+			u, _ := uuid.NewV4()
+			r.Header.Add(ADL1_REQUEST_ID, u.String())
 
-	endpoint, err := url.Parse(config.Endpoint)
-	if err != nil {
-		return nil, err
-	}
-
-	if endpoint.Host == "" {
-		// if endpoint doesn't have scheme: foobar.com or foobar.com/a,
-		// it will get parsed as the Path
-		newEndpoint := "https://" + config.Endpoint
-		endpoint, err = url.Parse(newEndpoint)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if endpoint.Scheme == "" {
-		endpoint.Scheme = "https"
-	}
-	endpoint.Path = "/webhdfs/v1/"
-
-	ctx := context.WithValue(context.TODO(), oauth2.HTTPClient,
-		&http.Client{
-			Transport: RetryClient{retryableHttpClient(&http.Client{
-				Transport: &http.Transport{
-					Proxy: http.ProxyFromEnvironment,
-					DialContext: (&net.Dialer{
-						Timeout:   30 * time.Second,
-						KeepAlive: 30 * time.Second,
-					}).DialContext,
-					MaxIdleConns:          100,
-					IdleConnTimeout:       90 * time.Second,
-					MaxIdleConnsPerHost:   100,
-					TLSHandshakeTimeout:   3 * time.Second,
-					ExpectContinueTimeout: 1 * time.Second,
-				},
-			}, true)},
+			r, err := p.Prepare(r)
+			if err != nil {
+				log.Error(err)
+			}
+			return r, err
 		})
-	tokenSource := oauth2.ReuseTokenSource(nil, conf.TokenSource(ctx))
-	oauth2Client := oauth2.NewClient(context.TODO(), tokenSource)
+	}
 
-	return &ADLv1{
-		flags:    flags,
-		config:   config,
-		client:   retryableHttpClient(oauth2Client, false),
-		endpoint: *endpoint,
-		bucket:   bucket,
+	LogResponse := func(p autorest.Responder) autorest.Responder {
+		return autorest.ResponderFunc(func(r *http.Response) error {
+			adlLogResp(logrus.DebugLevel, r)
+			err := p.Respond(r)
+			if err != nil {
+				log.Error(err)
+			}
+			return err
+		})
+	}
+
+	adlClient := adl.NewClient()
+	adlClient.BaseClient.Client.Authorizer = config.Authorizer
+	adlClient.BaseClient.Client.RequestInspector = LogRequest
+	adlClient.BaseClient.Client.ResponseInspector = LogResponse
+	adlClient.BaseClient.AdlsFileSystemDNSSuffix = parts[1]
+
+	b := &ADLv1{
+		flags:   flags,
+		config:  config,
+		client:  &adlClient,
+		account: parts[0],
+		bucket:  bucket,
 		cap: Capabilities{
 			NoParallelMultipart: true,
 			DirBlob:             true,
 		},
-	}, nil
-}
-
-func toOauth2Error(err error) *oauth2.RetrieveError {
-	if urlErr, ok := err.(*url.Error); ok {
-		if oauth2Err, ok := urlErr.Err.(*oauth2.RetrieveError); ok {
-			return oauth2Err
-		}
 	}
-	return nil
+
+	return b, nil
 }
 
-func mapADLv1Error(op *ADLv1Op, resp *http.Response, err error) error {
-	if err != nil {
-		oauth2Err := toOauth2Error(err)
-		if oauth2Err != nil {
-			if op.rawError {
-				return fmt.Errorf("%v", oauth2Err.Error())
-			}
-			err = mapHttpError(oauth2Err.Response.StatusCode)
-			if err != nil {
-				return err
-			}
-		}
-		if op.rawError {
+func mapADLv1Error(resp *http.Response, err error, rawError bool) error {
+	if resp == nil {
+		if err != nil {
+			return syscall.EAGAIN
+		} else {
 			return err
 		}
-		return syscall.EAGAIN
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if resp.StatusCode == http.StatusTemporaryRedirect {
-			return nil
-		}
-		if resp.StatusCode >= 400 && op != nil && op.rawError {
+		defer resp.Body.Close()
+		if rawError {
+			decoder := json.NewDecoder(resp.Body)
 			var adlErr ADLv1Err
-			body, bodyErr := ioutil.ReadAll(resp.Body)
-			if bodyErr == nil {
-				decoder := json.NewDecoder(bytes.NewReader(body))
-				jsonErr := decoder.Decode(&adlErr)
 
-				if jsonErr == nil {
-					adlErr.resp = resp
-					return adlErr
-				} else {
-					adls1Log.Errorf("%v %v %v", resp.Request.Method, resp.Request.URL.String(), body)
-				}
+			var err error
+			if err = decoder.Decode(&adlErr); err == nil {
+				adlErr.resp = resp
+				return adlErr
 			} else {
-				// we cannot read the error body,
-				// nothing much we can do
+				adls1Log.Errorf("cannot parse error: %v", err)
+				return syscall.EAGAIN
 			}
-
-		}
-		err = mapHttpError(resp.StatusCode)
-		if err != nil {
-			return err
 		} else {
-			op := resp.Request.URL.Query().Get("op")
-			requestId := resp.Header.Get(ADL1_REQUEST_ID)
-			adls1Log.Errorf("%v %v %v %v", op, resp.Request.URL.String(), requestId, resp.Status)
-			return syscall.EINVAL
+			err = mapHttpError(resp.StatusCode)
+			if err != nil {
+				return err
+			} else {
+				adlLogResp(logrus.ErrorLevel, resp)
+				return syscall.EINVAL
+			}
 		}
 	}
-
 	return nil
 }
 
-func (b *ADLv1) get(op ADLv1Op, path string, res interface{}) error {
-	return b.call(op, path, nil, res)
-}
-
-func (b *ADLv1) call(op ADLv1Op, path string, arg interface{}, res interface{}) error {
-	endpoint := b.endpoint
-	path = strings.TrimLeft(path, "/")
+func (b *ADLv1) path(key string) string {
+	key = strings.TrimLeft(key, "/")
 	if b.bucket != "" {
-		if path != "" {
-			path = b.bucket + "/" + path
+		if key != "" {
+			key = b.bucket + "/" + key
 		} else {
-			path = b.bucket
+			key = b.bucket
 		}
 	}
-
-	endpoint.Path += path
-	endpoint.RawQuery = op.params.Encode()
-
-	var body io.ReadSeeker
-	var err error
-
-	if arg != nil {
-		if r, ok := arg.(io.ReadSeeker); ok {
-			body = r
-			// retryablehttp doesn't close the request body
-			if closer, ok := body.(io.Closer); ok {
-				defer func() {
-					err := closer.Close()
-					if err != nil {
-						adls1Log.Errorf("%v close: %v", endpoint.String(), err)
-					}
-				}()
-			}
-
-		} else {
-			buf, err := json.Marshal(arg)
-			if err != nil {
-				adls1Log.Errorf("json error: %v", err)
-				return fuse.EINVAL
-			}
-			body = bytes.NewReader(buf)
-		}
-	} else {
-		body = bytes.NewReader([]byte(""))
-	}
-
-	req, err := retryablehttp.NewRequest(op.method, endpoint.String(), body)
-	if err != nil {
-		adls1Log.Errorf("NewRequest error: %v", err)
-		return fuse.EINVAL
-	}
-
-	req.Header = op.headers
-	req.Header.Add(ADL1_REQUEST_ID, uuid.New().String())
-	var resp *http.Response
-
-	var i int
-	for i = 0; i < 10; i++ {
-		resp, err = b.client.Do(req)
-		err = mapADLv1Error(&op, resp, err)
-		if err != nil {
-			return err
-		}
-		if resp.StatusCode == http.StatusTemporaryRedirect {
-			location, err := resp.Location()
-			if err != nil {
-				adls1Log.Errorf("redirect from %v but no Location header", endpoint)
-				return syscall.EAGAIN
-			}
-			adls1Log.Infof("redirect %v %v -> %v", req.Method, req.URL.String(), location)
-			body.Seek(0, 0)
-			req, err = retryablehttp.NewRequest(op.method, location.String(), body)
-			if err != nil {
-				adls1Log.Errorf("NewRequest error: %v", err)
-				return fuse.EINVAL
-			}
-		} else {
-			break
-		}
-	}
-	if i == 10 {
-		adls1Log.Errorf("too many redirects for %v %v", req.Method, req.URL.String())
-	}
-
-	if res != nil {
-		if reader, ok := res.(**http.Response); ok {
-			*reader = resp
-		} else if reader, ok := res.(*io.Reader); ok {
-			*reader = resp.Body
-		} else {
-			defer resp.Body.Close()
-
-			decoder := json.NewDecoder(resp.Body)
-			err = decoder.Decode(res)
-			if err != nil {
-				log.Errorf("adlv1 api %v decode error: %v", op, err)
-			}
-		}
-	} else {
-		// consume the stream so we can re-use the connection
-		// for keep-alive
-		defer resp.Body.Close()
-		io.Copy(ioutil.Discard, resp.Body)
-	}
-
-	return err
+	return key
 }
 
 func (b *ADLv1) Init(key string) error {
-	err := b.get(ADL1_GETFILESTATUS.New().RawError(), key, nil)
+	res, err := b.client.GetFileStatus(context.TODO(), b.account, b.path(key), nil)
+	err = mapADLv1Error(res.Response.Response, err, true)
 	if adlErr, ok := err.(ADLv1Err); ok {
 		if adlErr.RemoteException.Exception == "FileNotFoundException" {
 			return nil
@@ -524,46 +225,46 @@ func adlv1LastModified(t int64) time.Time {
 	return time.Unix(t/1000, t%1000000)
 }
 
-func adlv1FileStatus2BlobItem(f *hdfs.FileStatus, key *string) BlobItemOutput {
+func adlv1FileStatus2BlobItem(f *adl.FileStatusProperties, key *string) BlobItemOutput {
 	return BlobItemOutput{
 		Key:          key,
-		LastModified: PTime(adlv1LastModified(f.ModificationTime)),
-		Size:         uint64(f.Length),
-		StorageClass: PString(strconv.FormatInt(f.Replication, 10)),
+		LastModified: PTime(adlv1LastModified(*f.ModificationTime)),
+		Size:         uint64(*f.Length),
 	}
 }
 
 func (b *ADLv1) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
-	type FileStatus struct {
-		FileStatus hdfs.FileStatus
-	}
-	res := FileStatus{}
-	err := b.get(ADL1_GETFILESTATUS.New(), param.Key, &res)
+	res, err := b.client.GetFileStatus(context.TODO(), b.account, b.path(param.Key), nil)
+	err = mapADLv1Error(res.Response.Response, err, false)
 	if err != nil {
 		return nil, err
 	}
 
-	f := res.FileStatus
-
 	return &HeadBlobOutput{
-		BlobItemOutput: adlv1FileStatus2BlobItem(&f, &param.Key),
-		IsDirBlob:      f.Type == "DIRECTORY",
+		BlobItemOutput: adlv1FileStatus2BlobItem(res.FileStatus, &param.Key),
+		IsDirBlob:      res.FileStatus.Type == "DIRECTORY",
 	}, nil
+
 }
 
-func (b *ADLv1) appendToListResults(listOp ADLv1Op, path string, recursive bool,
-	prefixes []BlobPrefixOutput, items []BlobItemOutput) (*ListStatusResult, []BlobPrefixOutput, []BlobItemOutput, error) {
-	res := ListStatusResult{}
+func (b *ADLv1) appendToListResults(path string, recursive bool, startAfter string,
+	maxKeys *uint32, prefixes []BlobPrefixOutput, items []BlobItemOutput) (adl.FileStatusesResult, []BlobPrefixOutput, []BlobItemOutput, error) {
 
-	err := b.get(listOp, path, &res)
+	res, err := b.client.ListFileStatus(context.TODO(), b.account, b.path(path),
+		nil, "", "", nil)
+	err = mapADLv1Error(res.Response.Response, err, false)
 	if err != nil {
-		return nil, nil, nil, err
+		return adl.FileStatusesResult{}, nil, nil, err
 	}
 
 	path = strings.TrimRight(path, "/")
 
-	for _, i := range res.FileStatuses.FileStatus {
-		key := i.PathSuffix
+	if maxKeys != nil {
+		*maxKeys -= uint32(len(*res.FileStatuses.FileStatus))
+	}
+
+	for _, i := range *res.FileStatuses.FileStatus {
+		key := *i.PathSuffix
 		if path != "" {
 			key = path + "/" + key
 		}
@@ -574,8 +275,8 @@ func (b *ADLv1) appendToListResults(listOp ADLv1Op, path string, recursive bool,
 				// it's a recursive listing
 				items = append(items, adlv1FileStatus2BlobItem(&i, &key))
 
-				_, prefixes, items, err = b.appendToListResults(listOp,
-					key, recursive, prefixes, items)
+				_, prefixes, items, err = b.appendToListResults(key,
+					recursive, "", maxKeys, prefixes, items)
 			} else {
 				prefixes = append(prefixes, BlobPrefixOutput{
 					Prefix: PString(key + "/"),
@@ -586,7 +287,7 @@ func (b *ADLv1) appendToListResults(listOp ADLv1Op, path string, recursive bool,
 		}
 	}
 
-	return &res, prefixes, items, nil
+	return res, prefixes, items, nil
 }
 
 func (b *ADLv1) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
@@ -602,58 +303,46 @@ func (b *ADLv1) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 	} else if *param.Delimiter != "/" {
 		return nil, syscall.ENOTSUP
 	}
-
-	listOp := ADL1_LISTSTATUS.New()
-	// it's not documented in
-	// https://docs.microsoft.com/en-us/rest/api/datalakestore/webhdfs-filesystem-apis
-	// but from their Java SDK looks like they support additional params:
-	// https://github.com/Azure/azure-data-lake-store-java/blob/f5c270b8cb2ac68536b2cb123d355a874cade34c/src/main/java/com/microsoft/azure/datalake/store/Core.java#L861
+	continuationToken := param.ContinuationToken
 	if param.StartAfter != nil {
-		listOp.Param("listAfter", *param.StartAfter)
-	}
-	if param.MaxKeys != nil {
-		listOp.Param("listSize", strconv.FormatUint(uint64(*param.MaxKeys), 10))
+		continuationToken = param.StartAfter
 	}
 
-	var continuationToken *string
-
-	res, prefixes, items, err := b.appendToListResults(listOp, nilStr(param.Prefix),
-		recursive, nil, nil)
+	_, prefixes, items, err := b.appendToListResults(nilStr(param.Prefix),
+		recursive, nilStr(continuationToken), param.MaxKeys, nil, nil)
 	if err != fuse.ENOENT {
 		if err != nil {
 			return nil, err
 		}
 
-		if len(prefixes) == 0 && len(items) == 0 && param.Prefix != nil {
-			// the only way we get nothing is if we are listing an empty dir,
-			// because ADLv1 returns 404 if the prefix didn't exist
-			if strings.HasSuffix(*param.Prefix, "/") {
-				items = []BlobItemOutput{BlobItemOutput{
-					Key: param.Prefix,
-				},
+		if continuationToken == nil {
+			if len(prefixes) == 0 && len(items) == 0 && param.Prefix != nil {
+				// the only way we get nothing is if we are listing an empty dir,
+				// because ADLv1 returns 404 if the prefix didn't exist
+				if strings.HasSuffix(*param.Prefix, "/") {
+					items = []BlobItemOutput{BlobItemOutput{
+						Key: param.Prefix,
+					},
+					}
+				} else {
+					prefixes = []BlobPrefixOutput{BlobPrefixOutput{
+						Prefix: PString(*param.Prefix + "/"),
+					},
+					}
 				}
-			} else {
-				prefixes = []BlobPrefixOutput{BlobPrefixOutput{
-					Prefix: PString(*param.Prefix + "/"),
-				},
+			} else if len(items) != 0 && param.Prefix != nil &&
+				strings.HasSuffix(*items[0].Key, "/") {
+				if *items[0].Key == *param.Prefix {
+					// if we list "file/", somehow we will
+					// get back pathSuffix="" which
+					// appendToListResults would massage
+					// back into "file1/", we don't want
+					// that entry
+					items = items[1:]
+				} else if *items[0].Key == (*param.Prefix + "/") {
+					items[0].Key = PString(*param.Prefix)
 				}
 			}
-		} else if len(items) != 0 && param.Prefix != nil &&
-			strings.HasSuffix(*items[0].Key, "/") {
-			if *items[0].Key == *param.Prefix {
-				// if we list "file/", somehow we will
-				// get back pathSuffix="" which
-				// appendToListResults would massage
-				// back into "file1/", we don't want
-				// that entry
-				items = items[1:]
-			} else if *items[0].Key == (*param.Prefix + "/") {
-				items[0].Key = PString(*param.Prefix)
-			}
-		}
-
-		if res.FileStatuses.ContinuationToken != "" {
-			continuationToken = PString(res.FileStatuses.ContinuationToken)
 		}
 	} else {
 		err = nil
@@ -662,19 +351,18 @@ func (b *ADLv1) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 	return &ListBlobsOutput{
 		Prefixes:          prefixes,
 		Items:             items,
-		ContinuationToken: continuationToken,
-		IsTruncated:       continuationToken != nil,
+		ContinuationToken: nil,
+		IsTruncated:       false,
 	}, nil
 }
 
 func (b *ADLv1) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error) {
-	var res BooleanResult
-
-	err := b.call(ADL1_DELETE.New(), strings.TrimRight(param.Key, "/"), nil, &res)
+	res, err := b.client.Delete(context.TODO(), b.account, b.path(strings.TrimRight(param.Key, "/")), PBool(false))
+	err = mapADLv1Error(res.Response.Response, err, false)
 	if err != nil {
 		return nil, err
 	}
-	if !res.Boolean {
+	if !*res.OperationResult {
 		return nil, fuse.ENOENT
 	}
 	return &DeleteBlobOutput{}, nil
@@ -708,20 +396,30 @@ func (b *ADLv1) DeleteBlobs(param *DeleteBlobsInput) (ret *DeleteBlobsOutput, er
 }
 
 func (b *ADLv1) RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error) {
-	var res BooleanResult
-
-	dest := param.Destination
-	if b.bucket != "" {
-		dest = b.bucket + "/" + dest
-	}
-
-	err := b.call(ADL1_RENAME.New().Param("destination", dest),
-		param.Source, nil, &res)
+	r, err := b.client.RenamePreparer(context.TODO(), b.account, b.path(param.Source),
+		b.path(param.Destination))
+	err = mapADLv1Error(nil, err, false)
 	if err != nil {
 		return nil, err
 	}
 
-	if !res.Boolean {
+	params := r.URL.Query()
+	params.Add("renameoptions", "OVERWRITE")
+	r.URL.RawQuery = params.Encode()
+
+	resp, err := b.client.RenameSender(r)
+	err = mapADLv1Error(resp, err, false)
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := b.client.RenameResponder(resp)
+	err = mapADLv1Error(resp, err, false)
+	if err != nil {
+		return nil, err
+	}
+
+	if !*res.OperationResult {
 		// ADLv1 returns false if we try to rename a dir to a
 		// file, or if the rename source doesn't exist. We
 		// should have prevented renaming a dir to a file at
@@ -741,27 +439,37 @@ func (b *ADLv1) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 }
 
 func (b *ADLv1) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
-	open := ADL1_OPEN.New()
-	if param.Start != 0 {
-		open.Param("offset", strconv.FormatUint(param.Start, 10))
-	}
+	var length *int64
+	var offset *int64
+
 	if param.Count != 0 {
-		open.Param("length", strconv.FormatUint(param.Count, 10))
+		length = PInt64(int64(param.Count))
 	}
+	if param.Start != 0 {
+		offset = PInt64(int64(param.Start))
+	}
+
+	var filesessionid *uuid.UUID
 	if param.IfMatch != nil {
-		open.Param("filesessionid", *param.IfMatch)
+		b := make([]byte, 16)
+		copy(b, []byte(*param.IfMatch))
+		u, err := uuid.FromBytes(b)
+		if err != nil {
+			return nil, err
+		}
+		filesessionid = &u
 	}
 
-	var resp *http.Response
-
-	err := b.call(open, param.Key, nil, &resp)
+	resp, err := b.client.Open(context.TODO(), b.account, b.path(param.Key), length, offset,
+		filesessionid)
+	err = mapADLv1Error(resp.Response.Response, err, false)
 	if err != nil {
 		return nil, err
 	}
-	if resp != nil {
+	if resp.Value != nil {
 		defer func() {
-			if resp.Body != nil {
-				resp.Body.Close()
+			if resp.Value != nil {
+				(*resp.Value).Close()
 			}
 		}()
 	}
@@ -783,9 +491,9 @@ func (b *ADLv1) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 			ContentType: contentType,
 			IsDirBlob:   false,
 		},
-		Body: resp.Body,
+		Body: *resp.Value,
 	}
-	resp.Body = nil
+	resp.Value = nil
 
 	return &res, nil
 }
@@ -797,11 +505,10 @@ func (b *ADLv1) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 			return nil, err
 		}
 	} else {
-		create := ADL1_CREATE.New().Perm(b.flags.FileMode)
-		if param.ContentType != nil {
-			create.Header("Content-Type", *param.ContentType)
-		}
-		err := b.call(create, param.Key, param.Body, nil)
+		res, err := b.client.Create(context.TODO(), b.account, b.path(param.Key),
+			&ReadSeekerCloser{param.Body}, PBool(true), adl.CLOSE, nil,
+			PInt32(int32(b.flags.FileMode)))
+		err = mapADLv1Error(res.Response, err, false)
 		if err != nil {
 			return nil, err
 		}
@@ -818,35 +525,36 @@ func (b *ADLv1) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBl
 	// same time.  much of these is not documented anywhere except
 	// in the SDKs:
 	// https://github.com/Azure/azure-data-lake-store-java/blob/f5c270b8cb2ac68536b2cb123d355a874cade34c/src/main/java/com/microsoft/azure/datalake/store/Core.java#L84
-	leaseId := uuid.New().String()
-
-	create := ADL1_CREATE.New().Perm(b.flags.FileMode)
-	if param.ContentType != nil {
-		create.Header("Content-Type", *param.ContentType)
-	}
-	create.Param("leaseid", leaseId)
-	create.Param("syncFlag", "DATA")
-	// https://docs.microsoft.com/en-us/dotnet/api/microsoft.azure.management.datalake.store.filesystemoperationsextensions.appendasync?view=azure-dotnet
-	create.Param("filesessionid", leaseId)
-
-	err := b.call(create, param.Key, nil, nil)
+	leaseId, err := uuid.NewV4()
 	if err != nil {
 		return nil, err
 	}
+
+	res, err := b.client.Create(context.TODO(), b.account, b.path(param.Key),
+		&ReadSeekerCloser{bytes.NewReader([]byte(""))}, PBool(true), adl.DATA, &leaseId,
+		PInt32(int32(b.flags.FileMode)))
+	err = mapADLv1Error(res.Response, err, false)
+	if err != nil {
+		return nil, err
+	}
+
 	return &MultipartBlobCommitInput{
-		Key:         &param.Key,
-		UploadId:    &leaseId,
+		Key:         PString(b.path(param.Key)),
+		UploadId:    PString(leaseId.String()),
 		backendData: &ADLv1MultipartBlobCommitInput{},
 	}, nil
 }
 
 func (b *ADLv1) uploadPart(param *MultipartBlobAddInput, offset uint64) error {
-	append := ADL1_APPEND.New().
-		Param("leaseid", *param.Commit.UploadId).
-		Param("filesessionid", *param.Commit.UploadId).
-		Param("offset", strconv.FormatUint(offset-param.Size, 10))
+	leaseId, err := uuid.FromString(*param.Commit.UploadId)
+	if err != nil {
+		return err
+	}
 
-	err := b.call(append, *param.Commit.Key, param.Body, nil)
+	res, err := b.client.Append(context.TODO(), b.account, *param.Commit.Key,
+		&ReadSeekerCloser{param.Body}, PInt64(int64(offset-param.Size)), adl.DATA,
+		&leaseId, &leaseId)
+	err = mapADLv1Error(res.Response, err, true)
 	if err != nil {
 		if adlErr, ok := err.(ADLv1Err); ok {
 			if adlErr.resp.StatusCode == 404 {
@@ -867,19 +575,22 @@ func (b *ADLv1) uploadPart(param *MultipartBlobAddInput, offset uint64) error {
 					return nil
 				}
 			}
-			err = mapADLv1Error(nil, adlErr.resp, nil)
+			err = mapADLv1Error(adlErr.resp, err, false)
 		}
 	}
 	return err
 }
 
 func (b *ADLv1) detectTransientError(param *MultipartBlobAddInput, offset uint64) error {
-	append := ADL1_APPEND.New().
-		Param("leaseid", *param.Commit.UploadId).
-		Param("filesessionid", *param.Commit.UploadId).
-		Param("offset", strconv.FormatUint(offset, 10))
-	append.rawError = false
-	return b.call(append, *param.Commit.Key, nil, nil)
+	leaseId, err := uuid.FromString(*param.Commit.UploadId)
+	if err != nil {
+		return err
+	}
+	res, err := b.client.Append(context.TODO(), b.account, *param.Commit.Key,
+		&ReadSeekerCloser{bytes.NewReader([]byte(""))},
+		PInt64(int64(offset)), adl.CLOSE, &leaseId, &leaseId)
+	err = mapADLv1Error(res.Response, err, false)
+	return err
 }
 
 func (b *ADLv1) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error) {
@@ -905,11 +616,18 @@ func (b *ADLv1) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAd
 func (b *ADLv1) MultipartBlobAbort(param *MultipartBlobCommitInput) (*MultipartBlobAbortOutput, error) {
 	// there's no such thing as abort, but at least we should release the lease
 	// which technically is more like a commit than abort
-	abort := ADL1_ABORT.New().
-		Param("leaseid", *param.UploadId).
-		Param("filesessionid", *param.UploadId)
+	leaseId, err := uuid.FromString(*param.UploadId)
+	if err != nil {
+		return nil, err
+	}
+	res, err := b.client.Append(context.TODO(), b.account, *param.Key,
+		&ReadSeekerCloser{bytes.NewReader([]byte(""))}, nil, adl.CLOSE, &leaseId, &leaseId)
+	err = mapADLv1Error(res.Response, err, false)
+	if err != nil {
+		return nil, err
+	}
 
-	return &MultipartBlobAbortOutput{}, b.call(abort, *param.Key, nil, nil)
+	return &MultipartBlobAbortOutput{}, err
 }
 
 func (b *ADLv1) MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error) {
@@ -919,12 +637,14 @@ func (b *ADLv1) MultipartBlobCommit(param *MultipartBlobCommitInput) (*Multipart
 		panic("Incorrect commit data type")
 	}
 
-	close := ADL1_CLOSE.New().
-		Param("leaseid", *param.UploadId).
-		Param("filesessionid", *param.UploadId).
-		Param("offset", strconv.FormatUint(commitData.Size, 10))
-
-	err := b.call(close, *param.Key, nil, nil)
+	leaseId, err := uuid.FromString(*param.UploadId)
+	if err != nil {
+		return nil, err
+	}
+	res, err := b.client.Append(context.TODO(), b.account, *param.Key,
+		&ReadSeekerCloser{bytes.NewReader([]byte(""))}, PInt64(int64(commitData.Size)),
+		adl.CLOSE, &leaseId, &leaseId)
+	err = mapADLv1Error(res.Response, err, false)
 	if err == fuse.ENOENT {
 		// either the blob was concurrently deleted or we got
 		// another CREATE which broke our lease. Either way
@@ -948,15 +668,12 @@ func (b *ADLv1) RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput, err
 		return nil, fuse.EINVAL
 	}
 
-	var res BooleanResult
-
-	err := b.call(ADL1_DELETE.New(), "", nil, &res)
+	res, err := b.client.Delete(context.TODO(), b.account, b.path(""), PBool(false))
+	err = mapADLv1Error(res.Response.Response, err, false)
 	if err != nil {
 		return nil, err
 	}
-
-	// delete can return false because the directory is not there
-	if !res.Boolean {
+	if !*res.OperationResult {
 		return nil, fuse.ENOENT
 	}
 
@@ -977,13 +694,13 @@ func (b *ADLv1) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error) {
 }
 
 func (b *ADLv1) mkdir(dir string) error {
-	var res BooleanResult
-
-	err := b.call(ADL1_MKDIRS.New().Perm(b.flags.DirMode), dir, nil, &res)
+	res, err := b.client.Mkdirs(context.TODO(), b.account, b.path(dir),
+		PInt32(int32(b.flags.DirMode)))
+	err = mapADLv1Error(res.Response.Response, err, true)
 	if err != nil {
 		return err
 	}
-	if !res.Boolean {
+	if !*res.OperationResult {
 		return fuse.EEXIST
 	}
 	return nil
