@@ -15,6 +15,8 @@
 package internal
 
 import (
+	. "github.com/kahing/goofys/api/common"
+
 	"context"
 	"fmt"
 	"math/rand"
@@ -91,6 +93,8 @@ type Goofys struct {
 }
 
 var s3Log = GetLogger("s3")
+var log = GetLogger("main")
+var fuseLog = GetLogger("fuse")
 
 func NewBackend(bucket string, flags *FlagStorage, awsConfig *aws.Config) (cloud StorageBackend, err error) {
 	switch flags.Backend.(type) {

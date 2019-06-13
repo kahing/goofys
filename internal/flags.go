@@ -16,10 +16,11 @@
 package internal
 
 import (
+	. "github.com/kahing/goofys/api/common"
+
 	"fmt"
 	"io"
 	"io/ioutil"
-	"mime"
 	"os"
 	"os/exec"
 	"strings"
@@ -320,48 +321,6 @@ func NewApp() (app *cli.App) {
 	return
 }
 
-type FlagStorage struct {
-	// File system
-	MountOptions      map[string]string
-	MountPoint        string
-	MountPointArg     string
-	MountPointCreated string
-
-	Cache    []string
-	DirMode  os.FileMode
-	FileMode os.FileMode
-	Uid      uint32
-	Gid      uint32
-
-	// S3
-	Endpoint       string
-	Region         string
-	RequesterPays  bool
-	RegionSet      bool
-	StorageClass   string
-	Profile        string
-	UseContentType bool
-	UseSSE         bool
-	UseKMS         bool
-	KMSKeyID       string
-	ACL            string
-	Subdomain      bool
-
-	Backend interface{}
-
-	// Tuning
-	Cheap        bool
-	ExplicitDir  bool
-	StatCacheTTL time.Duration
-	TypeCacheTTL time.Duration
-	HTTPTimeout  time.Duration
-
-	// Debugging
-	DebugFuse  bool
-	DebugS3    bool
-	Foreground bool
-}
-
 func parseOptions(m map[string]string, s string) {
 	// NOTE(jacobsa): The man pages don't define how escaping works, and as far
 	// as I can tell there is no way to properly escape or quote a comma in the
@@ -383,35 +342,6 @@ func parseOptions(m map[string]string, s string) {
 	}
 
 	return
-}
-
-func (flags *FlagStorage) GetMimeType(fileName string) (retMime *string) {
-	if flags.UseContentType {
-		dotPosition := strings.LastIndex(fileName, ".")
-		if dotPosition == -1 {
-			return nil
-		}
-		mimeType := mime.TypeByExtension(fileName[dotPosition:])
-		if mimeType == "" {
-			return nil
-		}
-		semicolonPosition := strings.LastIndex(mimeType, ";")
-		if semicolonPosition == -1 {
-			return &mimeType
-		}
-		retMime = PString(mimeType[:semicolonPosition])
-	}
-
-	return
-}
-
-func (flags *FlagStorage) Cleanup() {
-	if flags.MountPointCreated != "" && flags.MountPointCreated != flags.MountPointArg {
-		err := os.Remove(flags.MountPointCreated)
-		if err != nil {
-			log.Errorf("rmdir %v = %v", flags.MountPointCreated, err)
-		}
-	}
 }
 
 // PopulateFlags adds the flags accepted by run to the supplied flag set, returning the

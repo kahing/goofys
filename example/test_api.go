@@ -2,13 +2,14 @@ package main
 
 import (
 	goofys "github.com/kahing/goofys/api"
+	common "github.com/kahing/goofys/api/common"
 
 	"fmt"
 	"golang.org/x/net/context"
 )
 
 func main() {
-	config := goofys.Config{
+	config := common.FlagStorage{
 		MountPoint: "/tmp/s3",
 		DirMode:    0755,
 		FileMode:   0644,

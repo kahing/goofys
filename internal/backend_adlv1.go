@@ -15,6 +15,8 @@
 package internal
 
 import (
+	. "github.com/kahing/goofys/api/common"
+
 	"bytes"
 	"context"
 	"encoding/json"

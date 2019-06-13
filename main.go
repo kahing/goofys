@@ -17,6 +17,7 @@ package main
 
 import (
 	goofys "github.com/kahing/goofys/api"
+	. "github.com/kahing/goofys/api/common"
 	. "github.com/kahing/goofys/internal"
 
 	"fmt"
@@ -30,7 +31,6 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/jacobsa/fuse"
-	"github.com/jinzhu/copier"
 	"github.com/kardianos/osext"
 	"github.com/urfave/cli"
 
@@ -108,13 +108,7 @@ func mount(
 	bucketName string,
 	flags *FlagStorage) (fs *Goofys, mfs *fuse.MountedFileSystem, err error) {
 
-	// XXX really silly copy here! in goofys.Mount we will copy it
-	// back to FlagStorage. But I don't see a easier way to expose
-	// Config in the api package
-	var config goofys.Config
-	copier.Copy(&config, *flags)
-
-	return goofys.Mount(ctx, bucketName, &config)
+	return goofys.Mount(ctx, bucketName, flags)
 }
 
 func massagePath() {

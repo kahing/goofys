@@ -15,6 +15,7 @@
 package internal
 
 import (
+	. "github.com/kahing/goofys/api/common"
 	. "gopkg.in/check.v1"
 
 	"github.com/aws/aws-sdk-go/aws"

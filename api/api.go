@@ -1,6 +1,7 @@
 package goofys
 
 import (
+	. "github.com/kahing/goofys/api/common"
 	"github.com/kahing/goofys/internal"
 
 	"context"
@@ -14,63 +15,19 @@ import (
 
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseutil"
-	"github.com/jinzhu/copier"
 	"github.com/sirupsen/logrus"
 )
 
 var log = GetLogger("main")
 
-type Config struct {
-	// File system
-	MountOptions map[string]string
-	MountPoint   string
-
-	Cache    []string
-	DirMode  os.FileMode
-	FileMode os.FileMode
-	Uid      uint32
-	Gid      uint32
-
-	// S3
-	Endpoint       string
-	Region         string
-	RegionSet      bool
-	StorageClass   string
-	RequesterPays  bool
-	AccessKey      string
-	SecretKey      string
-	Profile        string
-	UseContentType bool
-	UseSSE         bool
-	UseKMS         bool
-	KMSKeyID       string
-	ACL            string
-	Subdomain      bool
-
-	// Tuning
-	Cheap        bool
-	ExplicitDir  bool
-	StatCacheTTL time.Duration
-	TypeCacheTTL time.Duration
-	HTTPTimeout  time.Duration
-
-	// Debugging
-	DebugFuse  bool
-	DebugS3    bool
-	Foreground bool
-}
-
 func Mount(
 	ctx context.Context,
 	bucketName string,
-	config *Config) (fs *Goofys, mfs *fuse.MountedFileSystem, err error) {
+	flags *FlagStorage) (fs *Goofys, mfs *fuse.MountedFileSystem, err error) {
 
-	var flags FlagStorage
-	copier.Copy(&flags, config)
-
-	awsConfig := internal.NewAwsConfig(&flags)
+	awsConfig := internal.NewAwsConfig(flags)
 	if flags.DebugS3 {
-		internal.SetCloudLogLevel(logrus.DebugLevel)
+		SetCloudLogLevel(logrus.DebugLevel)
 	}
 	// Mount the file system.
 	mountCfg := &fuse.MountConfig{
@@ -87,8 +44,8 @@ func Mount(
 		mountCfg.DebugLogger = GetStdLogger(fuseLog, logrus.DebugLevel)
 	}
 
-	if config.AccessKey != "" {
-		awsConfig.Credentials = credentials.NewStaticCredentials(config.AccessKey, config.SecretKey, "")
+	if flags.AccessKey != "" {
+		awsConfig.Credentials = credentials.NewStaticCredentials(flags.AccessKey, flags.SecretKey, "")
 	} else if len(flags.Profile) > 0 {
 		awsConfig.Credentials = credentials.NewSharedCredentials("", flags.Profile)
 	} else {
@@ -132,7 +89,7 @@ func Mount(
 
 	awsConfig.S3ForcePathStyle = aws.Bool(!flags.Subdomain)
 
-	fs = NewGoofys(ctx, bucketName, awsConfig, &flags)
+	fs = NewGoofys(ctx, bucketName, awsConfig, flags)
 	if fs == nil {
 		err = fmt.Errorf("Mount: initialization failed")
 		return
@@ -202,18 +159,12 @@ func Mount(
 
 // expose Goofys related functions and types for extending and mounting elsewhere
 var (
-	GetStdLogger      = internal.GetStdLogger
-	InitLoggers       = internal.InitLoggers
 	MassageMountFlags = internal.MassageMountFlags
-	GetLogger         = internal.GetLogger
 	NewGoofys         = internal.NewGoofys
-	NewLogger         = internal.NewLogger
 	TryUnmount        = internal.TryUnmount
 	MyUserAndGroup    = internal.MyUserAndGroup
 )
 
 type (
-	Goofys      = internal.Goofys
-	FlagStorage = internal.FlagStorage
-	LogHandle   = internal.LogHandle
+	Goofys = internal.Goofys
 )

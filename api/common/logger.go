@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package internal
+package common
 
 import (
 	"fmt"
@@ -30,7 +30,6 @@ var mu sync.Mutex
 var loggers = make(map[string]*LogHandle)
 
 var log = GetLogger("main")
-var fuseLog = GetLogger("fuse")
 var cloudLogLevel = logrus.InfoLevel
 
 var syslogHook *logrus_syslog.SyslogHook
@@ -56,7 +55,7 @@ func SetCloudLogLevel(level logrus.Level) {
 	cloudLogLevel = level
 
 	for k, logr := range loggers {
-		if k != log.name && k != fuseLog.name {
+		if k != "main" && k != "fuse" {
 			logr.Level = level
 		}
 	}
