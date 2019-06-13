@@ -36,6 +36,7 @@ type Config struct {
 	Region         string
 	RegionSet      bool
 	StorageClass   string
+	RequesterPays  bool
 	AccessKey      string
 	SecretKey      string
 	Profile        string
