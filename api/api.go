@@ -10,9 +10,6 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseutil"
 	"github.com/sirupsen/logrus"
@@ -25,7 +22,6 @@ func Mount(
 	bucketName string,
 	flags *FlagStorage) (fs *Goofys, mfs *fuse.MountedFileSystem, err error) {
 
-	awsConfig := internal.NewAwsConfig(flags)
 	if flags.DebugS3 {
 		SetCloudLogLevel(logrus.DebugLevel)
 	}
@@ -44,11 +40,7 @@ func Mount(
 		mountCfg.DebugLogger = GetStdLogger(fuseLog, logrus.DebugLevel)
 	}
 
-	if flags.AccessKey != "" {
-		awsConfig.Credentials = credentials.NewStaticCredentials(flags.AccessKey, flags.SecretKey, "")
-	} else if len(flags.Profile) > 0 {
-		awsConfig.Credentials = credentials.NewSharedCredentials("", flags.Profile)
-	} else {
+	if flags.Backend == nil {
 		if spec, err := internal.ParseBucketSpec(bucketName); err == nil {
 			switch spec.Scheme {
 			case "adl":
@@ -83,13 +75,7 @@ func Mount(
 		}
 	}
 
-	if len(flags.Endpoint) > 0 {
-		awsConfig.Endpoint = &flags.Endpoint
-	}
-
-	awsConfig.S3ForcePathStyle = aws.Bool(!flags.Subdomain)
-
-	fs = NewGoofys(ctx, bucketName, awsConfig, flags)
+	fs = NewGoofys(ctx, bucketName, flags)
 	if fs == nil {
 		err = fmt.Errorf("Mount: initialization failed")
 		return

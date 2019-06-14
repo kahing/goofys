@@ -581,11 +581,6 @@ func (fh *FileHandle) flushSmallFile() (err error) {
 
 	fs := fh.inode.fs
 
-	storageClass := fs.flags.StorageClass
-	if fh.nextWriteOffset < 128*1024 && storageClass == "STANDARD_IA" {
-		storageClass = "STANDARD"
-	}
-
 	fs.replicators.Take(1, true)
 	defer fs.replicators.Return(1)
 
@@ -593,6 +588,7 @@ func (fh *FileHandle) flushSmallFile() (err error) {
 	_, err = cloud.PutBlob(&PutBlobInput{
 		Key:         key,
 		Body:        buf,
+		Size:        PUInt64(uint64(buf.Len())),
 		ContentType: fs.flags.GetMimeType(*fh.inode.FullName()),
 	})
 	if err != nil {

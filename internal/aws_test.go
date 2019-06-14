@@ -18,8 +18,6 @@ import (
 	. "github.com/kahing/goofys/api/common"
 	. "gopkg.in/check.v1"
 
-	"github.com/aws/aws-sdk-go/aws"
-
 	"github.com/jacobsa/fuse"
 )
 
@@ -30,12 +28,9 @@ type AwsTest struct {
 var _ = Suite(&AwsTest{})
 
 func (s *AwsTest) SetUpSuite(t *C) {
-	awsConfig := &aws.Config{
-		Region:           aws.String("us-east-1"),
-		S3ForcePathStyle: aws.Bool(true),
-	}
-
-	s.s3 = NewS3("", awsConfig, &FlagStorage{})
+	s.s3 = NewS3("", &FlagStorage{}, &S3Config{
+		Region: "us-east-1",
+	})
 }
 
 func (s *AwsTest) TestRegionDetection(t *C) {

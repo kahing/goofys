@@ -27,7 +27,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 
 	"github.com/jacobsa/fuse"
@@ -96,22 +95,23 @@ var s3Log = GetLogger("s3")
 var log = GetLogger("main")
 var fuseLog = GetLogger("fuse")
 
-func NewBackend(bucket string, flags *FlagStorage, awsConfig *aws.Config) (cloud StorageBackend, err error) {
-	switch flags.Backend.(type) {
-	case *AZBlobConfig:
-		config, _ := flags.Backend.(*AZBlobConfig)
-		cloud, err = NewAZBlob(bucket, config)
-		return
-	case *ADLv1Config:
-		config, _ := flags.Backend.(*ADLv1Config)
-		cloud, err = NewADLv1(bucket, flags, config)
-		return
+func NewBackend(bucket string, flags *FlagStorage) (cloud StorageBackend, err error) {
+	if flags.Backend == nil {
+		flags.Backend = (&S3Config{}).Init()
 	}
 
-	if strings.HasSuffix(flags.Endpoint, "/storage.googleapis.com") {
-		cloud = NewGCS3(bucket, awsConfig, flags)
+	if config, ok := flags.Backend.(*AZBlobConfig); ok {
+		cloud, err = NewAZBlob(bucket, config)
+	} else if config, ok := flags.Backend.(*ADLv1Config); ok {
+		cloud, err = NewADLv1(bucket, flags, config)
+	} else if config, ok := flags.Backend.(*S3Config); ok {
+		if strings.HasSuffix(flags.Endpoint, "/storage.googleapis.com") {
+			cloud = NewGCS3(bucket, flags, config)
+		} else {
+			cloud = NewS3(bucket, flags, config)
+		}
 	} else {
-		cloud = NewS3(bucket, awsConfig, flags)
+		err = fmt.Errorf("Unknown backend config: %T", flags.Backend)
 	}
 
 	return
@@ -153,7 +153,7 @@ func ParseBucketSpec(bucket string) (spec BucketSpec, err error) {
 	return
 }
 
-func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags *FlagStorage) *Goofys {
+func NewGoofys(ctx context.Context, bucket string, flags *FlagStorage) *Goofys {
 	// Set up the basic struct.
 	fs := &Goofys{
 		bucket: bucket,
@@ -178,7 +178,7 @@ func NewGoofys(ctx context.Context, bucket string, awsConfig *aws.Config, flags 
 		s3Log.Level = logrus.DebugLevel
 	}
 
-	cloud, err := NewBackend(bucket, flags, awsConfig)
+	cloud, err := NewBackend(bucket, flags)
 	if err != nil {
 		log.Errorf("Unable to setup backend: %v", err)
 		return nil

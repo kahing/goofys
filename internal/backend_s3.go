@@ -18,7 +18,6 @@ import (
 	. "github.com/kahing/goofys/api/common"
 
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -47,6 +46,7 @@ type S3Backend struct {
 	bucket    string
 	awsConfig *aws.Config
 	flags     *FlagStorage
+	config    *S3Config
 	sseType   string
 
 	aws      bool
@@ -54,22 +54,24 @@ type S3Backend struct {
 	v2Signer bool
 }
 
-func NewS3(bucket string, awsConfig *aws.Config, flags *FlagStorage) *S3Backend {
+func NewS3(bucket string, flags *FlagStorage, config *S3Config) *S3Backend {
+	awsConfig := config.ToAwsConfig(flags)
 	s := &S3Backend{
 		session:   session.New(awsConfig),
 		bucket:    bucket,
 		awsConfig: awsConfig,
 		flags:     flags,
+		config:    config,
 	}
 
 	if flags.DebugS3 {
 		awsConfig.LogLevel = aws.LogLevel(aws.LogDebug | aws.LogDebugWithRequestErrors)
 	}
 
-	if flags.UseKMS {
+	if config.UseKMS {
 		//SSE header string for KMS server-side encryption (SSE-KMS)
 		s.sseType = s3.ServerSideEncryptionAwsKms
-	} else if flags.UseSSE {
+	} else if config.UseSSE {
 		//SSE header string for non-KMS server-side encryption (SSE-S3)
 		s.sseType = s3.ServerSideEncryptionAes256
 	}
@@ -102,8 +104,8 @@ func addRequestPayer(req *request.Request) {
 
 func (s *S3Backend) newS3(sess *session.Session) {
 	s.session = sess
-	s.S3 = s3.New(sess)
-	if s.flags.RequesterPays {
+	s.S3 = s3.New(sess, s.awsConfig)
+	if s.config.RequesterPays {
 		s.S3.Handlers.Build.PushBack(addRequestPayer)
 	}
 	if s.v2Signer {
@@ -170,7 +172,7 @@ func (s *S3Backend) detectBucketLocationByHEAD() (err error, isAws bool) {
 	switch resp.StatusCode {
 	case 200:
 		// note that this only happen if the bucket is in us-east-1
-		if len(s.flags.Profile) == 0 {
+		if len(s.config.Profile) == 0 {
 			s.awsConfig.Credentials = credentials.AnonymousCredentials
 			s3Log.Infof("anonymous bucket detected")
 		}
@@ -227,7 +229,7 @@ func (s *S3Backend) Init(key string) error {
 	var isAws bool
 	var err error
 
-	if !s.flags.RegionSet {
+	if !s.config.RegionSet {
 		err, isAws = s.detectBucketLocationByHEAD()
 		if err == nil {
 			// we detected a region header, this is probably AWS S3,
@@ -517,20 +519,20 @@ func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuI
 		params := &s3.CreateMultipartUploadInput{
 			Bucket:       &s.bucket,
 			Key:          &to,
-			StorageClass: &s.flags.StorageClass,
+			StorageClass: &s.config.StorageClass,
 			ContentType:  s.flags.GetMimeType(to),
 			Metadata:     metadataToLower(metadata),
 		}
 
-		if s.flags.UseSSE {
+		if s.config.UseSSE {
 			params.ServerSideEncryption = &s.sseType
-			if s.flags.UseKMS && s.flags.KMSKeyID != "" {
-				params.SSEKMSKeyId = &s.flags.KMSKeyID
+			if s.config.UseKMS && s.config.KMSKeyID != "" {
+				params.SSEKMSKeyId = &s.config.KMSKeyID
 			}
 		}
 
-		if s.flags.ACL != "" {
-			params.ACL = &s.flags.ACL
+		if s.config.ACL != "" {
+			params.ACL = &s.config.ACL
 		}
 
 		resp, err := s.CreateMultipartUpload(params)
@@ -600,7 +602,7 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 		return &CopyBlobOutput{}, nil
 	}
 
-	storageClass := s.flags.StorageClass
+	storageClass := s.config.StorageClass
 	if *param.Size < 128*1024 && storageClass == "STANDARD_IA" {
 		storageClass = "STANDARD"
 	}
@@ -617,15 +619,15 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 
 	s3Log.Debug(params)
 
-	if s.flags.UseSSE {
+	if s.config.UseSSE {
 		params.ServerSideEncryption = &s.sseType
-		if s.flags.UseKMS && s.flags.KMSKeyID != "" {
-			params.SSEKMSKeyId = &s.flags.KMSKeyID
+		if s.config.UseKMS && s.config.KMSKeyID != "" {
+			params.SSEKMSKeyId = &s.config.KMSKeyID
 		}
 	}
 
-	if s.flags.ACL != "" {
-		params.ACL = &s.flags.ACL
+	if s.config.ACL != "" {
+		params.ACL = &s.config.ACL
 	}
 
 	_, err := s.CopyObject(params)
@@ -676,24 +678,29 @@ func (s *S3Backend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 }
 
 func (s *S3Backend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
+	storageClass := s.config.StorageClass
+	if param.Size != nil && *param.Size < 128*1024 && storageClass == "STANDARD_IA" {
+		storageClass = "STANDARD"
+	}
+
 	put := &s3.PutObjectInput{
 		Bucket:       &s.bucket,
 		Key:          &param.Key,
 		Metadata:     metadataToLower(param.Metadata),
 		Body:         param.Body,
-		StorageClass: &s.flags.StorageClass,
+		StorageClass: &storageClass,
 		ContentType:  param.ContentType,
 	}
 
-	if s.flags.UseSSE {
+	if s.config.UseSSE {
 		put.ServerSideEncryption = &s.sseType
-		if s.flags.UseKMS && s.flags.KMSKeyID != "" {
-			put.SSEKMSKeyId = &s.flags.KMSKeyID
+		if s.config.UseKMS && s.config.KMSKeyID != "" {
+			put.SSEKMSKeyId = &s.config.KMSKeyID
 		}
 	}
 
-	if s.flags.ACL != "" {
-		put.ACL = &s.flags.ACL
+	if s.config.ACL != "" {
+		put.ACL = &s.config.ACL
 	}
 
 	resp, err := s.PutObject(put)
@@ -710,19 +717,19 @@ func (s *S3Backend) MultipartBlobBegin(param *MultipartBlobBeginInput) (*Multipa
 	mpu := s3.CreateMultipartUploadInput{
 		Bucket:       &s.bucket,
 		Key:          &param.Key,
-		StorageClass: &s.flags.StorageClass,
+		StorageClass: &s.config.StorageClass,
 		ContentType:  param.ContentType,
 	}
 
-	if s.flags.UseSSE {
+	if s.config.UseSSE {
 		mpu.ServerSideEncryption = &s.sseType
-		if s.flags.UseKMS && s.flags.KMSKeyID != "" {
-			mpu.SSEKMSKeyId = &s.flags.KMSKeyID
+		if s.config.UseKMS && s.config.KMSKeyID != "" {
+			mpu.SSEKMSKeyId = &s.config.KMSKeyID
 		}
 	}
 
-	if s.flags.ACL != "" {
-		mpu.ACL = &s.flags.ACL
+	if s.config.ACL != "" {
+		mpu.ACL = &s.config.ACL
 	}
 
 	resp, err := s.CreateMultipartUpload(&mpu)
@@ -855,38 +862,10 @@ func (s *S3Backend) RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput,
 func (s *S3Backend) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error) {
 	_, err := s.CreateBucket(&s3.CreateBucketInput{
 		Bucket: &s.bucket,
-		ACL:    &s.flags.ACL,
+		ACL:    &s.config.ACL,
 	})
 	if err != nil {
 		return nil, mapAwsError(err)
 	}
 	return &MakeBucketOutput{}, nil
-}
-
-var S3_HTTP_TRANSPORT = http.Transport{
-	Proxy: http.ProxyFromEnvironment,
-	DialContext: (&net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
-		DualStack: true,
-	}).DialContext,
-	MaxIdleConns:          1000,
-	MaxIdleConnsPerHost:   1000,
-	IdleConnTimeout:       90 * time.Second,
-	TLSHandshakeTimeout:   10 * time.Second,
-	ExpectContinueTimeout: 10 * time.Second,
-}
-
-func NewAwsConfig(flags *FlagStorage) *aws.Config {
-	awsConfig := (&aws.Config{
-		Region: &flags.Region,
-		Logger: GetLogger("s3"),
-	}).WithHTTPClient(&http.Client{
-		Transport: &S3_HTTP_TRANSPORT,
-		Timeout:   flags.HTTPTimeout,
-	})
-	if flags.DebugS3 {
-		awsConfig.LogLevel = aws.LogLevel(aws.LogDebug | aws.LogDebugWithRequestErrors)
-	}
-	return awsConfig
 }

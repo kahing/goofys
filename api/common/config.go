@@ -36,21 +36,9 @@ type FlagStorage struct {
 	Uid      uint32
 	Gid      uint32
 
-	// S3
-	Endpoint       string
-	Region         string
-	AccessKey      string
-	SecretKey      string
-	RequesterPays  bool
-	RegionSet      bool
-	StorageClass   string
-	Profile        string
+	// Common Backend Config
 	UseContentType bool
-	UseSSE         bool
-	UseKMS         bool
-	KMSKeyID       string
-	ACL            string
-	Subdomain      bool
+	Endpoint       string
 
 	Backend interface{}
 

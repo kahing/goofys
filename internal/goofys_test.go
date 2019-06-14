@@ -130,47 +130,30 @@ func waitFor(t *C, addr string) (err error) {
 	return
 }
 
-func (s *GoofysTest) selectTestConfig(t *C) *aws.Config {
+func (s *GoofysTest) selectTestConfig(t *C, flags *FlagStorage) (conf S3Config) {
+	(&conf).Init()
+
 	if hasEnv("AWS") {
-		return &aws.Config{
-			Region:     aws.String("us-west-2"),
-			DisableSSL: aws.Bool(true),
-			//LogLevel:         aws.LogLevel(aws.LogDebug | aws.LogDebugWithSigning),
-			S3ForcePathStyle: aws.Bool(true),
-		}
+		conf.Region = "us-west-2"
 	} else if hasEnv("GCS") {
-		return &aws.Config{
-			Region:      aws.String("us-west1"),
-			Endpoint:    aws.String("http://storage.googleapis.com"),
-			Credentials: credentials.NewSharedCredentials("", os.Getenv("GCS")),
-			//LogLevel:         aws.LogLevel(aws.LogDebug | aws.LogDebugWithSigning),
-			S3ForcePathStyle: aws.Bool(true),
-		}
+		conf.Region = "us-west1"
+		conf.Profile = os.Getenv("GCS")
+		flags.Endpoint = "http://storage.googleapis.com"
 	} else if hasEnv("MINIO") {
-		return &aws.Config{
-			Credentials: credentials.NewStaticCredentials("Q3AM3UQ867SPQQA43P2F",
-				"zuf+tfteSlswRu7BJ86wekitnifILbZam1KYY3TG", ""),
-			Region: aws.String("us-east-1"),
-			//LogLevel:         aws.LogLevel(aws.LogDebug | aws.LogDebugWithSigning),
-			S3ForcePathStyle: aws.Bool(true),
-			Endpoint:         aws.String("https://play.minio.io:9000"),
-		}
+		conf.Region = "us-east-1"
+		conf.AccessKey = "Q3AM3UQ867SPQQA43P2F"
+		conf.SecretKey = "zuf+tfteSlswRu7BJ86wekitnifILbZam1KYY3TG"
+		flags.Endpoint = "https://play.minio.io:9000"
 	} else {
 		s.emulator = true
 
-		return &aws.Config{
-			//Credentials: credentials.AnonymousCredentials,
-			Credentials:      credentials.NewStaticCredentials("foo", "bar", ""),
-			Region:           aws.String("us-west-2"),
-			Endpoint:         aws.String("http://127.0.0.1:8080"),
-			DisableSSL:       aws.Bool(true),
-			S3ForcePathStyle: aws.Bool(true),
-			MaxRetries:       aws.Int(0),
-			//Logger: t,
-			//LogLevel: aws.LogLevel(aws.LogDebug),
-			//LogLevel: aws.LogLevel(aws.LogDebug | aws.LogDebugWithHTTPBody),
-		}
+		conf.Region = "us-west-2"
+		conf.AccessKey = "foo"
+		conf.SecretKey = "bar"
+		flags.Endpoint = "http://127.0.0.1:8080"
 	}
+
+	return
 }
 
 func (s *GoofysTest) waitForEmulator(t *C) {
@@ -263,7 +246,9 @@ func (s *GoofysTest) setupBlobs(t *C, env map[string]io.ReadSeeker) {
 
 func (s *GoofysTest) setupEnv(t *C, env map[string]io.ReadSeeker, public bool) {
 	if public {
-		s.fs.flags.ACL = "public-read"
+		if s3, ok := s.cloud.(*S3Backend); ok {
+			s3.config.ACL = "public-read"
+		}
 	}
 
 	_, err := s.cloud.MakeBucket(&MakeBucketInput{})
@@ -292,16 +277,13 @@ func (s *GoofysTest) setupDefaultEnv(t *C, public bool) {
 }
 
 func (s *GoofysTest) SetUpTest(t *C) {
-	s.awsConfig = s.selectTestConfig(t)
-
 	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
 	uid, gid := MyUserAndGroup()
 	flags := &FlagStorage{
-		StorageClass: "STANDARD",
-		DirMode:      0700,
-		FileMode:     0700,
-		Uid:          uint32(uid),
-		Gid:          uint32(gid),
+		DirMode:  0700,
+		FileMode: 0700,
+		Uid:      uint32(uid),
+		Gid:      uint32(gid),
 	}
 
 	cloud := os.Getenv("CLOUD")
@@ -309,18 +291,21 @@ func (s *GoofysTest) SetUpTest(t *C) {
 	if cloud == "s3" {
 		s.waitForEmulator(t)
 
-		s.cloud = NewS3(bucket, s.awsConfig, flags)
-		if s3, ok := s.cloud.(*S3Backend); ok {
-			s3.aws = hasEnv("AWS")
+		conf := s.selectTestConfig(t, flags)
+		flags.Backend = &conf
 
-			if !hasEnv("MINIO") {
-				s3.Handlers.Sign.Clear()
-				s3.Handlers.Sign.PushBack(SignV2)
-				s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
-			}
-			_, err := s3.ListBuckets(nil)
-			t.Assert(err, IsNil)
+		s3 := NewS3(bucket, flags, &conf)
+		s.cloud = s3
+		s3.aws = hasEnv("AWS")
+
+		if !hasEnv("MINIO") {
+			s3.Handlers.Sign.Clear()
+			s3.Handlers.Sign.PushBack(SignV2)
+			s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
 		}
+		_, err := s3.ListBuckets(nil)
+		t.Assert(err, IsNil)
+
 	} else if cloud == "azblob" {
 		config, err := AzureBlobConfig(os.Getenv("ENDPOINT"))
 		t.Assert(err, IsNil)
@@ -397,7 +382,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 
 	s.setupDefaultEnv(t, false)
 
-	s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
+	s.fs = NewGoofys(context.Background(), bucket, flags)
 	t.Assert(s.fs, NotNil)
 
 	s.ctx = context.Background()
@@ -1446,17 +1431,17 @@ func (s *GoofysTest) TestPutMimeType(t *C) {
 }
 
 func (s *GoofysTest) TestBucketPrefixSlash(t *C) {
-	s.fs = NewGoofys(context.Background(), s.fs.bucket+":dir2", s.awsConfig, s.fs.flags)
+	s.fs = NewGoofys(context.Background(), s.fs.bucket+":dir2", s.fs.flags)
 	t.Assert(s.getRoot(t).dir.mountPrefix, Equals, "dir2/")
 
-	s.fs = NewGoofys(context.Background(), s.fs.bucket+":dir2///", s.awsConfig, s.fs.flags)
+	s.fs = NewGoofys(context.Background(), s.fs.bucket+":dir2///", s.fs.flags)
 	t.Assert(s.getRoot(t).dir.mountPrefix, Equals, "dir2/")
 }
 
 func (s *GoofysTest) TestFuseWithPrefix(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
-	s.fs = NewGoofys(context.Background(), s.fs.bucket+":testprefix", s.awsConfig, s.fs.flags)
+	s.fs = NewGoofys(context.Background(), s.fs.bucket+":testprefix", s.fs.flags)
 
 	s.runFuseTest(t, mountPoint, true, "../test/fuse-test.sh", mountPoint)
 }
@@ -1512,14 +1497,16 @@ func (s *GoofysTest) anonymous(t *C) {
 
 	s.setupDefaultEnv(t, true)
 
-	s.fs = NewGoofys(context.Background(), s.fs.bucket, s.awsConfig, s.fs.flags)
+	s.fs = NewGoofys(context.Background(), s.fs.bucket, s.fs.flags)
 	t.Assert(s.fs, NotNil)
 
-	// should have auto-detected within NewGoofys, but doing this here to ensure
-	// we are using anonymous credentials
-	s.awsConfig = s.selectTestConfig(t)
-	s.awsConfig.Credentials = credentials.AnonymousCredentials
-	s.fs.inodes[fuseops.RootInodeID].dir.cloud = NewS3(s.fs.bucket, s.awsConfig, s.fs.flags)
+	// should have auto-detected by S3 backend
+	cloud := s.getRoot(t).dir.cloud
+	t.Assert(cloud, NotNil)
+	s3, ok := cloud.(*S3Backend)
+	t.Assert(ok, Equals, true)
+
+	t.Assert(s3.awsConfig.Credentials, Equals, credentials.AnonymousCredentials)
 }
 
 func (s *GoofysTest) disableS3() {
@@ -1751,7 +1738,10 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 
 	// s3proxy doesn't support storage class yet
 	if hasEnv("AWS") {
-		s.fs.flags.StorageClass = "STANDARD_IA"
+		cloud := s.getRoot(t).dir.cloud
+		s3, ok := cloud.(*S3Backend)
+		t.Assert(ok, Equals, true)
+		s3.config.StorageClass = "STANDARD_IA"
 
 		s.testWriteFile(t, "ia", 1, 128*1024)
 
@@ -2200,7 +2190,9 @@ func (s *GoofysTest) TestRenameOverwrite(t *C) {
 
 func (s *GoofysTest) TestRead403(t *C) {
 	// anonymous only works in S3 for now
-	if _, ok := s.cloud.(*S3Backend); !ok {
+	cloud := s.getRoot(t).dir.cloud
+	s3, ok := cloud.(*S3Backend)
+	if !ok {
 		t.Skip("only for S3")
 	}
 
@@ -2214,8 +2206,8 @@ func (s *GoofysTest) TestRead403(t *C) {
 	fh, err := in.OpenFile()
 	t.Assert(err, IsNil)
 
-	s.awsConfig.Credentials = credentials.AnonymousCredentials
-	fh.inode.Parent.dir.cloud = NewS3(s.fs.bucket, s.awsConfig, s.fs.flags)
+	s3.awsConfig.Credentials = credentials.AnonymousCredentials
+	s3.newS3(s3.session)
 
 	// fake enable read-ahead
 	fh.seqReadAmount = uint64(READAHEAD_CHUNK)
@@ -2560,7 +2552,8 @@ func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud S
 	var err error
 	switch s.cloud.(type) {
 	case *S3Backend:
-		cloud = NewS3(bucket, s.awsConfig, s.fs.flags)
+		config, _ := s.fs.flags.Backend.(*S3Config)
+		cloud = NewS3(bucket, s.fs.flags, config)
 		if s3, ok := cloud.(*S3Backend); ok {
 			s3.aws = hasEnv("AWS")
 
@@ -2783,11 +2776,12 @@ func (s *GoofysTest) TestMountsNewMounts(t *C) {
 func (s *GoofysTest) TestMountsError(t *C) {
 	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
 	var cloud StorageBackend
-	if _, ok := s.cloud.(*S3Backend); ok {
+	if s3, ok := s.cloud.(*S3Backend); ok {
 		// S3Backend currently doesn't detect bucket doesn't exist
-		cloud = s.newBackend(t, bucket, true)
-		s.awsConfig.Endpoint = PString("0.0.0.0:0")
-		cloud = s.newBackend(t, bucket, false)
+		flags := *s3.flags
+		config := *s3.config
+		flags.Endpoint = "0.0.0.0:0"
+		cloud = NewS3(bucket, &flags, &config)
 	} else if _, ok := s.cloud.(*ADLv1); ok {
 		cloud = s.newBackend(t, bucket, true)
 		adlCloud, _ := cloud.(*ADLv1)

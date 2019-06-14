@@ -127,6 +127,7 @@ type PutBlobInput struct {
 	DirBlob     bool
 
 	Body io.ReadSeeker
+	Size *uint64
 }
 
 type PutBlobOutput struct {

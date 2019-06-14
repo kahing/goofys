@@ -20,31 +20,30 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 type MinioTest struct {
-	fs        *Goofys
-	s3        *S3Backend
-	awsConfig *aws.Config
+	fs    *Goofys
+	flags FlagStorage
+	s3    *S3Backend
 }
 
 var _ = Suite(&MinioTest{})
 
 func (s *MinioTest) SetUpSuite(t *C) {
-	s.awsConfig = &aws.Config{
-		Credentials: credentials.NewStaticCredentials("Q3AM3UQ867SPQQA43P2F",
-			"zuf+tfteSlswRu7BJ86wekitnifILbZam1KYY3TG", ""),
-		Region:           aws.String("us-east-1"),
-		Endpoint:         aws.String("https://play.minio.io:9000"),
-		S3ForcePathStyle: aws.Bool(true),
-	}
-
 	s.fs = &Goofys{}
 
-	s.s3 = NewS3("", s.awsConfig, &FlagStorage{})
+	conf := (&S3Config{
+		AccessKey: "Q3AM3UQ867SPQQA43P2F",
+		SecretKey: "zuf+tfteSlswRu7BJ86wekitnifILbZam1KYY3TG",
+	}).Init()
+	s.flags = FlagStorage{
+		Endpoint: "https://play.minio.io:9000",
+		Backend:  conf,
+	}
+
+	s.s3 = NewS3("", &s.flags, conf)
 	_, err := s.s3.ListBuckets(nil)
 	t.Assert(err, IsNil)
 }
@@ -57,16 +56,7 @@ func (s *MinioTest) SetUpTest(t *C) {
 	})
 	t.Assert(err, IsNil)
 
-	uid, gid := MyUserAndGroup()
-	flags := &FlagStorage{
-		StorageClass: "STANDARD",
-		DirMode:      0700,
-		FileMode:     0700,
-		Uid:          uint32(uid),
-		Gid:          uint32(gid),
-	}
-
-	s.fs = NewGoofys(context.Background(), bucket, s.awsConfig, flags)
+	s.fs = NewGoofys(context.Background(), bucket, &s.flags)
 	t.Assert(s.fs, NotNil)
 }
 

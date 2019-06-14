@@ -82,6 +82,8 @@ var VersionHash string
 func NewApp() (app *cli.App) {
 	uid, gid := MyUserAndGroup()
 
+	s3Default := (&S3Config{}).Init()
+
 	app = &cli.App{
 		Name:     "goofys",
 		Version:  "0.20.0-" + VersionHash,
@@ -149,7 +151,7 @@ func NewApp() (app *cli.App) {
 
 			cli.StringFlag{
 				Name:  "region",
-				Value: "us-east-1",
+				Value: s3Default.Region,
 				Usage: "The region to connect to. Usually this is auto-detected." +
 					" Possible values: us-east-1, us-west-1, us-west-2, eu-west-1, " +
 					"eu-central-1, ap-southeast-1, ap-southeast-2, ap-northeast-1, " +
@@ -162,7 +164,7 @@ func NewApp() (app *cli.App) {
 
 			cli.StringFlag{
 				Name:  "storage-class",
-				Value: "STANDARD",
+				Value: s3Default.StorageClass,
 				Usage: "The type of storage to use when writing objects." +
 					" Possible values: REDUCED_REDUNDANCY, STANDARD, STANDARD_IA.",
 			},
@@ -200,44 +202,6 @@ func NewApp() (app *cli.App) {
 			cli.BoolFlag{
 				Name:  "subdomain",
 				Usage: "Enable subdomain mode of S3",
-			},
-
-			/////////////////////////
-			// Azure Blob
-			/////////////////////////
-
-			cli.StringFlag{
-				Name:  "azure-account-name",
-				Value: "",
-				Usage: "The Azure accout name to use",
-			},
-
-			cli.StringFlag{
-				Name:  "azure-account-key",
-				Value: "",
-				Usage: "The Azure accout key to use",
-			},
-
-			/////////////////////////
-			// Azure Data Lake v1
-			/////////////////////////
-
-			cli.StringFlag{
-				Name:  "ad-client-id",
-				Value: "",
-				Usage: "Azure Active Directory client ID",
-			},
-
-			cli.StringFlag{
-				Name:  "ad-client-secret",
-				Value: "",
-				Usage: "Azure Active Directory client secret",
-			},
-
-			cli.StringFlag{
-				Name:  "ad-directory-id",
-				Value: "",
-				Usage: "Azure Active Directory (tenant) ID",
 			},
 
 			/////////////////////////
@@ -362,24 +326,41 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		TypeCacheTTL: c.Duration("type-cache-ttl"),
 		HTTPTimeout:  c.Duration("http-timeout"),
 
-		// S3
+		// Common Backend Config
 		Endpoint:       c.String("endpoint"),
-		Region:         c.String("region"),
-		RegionSet:      c.IsSet("region"),
-		RequesterPays:  c.Bool("requester-pays"),
-		StorageClass:   c.String("storage-class"),
-		Profile:        c.String("profile"),
 		UseContentType: c.Bool("use-content-type"),
-		UseSSE:         c.Bool("sse"),
-		UseKMS:         c.IsSet("sse-kms"),
-		KMSKeyID:       c.String("sse-kms"),
-		ACL:            c.String("acl"),
-		Subdomain:      c.Bool("subdomain"),
 
 		// Debugging,
 		DebugFuse:  c.Bool("debug_fuse"),
 		DebugS3:    c.Bool("debug_s3"),
 		Foreground: c.Bool("f"),
+	}
+
+	// S3
+	if c.IsSet("region") || c.IsSet("requester-pays") || c.IsSet("storage-class") ||
+		c.IsSet("profile") || c.IsSet("sse") || c.IsSet("sse-kms") ||
+		c.IsSet("acl") || c.IsSet("subdomain") {
+
+		if flags.Backend == nil {
+			flags.Backend = (&S3Config{}).Init()
+		}
+		config, _ := flags.Backend.(*S3Config)
+
+		config.Region = c.String("region")
+		config.RegionSet = c.IsSet("region")
+		config.RequesterPays = c.Bool("requester-pays")
+		config.StorageClass = c.String("storage-class")
+		config.Profile = c.String("profile")
+		config.UseSSE = c.Bool("sse")
+		config.UseKMS = c.IsSet("sse-kms")
+		config.KMSKeyID = c.String("sse-kms")
+		config.ACL = c.String("acl")
+		config.Subdomain = c.Bool("subdomain")
+
+		// KMS implies SSE
+		if config.UseKMS {
+			config.UseSSE = true
+		}
 	}
 
 	// Handle the repeated "-o" flag.
@@ -450,11 +431,6 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		}
 
 		flags.Cache = cacheArgs[1:]
-	}
-
-	// KMS implies SSE
-	if flags.UseKMS {
-		flags.UseSSE = true
 	}
 
 	return flags

@@ -25,12 +25,13 @@ if [ $CLOUD == "s3" ]; then
     rm -Rf /tmp/s3proxy
     mkdir -p /tmp/s3proxy
 
-    export LOG_LEVEL=warn
+    : ${LOG_LEVEL:="warn"}
+    export LOG_LEVEL
     PROXY_BIN="java -jar s3proxy.jar --properties test/s3proxy.properties"
 elif [ $CLOUD == "azblob" ]; then
     : ${AZURE_STORAGE_ACCOUNT:="devstoreaccount1"}
     : ${AZURE_STORAGE_KEY:="Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="}
-    : ${ENDPOINT:="http://127.0.0.1:8080/${AZURE_STORAGE_ACCOUNT}"}
+    : ${ENDPOINT:="http://127.0.0.1:8080/${AZURE_STORAGE_ACCOUNT}/"}
 
     if [ ${AZURE_STORAGE_ACCOUNT} == "devstoreaccount1" ]; then
 	if ! which azurite >/dev/null; then

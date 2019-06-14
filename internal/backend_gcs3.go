@@ -24,7 +24,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 
 	"github.com/jacobsa/fuse"
@@ -41,9 +40,9 @@ type GCSMultipartBlobCommitInput struct {
 	Prev *MultipartBlobAddInput
 }
 
-func NewGCS3(bucket string, awsConfig *aws.Config, flags *FlagStorage) *GCS3 {
+func NewGCS3(bucket string, flags *FlagStorage, config *S3Config) *GCS3 {
 	s := &GCS3{
-		S3Backend: NewS3(bucket, awsConfig, flags),
+		S3Backend: NewS3(bucket, flags, config),
 	}
 	s.S3Backend.gcs = true
 	s.S3Backend.cap.NoParallelMultipart = true
@@ -79,19 +78,19 @@ func (s *GCS3) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlo
 	mpu := s3.CreateMultipartUploadInput{
 		Bucket:       &s.bucket,
 		Key:          &param.Key,
-		StorageClass: &s.flags.StorageClass,
+		StorageClass: &s.config.StorageClass,
 		ContentType:  param.ContentType,
 	}
 
-	if s.flags.UseSSE {
+	if s.config.UseSSE {
 		mpu.ServerSideEncryption = &s.sseType
-		if s.flags.UseKMS && s.flags.KMSKeyID != "" {
-			mpu.SSEKMSKeyId = &s.flags.KMSKeyID
+		if s.config.UseKMS && s.config.KMSKeyID != "" {
+			mpu.SSEKMSKeyId = &s.config.KMSKeyID
 		}
 	}
 
-	if s.flags.ACL != "" {
-		mpu.ACL = &s.flags.ACL
+	if s.config.ACL != "" {
+		mpu.ACL = &s.config.ACL
 	}
 
 	req, _ := s.CreateMultipartUploadRequest(&mpu)
