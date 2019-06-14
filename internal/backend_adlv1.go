@@ -52,14 +52,6 @@ type ADLv1 struct {
 	bucket string
 }
 
-type ADLv1Config struct {
-	Endpoint   string
-	Authorizer autorest.Authorizer
-}
-
-func (config *ADLv1Config) Init() {
-}
-
 type ADLv1Err struct {
 	RemoteException struct {
 		Exception     string
@@ -119,6 +111,12 @@ func NewADLv1(bucket string, flags *FlagStorage, config *ADLv1Config) (*ADLv1, e
 
 			u, _ := uuid.NewV4()
 			r.Header.Add(ADL1_REQUEST_ID, u.String())
+
+			if adls1Log.IsLevelEnabled(logrus.DebugLevel) {
+				op := r.URL.Query().Get("op")
+				requestId := r.Header.Get(ADL1_REQUEST_ID)
+				adls1Log.Debugf("%v %v %v", op, r.URL.String(), requestId)
+			}
 
 			r, err := p.Prepare(r)
 			if err != nil {

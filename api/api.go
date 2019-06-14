@@ -44,13 +44,13 @@ func Mount(
 		if spec, err := internal.ParseBucketSpec(bucketName); err == nil {
 			switch spec.Scheme {
 			case "adl":
-				auth, err := internal.AzureAuthorizerConfig{}.Authorizer()
+				auth, err := AzureAuthorizerConfig{}.Authorizer()
 				if err != nil {
 					err = fmt.Errorf("couldn't load azure credentials: %v",
 						err)
 					return nil, nil, err
 				}
-				flags.Backend = &internal.ADLv1Config{
+				flags.Backend = &ADLv1Config{
 					Endpoint:   spec.Bucket,
 					Authorizer: auth,
 				}
@@ -62,7 +62,7 @@ func Mount(
 					bucketName = ":" + spec.Prefix
 				}
 			case "wasb":
-				config, err := internal.AzureBlobConfig(flags.Endpoint)
+				config, err := AzureBlobConfig(flags.Endpoint)
 				if err != nil {
 					return nil, nil, err
 				}

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package internal
+package common
 
 import (
 	"context"
@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/Azure/go-autorest/autorest"
 	"github.com/Azure/go-autorest/autorest/adal"
@@ -32,7 +33,32 @@ import (
 	ini "gopkg.in/ini.v1"
 )
 
+type SASTokenProvider func() (string, error)
+
+type AZBlobConfig struct {
+	Endpoint         string
+	AccountName      string
+	AccountKey       string
+	SasToken         SASTokenProvider
+	TokenRenewBuffer time.Duration
+}
+
+func (config *AZBlobConfig) Init() {
+	config.TokenRenewBuffer = 15 * time.Minute
+}
+
+type ADLv1Config struct {
+	Endpoint   string
+	Authorizer autorest.Authorizer
+}
+
+func (config *ADLv1Config) Init() {
+}
+
 type AzureAuthorizerConfig struct{}
+
+var azbLog = GetLogger("azblob")
+var adls1Log = GetLogger("adlv1")
 
 func sptTest(spt *adal.ServicePrincipalToken) (autorest.Authorizer, error) {
 	err := spt.EnsureFresh()

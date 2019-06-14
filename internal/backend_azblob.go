@@ -55,24 +55,10 @@ type AZBlob struct {
 	tokenRenewGate   *Ticket
 }
 
-type SASTokenProvider func() (string, error)
-
 const AzuriteEndpoint = "http://127.0.0.1:8080/devstoreaccount1/"
 const AzureDirBlobMetadataKey = "hdi_isfolder"
 
 var azbLog = GetLogger("azblob")
-
-type AZBlobConfig struct {
-	Endpoint         string
-	AccountName      string
-	AccountKey       string
-	SasToken         SASTokenProvider
-	TokenRenewBuffer time.Duration
-}
-
-func (config *AZBlobConfig) Init() {
-	config.TokenRenewBuffer = 15 * time.Minute
-}
 
 func NewAZBlob(container string, config *AZBlobConfig) (*AZBlob, error) {
 	po := azblob.PipelineOptions{
