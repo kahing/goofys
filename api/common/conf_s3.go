@@ -20,25 +20,35 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
 	"github.com/aws/aws-sdk-go/aws/session"
 )
 
 type S3Config struct {
-	Region        string
-	AccessKey     string
-	SecretKey     string
-	RequesterPays bool
-	RegionSet     bool
-	StorageClass  string
-	Profile       string
-	UseSSE        bool
-	UseKMS        bool
-	KMSKeyID      string
-	ACL           string
-	Subdomain     bool
+	Profile        string
+	AccessKey      string
+	SecretKey      string
+	RoleArn        string
+	RoleExternalId string
+	StsEndpoint    string
 
-	Session *session.Session
+	RequesterPays bool
+	Region        string
+	RegionSet     bool
+
+	StorageClass string
+
+	UseSSE   bool
+	UseKMS   bool
+	KMSKeyID string
+	ACL      string
+
+	Subdomain bool
+
+	Credentials *credentials.Credentials
+	Session     *session.Session
 }
 
 var s3HTTPTransport = http.Transport{
@@ -79,10 +89,15 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 		awsConfig.LogLevel = aws.LogLevel(aws.LogDebug | aws.LogDebugWithRequestErrors)
 	}
 
-	if c.AccessKey != "" {
-		awsConfig.Credentials = credentials.NewStaticCredentials(c.AccessKey, c.SecretKey, "")
-	} else if c.Profile != "" {
-		awsConfig.Credentials = credentials.NewSharedCredentials("", c.Profile)
+	if c.Credentials == nil {
+		if c.AccessKey != "" {
+			c.Credentials = credentials.NewStaticCredentials(c.AccessKey, c.SecretKey, "")
+		} else if c.Profile != "" {
+			c.Credentials = credentials.NewSharedCredentials("", c.Profile)
+		}
+	}
+	if c.Credentials != nil {
+		awsConfig.Credentials = c.Credentials
 	}
 
 	if flags.Endpoint != "" {
@@ -105,5 +120,26 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 		c.Session = s3Session
 	}
 
+	if c.RoleArn != "" {
+		c.Credentials = stscreds.NewCredentials(c, c.RoleArn,
+			func(p *stscreds.AssumeRoleProvider) {
+				if c.RoleExternalId != "" {
+					p.ExternalID = &c.RoleExternalId
+				}
+			})
+	}
+
 	return awsConfig, nil
+}
+
+func (c *S3Config) ClientConfig(serviceName string, cfgs ...*aws.Config) client.Config {
+	config := c.Session.ClientConfig(serviceName, cfgs...)
+	if c.Credentials != nil {
+		config.Config.Credentials = c.Credentials
+	}
+	if c.StsEndpoint != "" {
+		config.Endpoint = c.StsEndpoint
+	}
+
+	return config
 }

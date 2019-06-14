@@ -157,6 +157,7 @@ func NewApp() (app *cli.App) {
 					"eu-central-1, ap-southeast-1, ap-southeast-2, ap-northeast-1, " +
 					"sa-east-1, cn-north-1",
 			},
+
 			cli.BoolFlag{
 				Name:  "requester-pays",
 				Usage: "Whether to allow access to requester-pays buckets (default: off)",
