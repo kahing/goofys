@@ -2207,7 +2207,7 @@ func (s *GoofysTest) TestRead403(t *C) {
 	t.Assert(err, IsNil)
 
 	s3.awsConfig.Credentials = credentials.AnonymousCredentials
-	s3.newS3(s3.session)
+	s3.newS3()
 
 	// fake enable read-ahead
 	fh.seqReadAmount = uint64(READAHEAD_CHUNK)

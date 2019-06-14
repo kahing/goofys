@@ -31,7 +31,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/corehandlers"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 
 	"github.com/jacobsa/fuse"
@@ -40,8 +39,6 @@ import (
 type S3Backend struct {
 	*s3.S3
 	cap Capabilities
-
-	session *session.Session
 
 	bucket    string
 	awsConfig *aws.Config
@@ -55,9 +52,12 @@ type S3Backend struct {
 }
 
 func NewS3(bucket string, flags *FlagStorage, config *S3Config) *S3Backend {
-	awsConfig := config.ToAwsConfig(flags)
+	awsConfig, err := config.ToAwsConfig(flags)
+	if err != nil {
+		s3Log.Errorf("Unable to get aws config: %v", err)
+		return nil
+	}
 	s := &S3Backend{
-		session:   session.New(awsConfig),
 		bucket:    bucket,
 		awsConfig: awsConfig,
 		flags:     flags,
@@ -76,7 +76,7 @@ func NewS3(bucket string, flags *FlagStorage, config *S3Config) *S3Backend {
 		s.sseType = s3.ServerSideEncryptionAes256
 	}
 
-	s.newS3(s.session)
+	s.newS3()
 	return s
 }
 
@@ -102,9 +102,8 @@ func addRequestPayer(req *request.Request) {
 	}
 }
 
-func (s *S3Backend) newS3(sess *session.Session) {
-	s.session = sess
-	s.S3 = s3.New(sess, s.awsConfig)
+func (s *S3Backend) newS3() {
+	s.S3 = s3.New(s.config.Session, s.awsConfig)
 	if s.config.RequesterPays {
 		s.S3.Handlers.Build.PushBack(addRequestPayer)
 	}
@@ -221,7 +220,7 @@ func (s *S3Backend) fallbackV2Signer() (err error) {
 
 	s3Log.Infoln("Falling back to v2 signer")
 	s.v2Signer = true
-	s.newS3(s.session)
+	s.newS3()
 	return
 }
 
@@ -234,7 +233,7 @@ func (s *S3Backend) Init(key string) error {
 		if err == nil {
 			// we detected a region header, this is probably AWS S3,
 			// or we can use anonymous access, or both
-			s.newS3(session.New(s.awsConfig))
+			s.newS3()
 			s.aws = isAws
 		} else if err == fuse.ENOENT {
 			return fmt.Errorf("bucket %v does not exist", s.bucket)

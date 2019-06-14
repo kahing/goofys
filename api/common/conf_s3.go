@@ -21,6 +21,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
 )
 
 type S3Config struct {
@@ -36,6 +37,8 @@ type S3Config struct {
 	KMSKeyID      string
 	ACL           string
 	Subdomain     bool
+
+	Session *session.Session
 }
 
 var s3HTTPTransport = http.Transport{
@@ -52,6 +55,8 @@ var s3HTTPTransport = http.Transport{
 	ExpectContinueTimeout: 10 * time.Second,
 }
 
+var s3Session *session.Session
+
 func (c *S3Config) Init() *S3Config {
 	if c.Region == "" {
 		c.Region = "us-east-1"
@@ -62,7 +67,7 @@ func (c *S3Config) Init() *S3Config {
 	return c
 }
 
-func (c *S3Config) ToAwsConfig(flags *FlagStorage) *aws.Config {
+func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 	awsConfig := (&aws.Config{
 		Region: &c.Region,
 		Logger: GetLogger("s3"),
@@ -86,5 +91,19 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) *aws.Config {
 
 	awsConfig.S3ForcePathStyle = aws.Bool(!c.Subdomain)
 
-	return awsConfig
+	if c.Session == nil {
+		if s3Session == nil {
+			var err error
+			s3Session, err = session.NewSessionWithOptions(session.Options{
+				Profile:           c.Profile,
+				SharedConfigState: session.SharedConfigEnable,
+			})
+			if err != nil {
+				return nil, err
+			}
+		}
+		c.Session = s3Session
+	}
+
+	return awsConfig, nil
 }
