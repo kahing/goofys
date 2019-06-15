@@ -121,7 +121,7 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 	}
 
 	if c.RoleArn != "" {
-		c.Credentials = stscreds.NewCredentials(c, c.RoleArn,
+		c.Credentials = stscreds.NewCredentials(stsConfigProvider{c}, c.RoleArn,
 			func(p *stscreds.AssumeRoleProvider) {
 				if c.RoleExternalId != "" {
 					p.ExternalID = &c.RoleExternalId
@@ -132,7 +132,11 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 	return awsConfig, nil
 }
 
-func (c *S3Config) ClientConfig(serviceName string, cfgs ...*aws.Config) client.Config {
+type stsConfigProvider struct {
+	*S3Config
+}
+
+func (c stsConfigProvider) ClientConfig(serviceName string, cfgs ...*aws.Config) client.Config {
 	config := c.Session.ClientConfig(serviceName, cfgs...)
 	if c.Credentials != nil {
 		config.Config.Credentials = c.Credentials
