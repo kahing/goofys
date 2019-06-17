@@ -56,15 +56,15 @@ func (s *GCS3) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error) 
 
 	for _, key := range param.Items {
 		wg.Add(1)
-		go func() {
+		go func(key string) {
 			_, err := s.DeleteBlob(&DeleteBlobInput{
 				Key: key,
 			})
-			if err != nil {
+			if err != nil && err != fuse.ENOENT {
 				overallErr = err
 			}
 			wg.Done()
-		}()
+		}(key)
 	}
 	wg.Wait()
 	if overallErr != nil {
@@ -94,6 +94,8 @@ func (s *GCS3) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlo
 	}
 
 	req, _ := s.CreateMultipartUploadRequest(&mpu)
+	// v4 signing of this fails
+	s.setV2Signer(&req.Handlers)
 	// get rid of ?uploads=
 	req.HTTPRequest.URL.RawQuery = ""
 	req.HTTPRequest.Header.Set("x-goog-resumable", "start")
@@ -107,7 +109,7 @@ func (s *GCS3) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlo
 	location := req.HTTPResponse.Header.Get("Location")
 	_, err = url.Parse(location)
 	if err != nil {
-		s3Log.Errorf("CreateMultipartUpload %v = %v", param.Key, err)
+		s3Log.Errorf("CreateMultipartUpload %v %v = %v", param.Key, location, err)
 		return nil, mapAwsError(err)
 	}
 
@@ -140,6 +142,7 @@ func (s *GCS3) uploadPart(param *MultipartBlobAddInput, totalSize uint64, last b
 	s3Log.Debug(params)
 
 	req, resp := s.PutObjectRequest(params)
+	req.Handlers.Sign.Clear()
 	req.HTTPRequest.URL, _ = url.Parse(*param.Commit.UploadId)
 
 	start := totalSize - param.Size
@@ -185,12 +188,13 @@ func (s *GCS3) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAdd
 			return nil, fuse.EINVAL
 		}
 
-		commitData.Size += param.Size
 		_, err := s.uploadPart(commitData.Prev, commitData.Size, false)
 		if err != nil {
 			return nil, err
 		}
 	}
+	commitData.Size += param.Size
+
 	copy := *param
 	commitData.Prev = &copy
 	param.Body = nil

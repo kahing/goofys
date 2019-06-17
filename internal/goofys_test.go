@@ -306,6 +306,12 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		_, err := s3.ListBuckets(nil)
 		t.Assert(err, IsNil)
 
+	} else if cloud == "gcs" {
+		conf := s.selectTestConfig(t, flags)
+		flags.Backend = &conf
+
+		s.cloud = NewGCS3(bucket, flags, &conf)
+		t.Assert(s.cloud, NotNil)
 	} else if cloud == "azblob" {
 		config, err := AzureBlobConfig(os.Getenv("ENDPOINT"))
 		t.Assert(err, IsNil)
@@ -1172,12 +1178,16 @@ func (s *GoofysTest) mount(t *C, mountPoint string) {
 }
 
 func (s *GoofysTest) umount(t *C, mountPoint string) {
-	err := fuse.Unmount(mountPoint)
-	if err != nil {
-		time.Sleep(100 * time.Millisecond)
+	var err error
+	for i := 0; i < 10; i++ {
 		err = fuse.Unmount(mountPoint)
-		t.Assert(err, IsNil)
+		if err != nil {
+			time.Sleep(100 * time.Millisecond)
+		} else {
+			break
+		}
 	}
+	t.Assert(err, IsNil)
 
 	os.Remove(mountPoint)
 	if isCatfs() {
@@ -2563,6 +2573,10 @@ func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud S
 				s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
 			}
 		}
+	case *GCS3:
+		config, _ := s.fs.flags.Backend.(*S3Config)
+		cloud = NewGCS3(bucket, s.fs.flags, config)
+		t.Assert(err, IsNil)
 	case *AZBlob:
 		config, _ := s.fs.flags.Backend.(*AZBlobConfig)
 		cloud, err = NewAZBlob(bucket, config)

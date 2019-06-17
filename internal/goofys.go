@@ -478,6 +478,8 @@ func mapHttpError(status int) error {
 		return fuse.ENOENT
 	case 405:
 		return syscall.ENOTSUP
+	case 429:
+		return syscall.EAGAIN
 	case 500:
 		return syscall.EAGAIN
 	default:

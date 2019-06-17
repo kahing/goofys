@@ -102,15 +102,19 @@ func addRequestPayer(req *request.Request) {
 	}
 }
 
+func (s *S3Backend) setV2Signer(handlers *request.Handlers) {
+	handlers.Sign.Clear()
+	handlers.Sign.PushBack(SignV2)
+	handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
+}
+
 func (s *S3Backend) newS3() {
 	s.S3 = s3.New(s.config.Session, s.awsConfig)
 	if s.config.RequesterPays {
 		s.S3.Handlers.Build.PushBack(addRequestPayer)
 	}
 	if s.v2Signer {
-		s.S3.Handlers.Sign.Clear()
-		s.S3.Handlers.Sign.PushBack(SignV2)
-		s.S3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
+		s.setV2Signer(&s.S3.Handlers)
 	}
 	s.S3.Handlers.Sign.PushBack(addAcceptEncoding)
 }
