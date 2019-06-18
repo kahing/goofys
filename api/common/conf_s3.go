@@ -27,12 +27,13 @@ import (
 )
 
 type S3Config struct {
-	Profile        string
-	AccessKey      string
-	SecretKey      string
-	RoleArn        string
-	RoleExternalId string
-	StsEndpoint    string
+	Profile         string
+	AccessKey       string
+	SecretKey       string
+	RoleArn         string
+	RoleExternalId  string
+	RoleSessionName string
+	StsEndpoint     string
 
 	RequesterPays bool
 	Region        string
@@ -96,10 +97,6 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 			c.Credentials = credentials.NewSharedCredentials("", c.Profile)
 		}
 	}
-	if c.Credentials != nil {
-		awsConfig.Credentials = c.Credentials
-	}
-
 	if flags.Endpoint != "" {
 		awsConfig.Endpoint = &flags.Endpoint
 	}
@@ -126,7 +123,12 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 				if c.RoleExternalId != "" {
 					p.ExternalID = &c.RoleExternalId
 				}
+				p.RoleSessionName = c.RoleSessionName
 			})
+	}
+
+	if c.Credentials != nil {
+		awsConfig.Credentials = c.Credentials
 	}
 
 	return awsConfig, nil
