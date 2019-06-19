@@ -113,6 +113,9 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 			if err != nil {
 				return nil, err
 			}
+			// Creating a new session from the shared config allows the
+			// default credentials chain to get resolve a provider
+			c.Credentials = s3Session.Config.Credentials
 		}
 		c.Session = s3Session
 	}
