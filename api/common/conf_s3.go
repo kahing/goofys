@@ -93,8 +93,6 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 	if c.Credentials == nil {
 		if c.AccessKey != "" {
 			c.Credentials = credentials.NewStaticCredentials(c.AccessKey, c.SecretKey, "")
-		} else if c.Profile != "" {
-			c.Credentials = credentials.NewSharedCredentials("", c.Profile)
 		}
 	}
 	if flags.Endpoint != "" {
