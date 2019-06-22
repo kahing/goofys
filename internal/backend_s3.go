@@ -514,7 +514,7 @@ func (s *S3Backend) mpuCopyParts(size int64, from string, to string, mpuId strin
 }
 
 func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuId string,
-	srcEtag *string, metadata map[string]*string) (err error) {
+	srcEtag *string, metadata map[string]*string, storageClass *string) (err error) {
 	nParts, partSize := sizeToParts(size)
 	etags := make([]*string, nParts)
 
@@ -522,7 +522,7 @@ func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuI
 		params := &s3.CreateMultipartUploadInput{
 			Bucket:       &s.bucket,
 			Key:          &to,
-			StorageClass: &s.config.StorageClass,
+			StorageClass: storageClass,
 			ContentType:  s.flags.GetMimeType(to),
 			Metadata:     metadataToLower(metadata),
 		}
@@ -581,7 +581,16 @@ func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuI
 }
 
 func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
-	if param.Size == nil || param.ETag == nil || param.Metadata == nil {
+	metadataDirective := s3.MetadataDirectiveCopy
+	if param.Metadata != nil {
+		metadataDirective = s3.MetadataDirectiveReplace
+	}
+
+	COPY_LIMIT := uint64(5 * 1024 * 1024 * 1024)
+
+	if param.Size == nil || param.ETag == nil || (*param.Size > COPY_LIMIT &&
+		(param.Metadata == nil || param.StorageClass == nil)) {
+
 		params := &HeadBlobInput{Key: param.Source}
 		resp, err := s.HeadBlob(params)
 		if err != nil {
@@ -589,35 +598,41 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 		}
 
 		param.Size = &resp.Size
+		param.ETag = resp.ETag
 		if param.Metadata == nil {
 			param.Metadata = resp.Metadata
 		}
-		param.ETag = resp.ETag
+		if param.StorageClass == nil {
+			param.StorageClass = resp.StorageClass
+		}
+	}
+
+	if param.StorageClass == nil {
+		if *param.Size < 128*1024 && s.config.StorageClass == "STANDARD_IA" {
+			param.StorageClass = PString("STANDARD")
+		} else {
+			param.StorageClass = &s.config.StorageClass
+		}
 	}
 
 	from := s.bucket + "/" + param.Source
 
-	if !s.gcs && *param.Size > 5*1024*1024*1024 {
-		err := s.copyObjectMultipart(int64(*param.Size), from, param.Destination, "", param.ETag, param.Metadata)
+	if !s.gcs && *param.Size > COPY_LIMIT {
+		err := s.copyObjectMultipart(int64(*param.Size), from, param.Destination, "", param.ETag, param.Metadata, param.StorageClass)
 		if err != nil {
 			return nil, err
 		}
 		return &CopyBlobOutput{}, nil
 	}
 
-	storageClass := s.config.StorageClass
-	if *param.Size < 128*1024 && storageClass == "STANDARD_IA" {
-		storageClass = "STANDARD"
-	}
-
 	params := &s3.CopyObjectInput{
 		Bucket:            &s.bucket,
 		CopySource:        aws.String(pathEscape(from)),
 		Key:               &param.Destination,
-		StorageClass:      &storageClass,
+		StorageClass:      param.StorageClass,
 		ContentType:       s.flags.GetMimeType(param.Destination),
 		Metadata:          metadataToLower(param.Metadata),
-		MetadataDirective: aws.String(s3.MetadataDirectiveReplace),
+		MetadataDirective: &metadataDirective,
 	}
 
 	s3Log.Debug(params)

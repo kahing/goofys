@@ -1065,7 +1065,7 @@ func (s *GoofysTest) TestRename(t *C) {
 		if !hasEnv("GCS") {
 			// not really rename but can be used by rename
 			from, to = s.fs.bucket+"/file2", "new_file"
-			err = s3.copyObjectMultipart(int64(len("file2")), from, to, "", nil, nil)
+			err = s3.copyObjectMultipart(int64(len("file2")), from, to, "", nil, nil, nil)
 			t.Assert(err, IsNil)
 		}
 	}
@@ -1418,19 +1418,7 @@ func (s *GoofysTest) TestPutMimeType(t *C) {
 
 	resp, err = s.cloud.HeadBlob(&HeadBlobInput{Key: file})
 	t.Assert(err, IsNil)
-	if hasEnv("AWS") {
-		t.Assert(*resp.ContentType, Equals, "binary/octet-stream")
-	} else if hasEnv("GCS") {
-		t.Assert(*resp.ContentType, Equals, "application/octet-stream")
-	} else {
-		if _, ok := s.cloud.(*S3Backend); ok {
-			// workaround s3proxy https://github.com/andrewgaul/s3proxy/issues/179
-			t.Assert(*resp.ContentType, Equals, "application/unknown")
-		} else if _, ok := s.cloud.(*AZBlob); ok {
-			// on azure rename copies the old content type
-			t.Assert(*resp.ContentType, Equals, "image/jpeg")
-		}
-	}
+	t.Assert(*resp.ContentType, Equals, "image/jpeg")
 
 	err = root.Rename(file, root, jpg2)
 	t.Assert(err, IsNil)

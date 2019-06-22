@@ -99,9 +99,10 @@ type CopyBlobInput struct {
 	Source      string
 	Destination string
 
-	Size     *uint64
-	ETag     *string
-	Metadata map[string]*string
+	Size         *uint64
+	ETag         *string            // if non-nil, do conditional copy
+	Metadata     map[string]*string // if nil, copy from Source
+	StorageClass *string            // if nil, copy from Source
 }
 
 type CopyBlobOutput struct {

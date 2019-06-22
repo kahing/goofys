@@ -789,6 +789,14 @@ func (inode *Inode) OpenFile() (fh *FileHandle, err error) {
 	return
 }
 
+// semantic of rename:
+// rename("any", "not_exists") = ok
+// rename("file1", "file2") = ok
+// rename("empty_dir1", "empty_dir2") = ok
+// rename("nonempty_dir1", "empty_dir2") = ok
+// rename("nonempty_dir1", "nonempty_dir2") = ENOTEMPTY
+// rename("file", "dir") = EISDIR
+// rename("dir", "file") = ENOTDIR
 func (parent *Inode) Rename(from string, newParent *Inode, to string) (err error) {
 	parent.logFuse("Rename", from, newParent.getChildName(to))
 
