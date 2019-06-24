@@ -2231,6 +2231,13 @@ func (s *GoofysTest) TestRenameOverwrite(t *C) {
 	t.Assert(err, IsNil)
 }
 
+func (s *GoofysTest) TestSparseFuse(t *C) {
+	fuseLog.Level = logrus.DebugLevel
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	s.runFuseTest(t, mountPoint, true, "../test/sparse-test.sh", mountPoint+"/sparse")
+}
+
 func (s *GoofysTest) TestRead403(t *C) {
 	// anonymous only works in S3 for now
 	cloud := s.getRoot(t).dir.cloud
