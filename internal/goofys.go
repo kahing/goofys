@@ -1011,6 +1011,8 @@ func (fs *Goofys) Unlink(
 	return
 }
 
+// rename("from", "to") causes the kernel to send lookup of "from" and
+// "to" prior to sending rename to us
 func (fs *Goofys) Rename(
 	ctx context.Context,
 	op *fuseops.RenameOp) (err error) {

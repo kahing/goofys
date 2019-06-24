@@ -1000,35 +1000,77 @@ func (s *GoofysTest) TestBackendListPrefix(t *C) {
 	t.Assert(len(res.Items), Equals, 0)
 }
 
+func (s *GoofysTest) TestRenameDir(t *C) {
+	s.fs.flags.StatCacheTTL = 0
+
+	root := s.getRoot(t)
+
+	err := root.Rename("empty_dir", root, "dir1")
+	t.Assert(err, Equals, fuse.ENOTEMPTY)
+
+	err = root.Rename("empty_dir", root, "new_dir")
+	t.Assert(err, IsNil)
+
+	dir2, err := s.LookUpInode(t, "dir2")
+	t.Assert(err, IsNil)
+	t.Assert(dir2, NotNil)
+
+	_, err = s.LookUpInode(t, "new_dir2")
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	err = s.fs.Rename(nil, &fuseops.RenameOp{
+		OldParent: root.Id,
+		NewParent: root.Id,
+		OldName:   "dir2",
+		NewName:   "new_dir2",
+	})
+	t.Assert(err, IsNil)
+
+	_, err = s.LookUpInode(t, "dir2/dir3")
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	_, err = s.LookUpInode(t, "dir2/dir3/file4")
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	new_dir2, err := s.LookUpInode(t, "new_dir2")
+	t.Assert(err, IsNil)
+	t.Assert(new_dir2, NotNil)
+	t.Assert(dir2.Id, Equals, new_dir2.Id)
+
+	old, err := s.LookUpInode(t, "new_dir2/dir3/file4")
+	t.Assert(err, IsNil)
+	t.Assert(old, NotNil)
+
+	err = s.fs.Rename(nil, &fuseops.RenameOp{
+		OldParent: root.Id,
+		NewParent: root.Id,
+		OldName:   "new_dir2",
+		NewName:   "new_dir3",
+	})
+	t.Assert(err, IsNil)
+
+	new, err := s.LookUpInode(t, "new_dir3/dir3/file4")
+	t.Assert(err, IsNil)
+	t.Assert(new, NotNil)
+	t.Assert(old.Id, Equals, new.Id)
+
+	_, err = s.LookUpInode(t, "new_dir2/dir3")
+	t.Assert(err, Equals, fuse.ENOENT)
+
+	_, err = s.LookUpInode(t, "new_dir2/dir3/file4")
+	t.Assert(err, Equals, fuse.ENOENT)
+}
+
 func (s *GoofysTest) TestRename(t *C) {
 	root := s.getRoot(t)
 
-	from, to := "dir1", "new_dir"
+	from, to := "empty_dir", "file1"
 	err := root.Rename(from, root, to)
-	t.Assert(err, Equals, fuse.ENOTEMPTY)
-
-	dir2, err := root.LookUp("dir2")
-	t.Assert(err, IsNil)
-
-	from, to = "dir3", "new_dir"
-	err = dir2.Rename(from, root, to)
-	t.Assert(err, Equals, fuse.ENOTEMPTY)
-
-	from, to = "empty_dir", "dir1"
-	err = root.Rename(from, root, to)
-	t.Assert(err, Equals, fuse.ENOTEMPTY)
-
-	from, to = "empty_dir", "file1"
-	err = root.Rename(from, root, to)
 	t.Assert(err, Equals, fuse.ENOTDIR)
 
 	from, to = "file1", "empty_dir"
 	err = root.Rename(from, root, to)
 	t.Assert(err, Equals, syscall.EISDIR)
-
-	from, to = "empty_dir", "new_dir"
-	err = root.Rename(from, root, to)
-	t.Assert(err, IsNil)
 
 	from, to = "file1", "new_file"
 	err = root.Rename(from, root, to)

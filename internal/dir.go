@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -445,4 +446,74 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 
 func (dh *DirHandle) CloseDir() error {
 	return nil
+}
+
+// prefix and newPrefix should include the trailing /
+// return all the renamed objects
+func (dir *Inode) renameChildren(cloud StorageBackend, prefix string,
+	newParent *Inode, newPrefix string) (err error) {
+
+	var copied []string
+	var res *ListBlobsOutput
+
+	for true {
+		param := ListBlobsInput{
+			Prefix: &prefix,
+		}
+		if res != nil {
+			param.ContinuationToken = res.NextContinuationToken
+		}
+
+		res, err = cloud.ListBlobs(&param)
+		if err != nil {
+			return
+		}
+
+		if len(res.Items) == 0 {
+			return
+		}
+
+		if copied == nil {
+			copied = make([]string, 0, len(res.Items))
+		}
+
+		// after the server side copy, we want to delete all the files
+		// using multi-delete, which is capped to 1000 on aws. If we
+		// are going to make an arbitrary limit that sounds like a
+		// good one (and we want to have an arbitrary limit because we
+		// don't want to rename a million objects here)
+		total := len(copied) + len(res.Items)
+		if total > 1000 || total == 1000 && res.IsTruncated {
+			return syscall.E2BIG
+		}
+
+		// say dir is "/a/dir" and it has "1", "2", "3", and we are
+		// moving it to "/b/" items will be a/dir/1, a/dir/2, a/dir/3,
+		// and we will copy them to b/1, b/2, b/3 respectively
+		for _, i := range res.Items {
+			key := (*i.Key)[len(prefix):]
+
+			// TODO: coordinate with underlining copy and do this in parallel
+			_, err = cloud.CopyBlob(&CopyBlobInput{
+				Source:       *i.Key,
+				Destination:  newPrefix + key,
+				Size:         &i.Size,
+				ETag:         i.ETag,
+				StorageClass: i.StorageClass,
+			})
+			if err != nil {
+				return err
+			}
+
+			copied = append(copied, *i.Key)
+		}
+
+		if !res.IsTruncated {
+			break
+		}
+	}
+
+	s3Log.Debugf("rename copied %v", copied)
+	_, err = cloud.DeleteBlobs(&DeleteBlobsInput{Items: copied})
+	return err
 }

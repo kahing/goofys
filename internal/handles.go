@@ -814,11 +814,15 @@ func (parent *Inode) Rename(from string, newParent *Inode, to string) (err error
 	var size *uint64
 	var fromIsDir bool
 	var toIsDir bool
+	var renameChildren bool
 
 	fromIsDir, err = parent.isEmptyDir(fs, from)
 	if err != nil {
-		// we don't support renaming a directory that's not empty
-		return
+		if err == fuse.ENOTEMPTY {
+			renameChildren = true
+		} else {
+			return
+		}
 	}
 
 	toFullName := appendChildName(toPath, to)
@@ -850,7 +854,15 @@ func (parent *Inode) Rename(from string, newParent *Inode, to string) (err error
 		size = PUInt64(0)
 	}
 
-	err = parent.renameObject(fs, size, fromFullName, toFullName)
+	if renameChildren && !fromCloud.Capabilities().DirBlob {
+		err = parent.renameChildren(fromCloud, fromFullName,
+			newParent, toFullName)
+		if err != nil {
+			return
+		}
+	} else {
+		err = parent.renameObject(fs, size, fromFullName, toFullName)
+	}
 	return
 }
 
