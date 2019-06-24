@@ -1181,6 +1181,9 @@ func (s *GoofysTest) mount(t *C, mountPoint string) {
 		ErrorLogger:             GetStdLogger(NewLogger("fuse"), logrus.ErrorLevel),
 		DisableWritebackCaching: true,
 	}
+	if fuseLog.Level == logrus.DebugLevel {
+		mountCfg.DebugLogger = GetStdLogger(fuseLog, logrus.DebugLevel)
+	}
 
 	_, err = fuse.Mount(mountPoint, server, mountCfg)
 	t.Assert(err, IsNil)
