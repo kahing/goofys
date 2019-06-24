@@ -602,9 +602,7 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 		if param.Metadata == nil {
 			param.Metadata = resp.Metadata
 		}
-		if param.StorageClass == nil {
-			param.StorageClass = resp.StorageClass
-		}
+		param.StorageClass = resp.StorageClass
 	}
 
 	if param.StorageClass == nil {
