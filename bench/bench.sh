@@ -117,6 +117,7 @@ export TIMEFORMAT=%R
 
 function run_test {
     test=$1
+    shift
     drop_cache
     sleep 2
     if [ "$CACHE" == "false" ]; then
@@ -129,7 +130,7 @@ function run_test {
     fi
     echo -n "$test "
     if [ $# -gt 1 ]; then
-        time $test $2
+        time $test $@
     else
         time $test
     fi
@@ -137,7 +138,11 @@ function run_test {
 
 function get_howmany {
     if [ "$TRAVIS" != "false" ]; then
-        howmany=10
+	if [ $# == 2 ]; then
+	    howmany=$2
+	else
+            howmany=10
+	fi
     else
         if [ $# == 0 ]; then
             howmany=100
@@ -309,11 +314,11 @@ if [ "$t" = "" -o "$t" = "io" ]; then
 fi
 
 if [ "$t" = "" -o "$t" = "ls" ]; then
-    create_files_parallel 2000
+    create_files_parallel 2000 2000
     for i in $(seq 1 $iter); do
-        run_test ls_files 2000
+        run_test ls_files 2000 2000
     done
-    rm_files 2000
+    rm_files 2000 2000
 fi
 
 if [ "$t" = "ls_create" ]; then

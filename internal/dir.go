@@ -427,7 +427,7 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 		}
 
 		if dh.lastFromCloud != nil && en.Name == *dh.lastFromCloud {
-			dh.lastFromCloud = &en.Name
+			dh.lastFromCloud = nil
 		}
 		return &en, nil
 	} else {

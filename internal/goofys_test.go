@@ -135,6 +135,7 @@ func (s *GoofysTest) selectTestConfig(t *C, flags *FlagStorage) (conf S3Config) 
 
 	if hasEnv("AWS") {
 		conf.Region = "us-west-2"
+		conf.Profile = os.Getenv("AWS")
 	} else if hasEnv("GCS") {
 		conf.Region = "us-west1"
 		conf.Profile = os.Getenv("GCS")
@@ -1250,7 +1251,6 @@ func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs .
 
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	cmd.Env = append(cmd.Env, os.Environ()...)
-	cmd.Env = append(cmd.Env, "TRAVIS=true")
 	cmd.Env = append(cmd.Env, "FAST=true")
 
 	if isTravis() {
@@ -1320,30 +1320,36 @@ func (s *GoofysTest) testExplicitDir(t *C) {
 }
 
 func (s *GoofysTest) TestBenchLs(t *C) {
+	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "ls")
 }
 
 func (s *GoofysTest) TestBenchCreate(t *C) {
+	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	mountPoint := "/tmp/mnt" + s.fs.bucket
-
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "create")
 }
 
 func (s *GoofysTest) TestBenchCreateParallel(t *C) {
+	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	mountPoint := "/tmp/mnt" + s.fs.bucket
-
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "create_parallel")
 }
 
 func (s *GoofysTest) TestBenchIO(t *C) {
+	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	mountPoint := "/tmp/mnt" + s.fs.bucket
-
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "io")
 }
 
 func (s *GoofysTest) TestBenchFindTree(t *C) {
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "find")
