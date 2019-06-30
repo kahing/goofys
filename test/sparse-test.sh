@@ -3,7 +3,7 @@
 set -o xtrace
 set -o errexit
 
-FILE=$1
+FILE=$1/sparse
 
 dd if=/dev/zero of=$FILE bs=1M count=5
 cp --sparse=always $FILE $FILE.2

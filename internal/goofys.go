@@ -972,7 +972,27 @@ func (fs *Goofys) SetInodeAttributes(
 
 	fs.mu.Lock()
 	inode := fs.getInodeOrDie(op.Inode)
-	fs.mu.Unlock()
+
+	if op.Size != nil {
+		if op.Handle == nil {
+			// we allow ftruncate(2) but not truncate(2)
+			fs.mu.Unlock()
+			return syscall.ENOTSUP
+		}
+
+		fh, ok := fs.fileHandles[*op.Handle]
+		if !ok {
+			panic(fmt.Sprintf("ftruncate: can't find handle %v", *op.Handle))
+		}
+		fs.mu.Unlock()
+
+		err = fh.Truncate(*op.Size)
+		if err != nil {
+			return
+		}
+	} else {
+		fs.mu.Unlock()
+	}
 
 	attr, err := inode.GetAttributes()
 	if err == nil {

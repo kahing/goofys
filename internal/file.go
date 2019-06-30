@@ -213,19 +213,79 @@ func (fh *FileHandle) uploadCurrentBuf(parallel bool) (err error) {
 	return
 }
 
+func (fh *FileHandle) Truncate(length uint64) (err error) {
+	fh.inode.logFuse("Truncate", length)
+
+	fh.mu.Lock()
+	defer fh.mu.Unlock()
+
+	if length < uint64(fh.nextWriteOffset) {
+		// we don't allow truncating to a smaller size
+		return syscall.ENOTSUP
+	} else if length > uint64(fh.nextWriteOffset) {
+		return fh.extend(length)
+	} else {
+		// nothing to do
+		return
+	}
+}
+
+func (fh *FileHandle) extend(length uint64) (err error) {
+	// generate fake writes to extend the file
+	nwrite := length - uint64(fh.nextWriteOffset)
+
+	buf := make([]byte, 128*1024)
+	for nwrite > 0 {
+		if nwrite >= uint64(len(buf)) {
+			err = fh.writeFile(fh.nextWriteOffset, buf)
+			if err != nil {
+				return
+			}
+			nwrite -= uint64(len(buf))
+		} else {
+			err = fh.writeFile(fh.nextWriteOffset, buf[:nwrite])
+			return
+		}
+	}
+	return
+}
+
 func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 	fh.inode.logFuse("WriteFile", offset, len(data))
 
 	fh.mu.Lock()
 	defer fh.mu.Unlock()
 
+	return fh.writeFileChecked(offset, data)
+}
+
+func (fh *FileHandle) writeFileChecked(offset int64, data []byte) (err error) {
 	if fh.lastWriteError != nil {
 		return fh.lastWriteError
 	}
 
-	if offset != fh.nextWriteOffset {
+	if offset < fh.nextWriteOffset {
 		fh.inode.errFuse("WriteFile: only sequential writes supported", fh.nextWriteOffset, offset)
 		fh.lastWriteError = syscall.ENOTSUP
+		return fh.lastWriteError
+	} else {
+		if offset > fh.nextWriteOffset {
+			err = fh.extend(uint64(offset))
+			if err != nil {
+				return
+			}
+			if offset != fh.nextWriteOffset {
+				panic(fmt.Sprintf("extend %v != %v", offset,
+					fh.nextWriteOffset))
+			}
+		}
+
+		return fh.writeFile(offset, data)
+	}
+}
+
+func (fh *FileHandle) writeFile(offset int64, data []byte) (err error) {
+	if fh.lastWriteError != nil {
 		return fh.lastWriteError
 	}
 
