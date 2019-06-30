@@ -5,7 +5,7 @@ import (
 	common "github.com/kahing/goofys/api/common"
 
 	"fmt"
-	"golang.org/x/net/context"
+	"context"
 )
 
 func main() {

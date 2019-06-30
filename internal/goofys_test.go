@@ -36,7 +36,7 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/net/context"
+	"context"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/corehandlers"

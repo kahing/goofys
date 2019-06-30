@@ -18,7 +18,7 @@ import (
 	. "github.com/kahing/goofys/api/common"
 	. "gopkg.in/check.v1"
 
-	"golang.org/x/net/context"
+	"context"
 
 	"github.com/aws/aws-sdk-go/service/s3"
 )
