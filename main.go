@@ -28,7 +28,7 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/net/context"
+	"context"
 
 	"github.com/jacobsa/fuse"
 	"github.com/kardianos/osext"
