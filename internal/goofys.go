@@ -219,7 +219,7 @@ func NewGoofys(ctx context.Context, bucket string, flags *FlagStorage) *Goofys {
 	fs.fileHandles = make(map[fuseops.HandleID]*FileHandle)
 
 	fs.replicators = Ticket{Total: 16}.Init()
-	fs.restorers = Ticket{Total: 8}.Init()
+	fs.restorers = Ticket{Total: 20}.Init()
 
 	return fs
 }

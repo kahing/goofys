@@ -53,7 +53,7 @@ type FileHandle struct {
 	numOOORead        uint64 // number of out of order read
 }
 
-const MAX_READAHEAD = uint32(100 * 1024 * 1024)
+const MAX_READAHEAD = uint32(400 * 1024 * 1024)
 const READAHEAD_CHUNK = uint32(20 * 1024 * 1024)
 
 func NewFileHandle(in *Inode) *FileHandle {
