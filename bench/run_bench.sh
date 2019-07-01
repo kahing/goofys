@@ -8,6 +8,9 @@ set -o pipefail
 : ${FAST:="false"}
 : ${CACHE:="false"}
 : ${ENDPOINT:="http://s3-us-west-2.amazonaws.com/"}
+: ${AWS_ACCESS_KEY_ID:=""}
+: ${AWS_SECRET_ACCESS_KEY:=""}
+: ${PROG:="riofs s3fs goofys"}
 
 if [ $# = 1 ]; then
     t=$1
@@ -19,11 +22,16 @@ dir=$(dirname $0)
 
 mkdir bench-mnt
 
+rm $dir/bench.goofys $dir/bench.s3fs $dir/bench.riofs
+
 if [ ! -f ~/.passwd-riofs ]; then
     echo "RioFS password file ~/.passwd-riofs missing"
-    exit 1;
+    PROG="s3fs goofys"
+    touch $dir/bench.riofs
+else
+    source ~/.passwd-riofs
+    perl -p -i -e 's/\$\{([^}]+)\}/defined $ENV{$1} ? $ENV{$1} : $&/eg' $dir/riofs.conf.xml
 fi
-source ~/.passwd-riofs
 
 S3FS_CACHE="-ouse_cache=/tmp/cache"
 GOOFYS_CACHE="--cache /tmp/cache -o allow_other"
@@ -36,19 +44,18 @@ fi
 S3FS_ENDPOINT="-ourl=$ENDPOINT"
 GOOFYS_ENDPOINT="--endpoint $ENDPOINT"
 
-if echo "${ENDPOINT}" | fgrep -q amazonaws.com; then
+if test "${AWS_ACCESS_KEY_ID}" = "" && echo "${ENDPOINT}" | fgrep -q amazonaws.com; then
     S3FS_ENDPOINT="${S3FS_ENDPOINT} -oiam_role=auto"
 else
     echo "${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}" > /etc/passwd-s3fs
     chmod 0400 /etc/passwd-s3fs
     S3FS_ENDPOINT="${S3FS_ENDPOINT} -ouse_path_request_style -osigv2"
     # s3proxy is broken https://github.com/andrewgaul/s3proxy/issues/240
-    GOOFYS_ENDPOINT="${GOOFYS_ENDPOINT} --cheap"
+    #GOOFYS_ENDPOINT="${GOOFYS_ENDPOINT} --cheap"
 fi
 
 export BUCKET
 export ENDPOINT
-perl -p -i -e 's/\$\{([^}]+)\}/defined $ENV{$1} ? $ENV{$1} : $&/eg' $dir/riofs.conf.xml
 
 S3FS="s3fs -f -ostat_cache_expire=1 ${S3FS_CACHE} ${S3FS_ENDPOINT} $BUCKET bench-mnt"
 RIOFS="riofs -f -c $dir/riofs.conf.xml $BUCKET bench-mnt"
@@ -60,7 +67,7 @@ if [ "$FAST" != "false" ]; then
     iter=1
 fi
 
-for fs in riofs s3fs goofys; do
+for fs in $PROG; do
     case $fs in
         s3fs)
             FS=$S3FS

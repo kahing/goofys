@@ -1,10 +1,11 @@
 #!/usr/bin/python
 
-import uncertainties
 import numpy
 import sys
 
 def filter_outliers(numbers, mean, std):
+    if len(numbers) == 1:
+        return numbers
     return filter(lambda x: abs(x - mean) < 2 * std, numbers)
 
 op_str = {
@@ -36,10 +37,10 @@ data = open(f).readlines()
 #print 'operation | goofys |  s3fs  | speedup'
 #print '----------| ------ | ------ | -------'
 
-table = [{}, {}, {}]
+table = [{}, {}]
 has_data = {}
 
-print '#operation,time'
+print('#operation,time')
 for l in data:
     dataset = l.strip().split('\t')
     for d in range(0, len(dataset)):
@@ -52,13 +53,13 @@ for l in data:
 
 for c in outputOrder:
     if c in has_data:
-        print op_str[c],
+        sys.stdout.write(op_str[c])
         for d in table:
             mean = numpy.mean(d[c])
             err = numpy.std(d[c])
             x = filter_outliers(d[c], mean, err)
-            print "\t%s\t%s\t%s" % (numpy.mean(x), numpy.min(x), numpy.max(x)),
-        print
+            sys.stdout.write("\t%s\t%s\t%s" % (numpy.mean(x), numpy.min(x), numpy.max(x)))
+        print("")
 
     # op = op_str[nums[0]]
 

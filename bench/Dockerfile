@@ -1,4 +1,5 @@
-FROM ubuntu:16.04
+FROM ubuntu:18.04
+ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get -y install --no-install-recommends \
             # s3fs dependencies \
@@ -17,9 +18,10 @@ RUN pip install uncertainties numpy
 WORKDIR /tmp
 
 ENV PATH=$PATH:/usr/local/go/bin
-RUN curl -O https://storage.googleapis.com/golang/go1.8.3.linux-amd64.tar.gz && \
-    tar -C /usr/local -xzf go1.8.3.linux-amd64.tar.gz && \
-    rm go1.8.3.linux-amd64.tar.gz
+ARG GOVER=1.12.6
+RUN curl -O https://storage.googleapis.com/golang/go${GOVER}.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go${GOVER}.linux-amd64.tar.gz && \
+    rm go${GOVER}.linux-amd64.tar.gz
 
 RUN git clone --depth 1 https://github.com/s3fs-fuse/s3fs-fuse.git && \
     cd s3fs-fuse && ./autogen.sh && ./configure && make -j4 > /dev/null && make install && \
@@ -29,7 +31,7 @@ RUN git clone --depth 1 https://github.com/skoobe/riofs && \
     cd riofs && ./autogen.sh && ./configure && make -j4 && make install && \
     cd .. && rm -Rf riofs
 
-RUN curl -L -O https://github.com/kahing/catfs/releases/download/v0.4.0/catfs && \
+RUN curl -L -O https://github.com/kahing/catfs/releases/download/v0.8.0/catfs && \
     mv catfs /usr/bin && chmod 0755 /usr/bin/catfs
 
 # ideally I want to clear out all the go deps too but there's no

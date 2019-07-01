@@ -262,7 +262,7 @@ fi
 
 function write_md5 {
     seed=$(dd if=/dev/urandom bs=128 count=1 status=none | base64 -w 0)
-    random_cmd="openssl enc -aes-256-ctr -pass pass:$seed -nosalt"
+    random_cmd="openssl enc -aes-256-ctr -pbkdf2 -pass pass:$seed -nosalt"
     count=1000
     if [ "$FAST" == "true" ]; then
         count=100
@@ -328,7 +328,7 @@ if [ "$t" = "ls_create" ]; then
 fi
 
 if [ "$t" = "ls_ls" ]; then
-    run_test ls_files 1000
+    run_test ls_files 1000 1000
 fi
 
 if [ "$t" = "ls_rm" ]; then
