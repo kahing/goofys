@@ -70,8 +70,6 @@ connected to a bucket in us-west-2. Units are seconds.
 
 ![Benchmark result](/bench/bench.png?raw=true "Benchmark")
 
-(†) riofs does not wait for HTTP response before returning from `release()`, so the create files benchmarks do not measure the right thing for it
-
 ## Benchmark with caching enabled
 
 Enabling `--cache` has little impact on write speed (since `catfs`
@@ -86,10 +84,9 @@ filesystems can be a viable approach.
 To run the benchmark, do:
 
 ```ShellSession
-$ cat > ~/.passwd-riofs
 export AWS_ACCESS_KEY_ID=AKID1234567890
 export AWS_SECRET_ACCESS_KEY=MY-SECRET-KEY
-$ sudo docker run -e BUCKET=$TESTBUCKET -e CACHE=false --rm --privileged --net=host -v  ~/.passwd-riofs:/root/.passwd-riofs -v /tmp/cache:/tmp/cache kahing/goofys-bench
+$ sudo docker run -e BUCKET=$TESTBUCKET -e CACHE=false --rm --privileged --net=host -v /tmp/cache:/tmp/cache kahing/goofys-bench
 # result will be written to $TESTBUCKET
 ```
 
