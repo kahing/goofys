@@ -84,8 +84,8 @@ filesystems can be a viable approach.
 To run the benchmark, do:
 
 ```ShellSession
-export AWS_ACCESS_KEY_ID=AKID1234567890
-export AWS_SECRET_ACCESS_KEY=MY-SECRET-KEY
+$ export AWS_ACCESS_KEY_ID=AKID1234567890
+$ export AWS_SECRET_ACCESS_KEY=MY-SECRET-KEY
 $ sudo docker run -e BUCKET=$TESTBUCKET -e CACHE=false --rm --privileged --net=host -v /tmp/cache:/tmp/cache kahing/goofys-bench
 # result will be written to $TESTBUCKET
 ```
