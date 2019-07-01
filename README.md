@@ -108,7 +108,7 @@ List of non-POSIX behaviors/limitations:
     * use `--(dir|file)-mode` or `--(uid|gid)` options
   * does not support symlink or hardlink
   * `ctime`, `atime` is always the same as `mtime`
-  * cannot rename non-empty directories
+  * cannot `rename` directories with more than 1000 children
   * `unlink` returns success even if file is not present
   * `fsync` is ignored, files are only flushed on `close`
 
