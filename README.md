@@ -70,31 +70,17 @@ connected to a bucket in us-west-2. Units are seconds.
 
 ![Benchmark result](/bench/bench.png?raw=true "Benchmark")
 
-## Benchmark with caching enabled
-
-Enabling `--cache` has little impact on write speed (since `catfs`
-implements a write-through cache) but read has a large variance. Time
-to first byte is competitive with `s3fs` which suggests layering fuse
-filesystems can be a viable approach.
-
-![Cached Benchmark result](/bench/bench-cached.png?raw=true "Cached Benchmark")
-
-
-<a name="runbenchmark"></a>
-To run the benchmark, do:
-
+To run the benchmark, configure EC2's instance role to be able to write to `$TESTBUCKET`, and then do:
 ```ShellSession
-$ export AWS_ACCESS_KEY_ID=AKID1234567890
-$ export AWS_SECRET_ACCESS_KEY=MY-SECRET-KEY
 $ sudo docker run -e BUCKET=$TESTBUCKET -e CACHE=false --rm --privileged --net=host -v /tmp/cache:/tmp/cache kahing/goofys-bench
 # result will be written to $TESTBUCKET
 ```
 
-if `CACHE` is set to `true`, the read benchmarks ('Read 1GB' and 'Time to 1st byte') will be cached read.
+See also: [cached benchmark result](https://github.com/kahing/goofys/blob/master/bench/cache/) and [result on Azure](https://github.com/kahing/goofys/blob/master/bench/azure/).
 
 # License
 
-Copyright (C) 2015 - 2018 Ka-Hing Cheung
+Copyright (C) 2015 - 2019 Ka-Hing Cheung
 
 Licensed under the Apache License, Version 2.0
 

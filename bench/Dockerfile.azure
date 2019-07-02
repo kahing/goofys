@@ -1,12 +1,12 @@
 FROM ubuntu:18.04
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
-    apt-get -y install --no-install-recommends \
-            # s3fs dependencies \
-            automake autotools-dev fuse g++ git libcurl4-gnutls-dev libfuse-dev \
-            libssl-dev libxml2-dev make pkg-config \
+    apt-get -y install --no-install-recommends git fuse \
+            # blobfuse dependencies \
+	    pkg-config libfuse-dev cmake libcurl4-gnutls-dev libgnutls28-dev uuid-dev \
+	    libgcrypt20-dev gcc g++ \
             # for running goofys benchmark \
-            curl python-setuptools python-pip gnuplot-nox imagemagick awscli \
+            curl python-setuptools python-pip gnuplot-nox imagemagick \
             # finally, clean up to make image smaller \
             && apt-get clean
 # goofys graph generation
@@ -20,9 +20,10 @@ RUN curl -O https://storage.googleapis.com/golang/go${GOVER}.linux-amd64.tar.gz 
     tar -C /usr/local -xzf go${GOVER}.linux-amd64.tar.gz && \
     rm go${GOVER}.linux-amd64.tar.gz
 
-RUN git clone --depth 1 https://github.com/s3fs-fuse/s3fs-fuse.git && \
-    cd s3fs-fuse && ./autogen.sh && ./configure && make -j8 > /dev/null && make install && \
-    cd .. && rm -Rf s3fs-fuse
+ARG MAKEFLAGS=-j8
+RUN git clone --depth 1 https://github.com/Azure/azure-storage-fuse.git && \
+    cd azure-storage-fuse && ./build.sh > /dev/null && make -C build install && \
+    cd .. && rm -Rf azure-storage-fuse
 
 RUN curl -L -O https://github.com/kahing/catfs/releases/download/v0.8.0/catfs && \
     mv catfs /usr/bin && chmod 0755 /usr/bin/catfs

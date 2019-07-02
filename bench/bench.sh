@@ -42,6 +42,12 @@ else
     RIOFS="false"
 fi
 
+if [[ "$cmd" == blobfuse* ]]; then
+    BLOBFUSE="true"
+else
+    BLOBFUSE="false"
+fi
+
 $cmd >& mount.log &
 PID=$!
 
@@ -81,7 +87,7 @@ function cleanup_err {
 trap cleanup EXIT
 trap cleanup_err ERR
 
-if [ "$TRAVIS" == "false" -a "$cmd" != "cat" ]; then
+function wait_for_mount {
     for i in $(seq 1 10); do
         if grep -q $mnt /proc/mounts; then
             break
@@ -93,6 +99,10 @@ if [ "$TRAVIS" == "false" -a "$cmd" != "cat" ]; then
         cat mount.log
         exit 1
     fi
+}
+
+if [ "$TRAVIS" == "false" -a "$cmd" != "cat" ]; then
+    wait_for_mount
     MOUNTED=1
 else
     # in travis we mount things externally so we know we are mounted
@@ -121,13 +131,23 @@ function run_test {
     drop_cache
     sleep 2
     if [ "$CACHE" == "false" ]; then
-        # make sure riofs cache get cleared
         if [ -d /tmp/cache ]; then
-            cache=$(ls -1 /tmp/cache)
-            rm -Rf /tmp/cache 2>/dev/null || true
-            mkdir -p /tmp/cache/$cache
+            rm -Rf /tmp/cache/*
         fi
+	if [ "$BLOBFUSE" == "true" ]; then
+	    popd >/dev/null
+	    # re-mount blobfuse to cleanup cache
+	    if [ "$PID" != "" ]; then
+		fusermount -u $mnt
+		sleep 1
+	    fi
+	    $cmd >& mount.log &
+	    PID=$!
+	    wait_for_mount
+	    pushd "$prefix" >/dev/null
+	fi
     fi
+
     echo -n "$test "
     if [ $# -gt 1 ]; then
         time $test $@
@@ -204,11 +224,7 @@ function create_tree_parallel {
 
 function rm_tree {
     for i in $(seq 1 9); do
-        if [ "$TRAVIS" != "false" ]; then
-            rm -Rf $i
-        else
-            rm -Rf $i >& /dev/null || true # riofs doesn't support rmdir
-        fi
+        rm -Rf $i
     done
 }
 

@@ -3,8 +3,7 @@
 reset
 #fontsize = 12
 set terminal pngcairo crop size 1000,640
-set output "bench/bench.png"
-
+set output ARG2
 #set key at graph 0.24, 0.8 horizontal samplen 0.1
 
 set key at graph 0.0, 0.8 horizontal samplen 0.1
@@ -23,9 +22,8 @@ set y2label 'Time (seconds)' offset -2.5
 set xlabel ' '
 set size 1, 1
 
-set label 1 'goofys' at graph -0.75, 0.8 left rotate by 90
-set label 2 's3fs' at graph -0.45, 0.8 left rotate by 90
-set label 3 'riofs' at graph -0.13, 0.8 left rotate by 90
+set label 1 ARG3 at graph -0.40, 0.8 left rotate by 90
+set label 2 ARG4 at graph -0.13, 0.8 left rotate by 90
 
 set lmargin at screen 0.1
 
@@ -39,9 +37,8 @@ set origin 0.0,0.1
 set size 0.31,0.8
 set xrange [5.5:7.8]
 
-plot 'bench/bench.data' using 2:3:4 title " ", \
+plot ARG1 using 2:3:4 title " ", \
      '' using 5:6:7 title " ", \
-     '' using 8:9:10 title " ", \
      '' using 0:(0):xticlabel(1) w l title ''
 
 set key off
@@ -54,19 +51,17 @@ set origin 0.255,0.1
 set size 0.5,0.8
 set xrange [-1:5.8]
 
-plot 'bench/bench.data' using 2:3:4 title " ", \
+plot ARG1 using 2:3:4 title " ", \
      '' using 5:6:7 title " ", \
-     '' using 8:9:10 title " ", \
      '' using 0:(0):xticlabel(1) w l title ''
 
 set origin 0.7,0.1
 set size 0.175,0.8
 set xrange [7.5:8.7]
-set yrange [0:1.1]
+#set yrange [0:4.0]
 
-plot 'bench/bench.data' using 2:3:4 title " ", \
+plot ARG1 using 2:3:4 title " ", \
      '' using 5:6:7 title " ", \
-     '' using 8:9:10 title " ", \
      '' using 0:(0):xticlabel(1) w l title ''
 
 unset multiplot
