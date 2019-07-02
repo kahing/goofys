@@ -254,45 +254,46 @@ func AzureBlobConfig(endpoint string) (config AZBlobConfig, err error) {
 	if endpoint == "" || key == "" {
 		var client azblob.AccountsClient
 		client, err = azureAccountsClient(account)
-		if err != nil {
-			return
-		}
-
-		var resourceGroup string
-		endpoint, resourceGroup, err = azureFindAccount(client, account)
-		if err != nil {
-			endpoint = "https://" + account + ".blob." +
-				azure.PublicCloud.StorageEndpointSuffix
-			azbLog.Debugf("Unable to detect endpoint for account %v, using %v",
-				account, endpoint)
-
-			if key == "" {
-				err = fmt.Errorf("Missing key: configure via AZURE_STORAGE_KEY "+
-					"or %v/config", configDir)
-				return
-			}
-		}
-		azbLog.Debugf("Using detected account endpoint: %v", endpoint)
-
-		if key == "" {
-			var keysRes azblob.AccountListKeysResult
-			keysRes, err = client.ListKeys(context.TODO(), resourceGroup, account)
-			if err != nil || len(*keysRes.Keys) == 0 {
-				err = fmt.Errorf("Missing key: configure via AZURE_STORAGE_KEY "+
-					"or %v/config", configDir)
-				return
-			}
-
-			// prefer full permission keys
-			for _, k := range *keysRes.Keys {
-				if k.Permissions == azblob.Full {
-					key = *k.Value
-					break
+		if err == nil {
+			var resourceGroup string
+			endpoint, resourceGroup, err = azureFindAccount(client, account)
+			if err != nil {
+				if key == "" {
+					err = fmt.Errorf("Missing key: configure via AZURE_STORAGE_KEY "+
+						"or %v/config", configDir)
+					return
 				}
 			}
-			// if not just take the first one
-			key = *(*keysRes.Keys)[0].Value
+			azbLog.Debugf("Using detected account endpoint: %v", endpoint)
+
+			if key == "" {
+				var keysRes azblob.AccountListKeysResult
+				keysRes, err = client.ListKeys(context.TODO(), resourceGroup, account)
+				if err != nil || len(*keysRes.Keys) == 0 {
+					err = fmt.Errorf("Missing key: configure via AZURE_STORAGE_KEY "+
+						"or %v/config", configDir)
+					return
+				}
+
+				// prefer full permission keys
+				for _, k := range *keysRes.Keys {
+					if k.Permissions == azblob.Full {
+						key = *k.Value
+						break
+					}
+				}
+				// if not just take the first one
+				key = *(*keysRes.Keys)[0].Value
+			}
 		}
+		err = nil
+	}
+
+	if endpoint == "" {
+		endpoint = "https://" + account + ".blob." +
+			azure.PublicCloud.StorageEndpointSuffix
+		azbLog.Debugf("Unable to detect endpoint for account %v, using %v",
+			account, endpoint)
 	}
 
 	config.Init()
