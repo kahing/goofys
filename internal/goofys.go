@@ -96,61 +96,65 @@ var log = GetLogger("main")
 var fuseLog = GetLogger("fuse")
 
 func NewBackend(bucket string, flags *FlagStorage) (cloud StorageBackend, err error) {
-	if flags.Backend == nil {
-		flags.Backend = (&S3Config{}).Init()
-	}
-
-	if config, ok := flags.Backend.(*AZBlobConfig); ok {
+	if config, ok := flags.BackendConfig.(*AZBlobConfig); ok {
 		cloud, err = NewAZBlob(bucket, config)
-	} else if config, ok := flags.Backend.(*ADLv1Config); ok {
+	} else if config, ok := flags.BackendConfig.(*ADLv1Config); ok {
 		cloud, err = NewADLv1(bucket, flags, config)
-	} else if config, ok := flags.Backend.(*S3Config); ok {
+	} else if config, ok := flags.BackendConfig.(*S3Config); ok {
 		if strings.HasSuffix(flags.Endpoint, "/storage.googleapis.com") {
 			cloud = NewGCS3(bucket, flags, config)
 		} else {
 			cloud = NewS3(bucket, flags, config)
 		}
 	} else {
-		err = fmt.Errorf("Unknown backend config: %T", flags.Backend)
+		err = fmt.Errorf("Unknown backend config: %T", flags.BackendConfig)
 	}
 
 	return
 }
 
-type BucketSpec struct {
-	Scheme string
-	Bucket string
-	Prefix string
-}
-
-func ParseBucketSpec(bucket string) (spec BucketSpec, err error) {
-	if strings.Index(bucket, "://") != -1 {
-		var u *url.URL
-		u, err = url.Parse(bucket)
+// FillBackendConfig creates config backend in the flags due to
+// the backend-storage flag
+func FillBackendConfig(bucketName string, flags *FlagStorage) error {
+	switch flags.Backend {
+	case "azure-data-lake":
+		auth, err := AzureAuthorizerConfig{}.Authorizer()
 		if err != nil {
-			return
+			return fmt.Errorf("couldn't load azure credentials: %v", err)
+		}
+		flags.BackendConfig = &ADLv1Config{
+			Endpoint:   bucketName,
+			Authorizer: auth,
+		}
+	case "azure-blob-storage":
+		config, err := AzureBlobConfig(flags.Endpoint)
+		if err != nil {
+			return err
+		}
+		flags.BackendConfig = &config
+	default:
+		config := (&S3Config{}).Init()
+
+		config.Region = flags.Region
+		config.RegionSet = flags.RegionSet
+		config.RequesterPays = flags.RequesterPays
+		config.StorageClass = flags.StorageClass
+		config.Profile = flags.Profile
+		config.UseSSE = flags.UseSSE
+		config.UseKMS = flags.UseKMS
+		config.KMSKeyID = flags.KMSKeyID
+		config.ACL = flags.ACL
+		config.Subdomain = flags.Subdomain
+
+		// KMS implies SSE
+		if config.UseKMS {
+			config.UseSSE = true
 		}
 
-		spec.Scheme = u.Scheme
-		spec.Bucket = u.Host
-		spec.Prefix = u.Path
-	} else {
-		spec.Scheme = "s3"
-
-		colon := strings.Index(bucket, ":")
-		if colon != -1 {
-			spec.Prefix = bucket[colon+1:]
-			spec.Bucket = bucket[0:colon]
-		} else {
-			spec.Bucket = bucket
-		}
+		flags.BackendConfig = config
 	}
 
-	spec.Prefix = strings.Trim(spec.Prefix, "/")
-	if spec.Prefix != "" {
-		spec.Prefix += "/"
-	}
-	return
+	return nil
 }
 
 func NewGoofys(ctx context.Context, bucket string, flags *FlagStorage) *Goofys {

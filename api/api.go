@@ -40,39 +40,9 @@ func Mount(
 		mountCfg.DebugLogger = GetStdLogger(fuseLog, logrus.DebugLevel)
 	}
 
-	if flags.Backend == nil {
-		if spec, err := internal.ParseBucketSpec(bucketName); err == nil {
-			switch spec.Scheme {
-			case "adl":
-				auth, err := AzureAuthorizerConfig{}.Authorizer()
-				if err != nil {
-					err = fmt.Errorf("couldn't load azure credentials: %v",
-						err)
-					return nil, nil, err
-				}
-				flags.Backend = &ADLv1Config{
-					Endpoint:   spec.Bucket,
-					Authorizer: auth,
-				}
-				// adlv1 doesn't really have bucket
-				// names, but we will rebuild the
-				// prefix
-				bucketName = ""
-				if spec.Prefix != "" {
-					bucketName = ":" + spec.Prefix
-				}
-			case "wasb":
-				config, err := AzureBlobConfig(flags.Endpoint)
-				if err != nil {
-					return nil, nil, err
-				}
-				flags.Backend = &config
-				bucketName = spec.Bucket
-				if spec.Prefix != "" {
-					bucketName = ":" + spec.Prefix
-				}
-			}
-		}
+	err = internal.FillBackendConfig(bucketName, flags)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	fs = NewGoofys(ctx, bucketName, flags)

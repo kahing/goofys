@@ -107,6 +107,12 @@ func NewApp() (app *cli.App) {
 			},
 
 			cli.StringFlag{
+				Name: "storage-backend",
+				Usage: "Select storage backend: s3, azure-blob-storage, " +
+					"azure-data-lake. (default: s3)",
+			},
+
+			cli.StringFlag{
 				Name: "cache",
 				Usage: "Directory to use for data cache. " +
 					"Requires catfs and `-o allow_other'. " +
@@ -328,6 +334,7 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		HTTPTimeout:  c.Duration("http-timeout"),
 
 		// Common Backend Config
+		Backend:        c.String("storage-backend"),
 		Endpoint:       c.String("endpoint"),
 		UseContentType: c.Bool("use-content-type"),
 
@@ -335,6 +342,22 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		DebugFuse:  c.Bool("debug_fuse"),
 		DebugS3:    c.Bool("debug_s3"),
 		Foreground: c.Bool("f"),
+
+		// S3
+		Region:        c.String("region"),
+		RegionSet:     c.IsSet("region"),
+		RequesterPays: c.Bool("requester-pays"),
+		StorageClass:  c.String("storage-class"),
+		Profile:       c.String("profile"),
+		UseSSE:        c.Bool("sse"),
+		UseKMS:        c.IsSet("sse-kms"),
+		KMSKeyID:      c.String("sse-kms"),
+		ACL:           c.String("acl"),
+		Subdomain:     c.Bool("subdomain"),
+	}
+
+	if flags.Backend == "" {
+		flags.Backend = "s3"
 	}
 
 	// S3
@@ -342,10 +365,10 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		c.IsSet("profile") || c.IsSet("sse") || c.IsSet("sse-kms") ||
 		c.IsSet("acl") || c.IsSet("subdomain") {
 
-		if flags.Backend == nil {
-			flags.Backend = (&S3Config{}).Init()
+		if flags.BackendConfig == nil {
+			flags.BackendConfig = (&S3Config{}).Init()
 		}
-		config, _ := flags.Backend.(*S3Config)
+		config, _ := flags.BackendConfig.(*S3Config)
 
 		config.Region = c.String("region")
 		config.RegionSet = c.IsSet("region")

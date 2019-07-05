@@ -37,10 +37,10 @@ type FlagStorage struct {
 	Gid      uint32
 
 	// Common Backend Config
-	UseContentType bool
+	BackendConfig  interface{}
+	Backend        string
 	Endpoint       string
-
-	Backend interface{}
+	UseContentType bool
 
 	// Tuning
 	Cheap        bool
@@ -53,6 +53,18 @@ type FlagStorage struct {
 	DebugFuse  bool
 	DebugS3    bool
 	Foreground bool
+
+	// S3
+	Region        string
+	RegionSet     bool
+	RequesterPays bool
+	StorageClass  string
+	Profile       string
+	UseSSE        bool
+	UseKMS        bool
+	KMSKeyID      string
+	ACL           string
+	Subdomain     bool
 }
 
 func (flags *FlagStorage) GetMimeType(fileName string) (retMime *string) {
