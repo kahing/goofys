@@ -106,9 +106,9 @@ func NewBackend(bucket string, flags *FlagStorage) (cloud StorageBackend, err er
 		cloud, err = NewADLv1(bucket, flags, config)
 	} else if config, ok := flags.Backend.(*S3Config); ok {
 		if strings.HasSuffix(flags.Endpoint, "/storage.googleapis.com") {
-			cloud = NewGCS3(bucket, flags, config)
+			cloud, err = NewGCS3(bucket, flags, config)
 		} else {
-			cloud = NewS3(bucket, flags, config)
+			cloud, err = NewS3(bucket, flags, config)
 		}
 	} else {
 		err = fmt.Errorf("Unknown backend config: %T", flags.Backend)
@@ -499,7 +499,7 @@ func mapAwsError(err error) error {
 			if err != nil {
 				return err
 			} else {
-				s3Log.Errorf("code=%v msg=%v request=%v\n", reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
+				s3Log.Errorf("code=%v %v msg=%v request=%v\n", reqErr.Message(), reqErr.StatusCode(), awsErr.Code(), reqErr.RequestID())
 				return reqErr
 			}
 		} else {

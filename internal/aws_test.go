@@ -28,9 +28,11 @@ type AwsTest struct {
 var _ = Suite(&AwsTest{})
 
 func (s *AwsTest) SetUpSuite(t *C) {
-	s.s3 = NewS3("", &FlagStorage{}, &S3Config{
+	var err error
+	s.s3, err = NewS3("", &FlagStorage{}, &S3Config{
 		Region: "us-east-1",
 	})
+	t.Assert(err, IsNil)
 }
 
 func (s *AwsTest) TestRegionDetection(t *C) {

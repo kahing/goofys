@@ -193,6 +193,12 @@ func NewApp() (app *cli.App) {
 				Value: "",
 			},
 
+			cli.StringFlag{
+				Name:  "sse-c",
+				Usage: "Enable server-side encryption using this base64-encoded key (default: off)",
+				Value: "",
+			},
+
 			/// http://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html#canned-acl
 			cli.StringFlag{
 				Name:  "acl",
@@ -265,7 +271,7 @@ func NewApp() (app *cli.App) {
 
 	flagCategories = map[string]string{}
 
-	for _, f := range []string{"region", "sse", "sse-kms", "storage-class", "acl", "requester-pays"} {
+	for _, f := range []string{"region", "sse", "sse-kms", "sse-c", "storage-class", "acl", "requester-pays"} {
 		flagCategories[f] = "aws"
 	}
 
@@ -340,7 +346,7 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 	// S3
 	if c.IsSet("region") || c.IsSet("requester-pays") || c.IsSet("storage-class") ||
 		c.IsSet("profile") || c.IsSet("sse") || c.IsSet("sse-kms") ||
-		c.IsSet("acl") || c.IsSet("subdomain") {
+		c.IsSet("sse-c") || c.IsSet("acl") || c.IsSet("subdomain") {
 
 		if flags.Backend == nil {
 			flags.Backend = (&S3Config{}).Init()
@@ -355,6 +361,7 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		config.UseSSE = c.Bool("sse")
 		config.UseKMS = c.IsSet("sse-kms")
 		config.KMSKeyID = c.String("sse-kms")
+		config.SseC = c.String("sse-c")
 		config.ACL = c.String("acl")
 		config.Subdomain = c.Bool("subdomain")
 

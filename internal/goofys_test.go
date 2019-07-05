@@ -295,7 +295,9 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		conf := s.selectTestConfig(t, flags)
 		flags.Backend = &conf
 
-		s3 := NewS3(bucket, flags, &conf)
+		s3, err := NewS3(bucket, flags, &conf)
+		t.Assert(err, IsNil)
+
 		s.cloud = s3
 		s3.aws = hasEnv("AWS")
 
@@ -304,15 +306,17 @@ func (s *GoofysTest) SetUpTest(t *C) {
 			s3.Handlers.Sign.PushBack(SignV2)
 			s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
 		}
-		_, err := s3.ListBuckets(nil)
+		_, err = s3.ListBuckets(nil)
 		t.Assert(err, IsNil)
 
 	} else if cloud == "gcs" {
 		conf := s.selectTestConfig(t, flags)
 		flags.Backend = &conf
 
-		s.cloud = NewGCS3(bucket, flags, &conf)
+		var err error
+		s.cloud, err = NewGCS3(bucket, flags, &conf)
 		t.Assert(s.cloud, NotNil)
+		t.Assert(err, IsNil)
 	} else if cloud == "azblob" {
 		config, err := AzureBlobConfig(os.Getenv("ENDPOINT"))
 		t.Assert(err, IsNil)
@@ -2602,7 +2606,9 @@ func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud S
 	switch s.cloud.(type) {
 	case *S3Backend:
 		config, _ := s.fs.flags.Backend.(*S3Config)
-		cloud = NewS3(bucket, s.fs.flags, config)
+		cloud, err = NewS3(bucket, s.fs.flags, config)
+		t.Assert(err, IsNil)
+
 		if s3, ok := cloud.(*S3Backend); ok {
 			s3.aws = hasEnv("AWS")
 
@@ -2614,7 +2620,7 @@ func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud S
 		}
 	case *GCS3:
 		config, _ := s.fs.flags.Backend.(*S3Config)
-		cloud = NewGCS3(bucket, s.fs.flags, config)
+		cloud, err = NewGCS3(bucket, s.fs.flags, config)
 		t.Assert(err, IsNil)
 	case *AZBlob:
 		config, _ := s.fs.flags.Backend.(*AZBlobConfig)
@@ -2834,7 +2840,9 @@ func (s *GoofysTest) TestMountsError(t *C) {
 		flags := *s3.flags
 		config := *s3.config
 		flags.Endpoint = "0.0.0.0:0"
-		cloud = NewS3(bucket, &flags, &config)
+		var err error
+		cloud, err = NewS3(bucket, &flags, &config)
+		t.Assert(err, IsNil)
 	} else if _, ok := s.cloud.(*ADLv1); ok {
 		cloud = s.newBackend(t, bucket, true)
 		adlCloud, _ := cloud.(*ADLv1)

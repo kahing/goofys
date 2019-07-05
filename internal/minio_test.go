@@ -43,8 +43,11 @@ func (s *MinioTest) SetUpSuite(t *C) {
 		Backend:  conf,
 	}
 
-	s.s3 = NewS3("", &s.flags, conf)
-	_, err := s.s3.ListBuckets(nil)
+	var err error
+	s.s3, err = NewS3("", &s.flags, conf)
+	t.Assert(err, IsNil)
+
+	_, err = s.s3.ListBuckets(nil)
 	t.Assert(err, IsNil)
 }
 

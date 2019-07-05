@@ -51,11 +51,10 @@ type S3Backend struct {
 	v2Signer bool
 }
 
-func NewS3(bucket string, flags *FlagStorage, config *S3Config) *S3Backend {
+func NewS3(bucket string, flags *FlagStorage, config *S3Config) (*S3Backend, error) {
 	awsConfig, err := config.ToAwsConfig(flags)
 	if err != nil {
-		s3Log.Errorf("Unable to get aws config: %v", err)
-		return nil
+		return nil, err
 	}
 	s := &S3Backend{
 		bucket:    bucket,
@@ -77,7 +76,7 @@ func NewS3(bucket string, flags *FlagStorage, config *S3Config) *S3Backend {
 	}
 
 	s.newS3()
-	return s
+	return s, nil
 }
 
 func (s *S3Backend) Capabilities() *Capabilities {
@@ -335,10 +334,17 @@ func metadataToLower(m map[string]*string) map[string]*string {
 }
 
 func (s *S3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
-	resp, err := s.S3.HeadObject(&s3.HeadObjectInput{
+	head := s3.HeadObjectInput{
 		Bucket: &s.bucket,
 		Key:    &param.Key,
-	})
+	}
+	if s.config.SseC != "" {
+		head.SSECustomerAlgorithm = PString("AES256")
+		head.SSECustomerKey = &s.config.SseC
+		head.SSECustomerKeyMD5 = &s.config.SseCDigest
+	}
+
+	resp, err := s.S3.HeadObject(&head)
 	if err != nil {
 		return nil, mapAwsError(err)
 	}
@@ -454,6 +460,14 @@ func (s *S3Backend) mpuCopyPart(from string, to string, mpuId string, bytes stri
 		CopySourceIfMatch: srcEtag,
 		PartNumber:        &part,
 	}
+	if s.config.SseC != "" {
+		params.SSECustomerAlgorithm = PString("AES256")
+		params.SSECustomerKey = &s.config.SseC
+		params.SSECustomerKeyMD5 = &s.config.SseCDigest
+		params.CopySourceSSECustomerAlgorithm = PString("AES256")
+		params.CopySourceSSECustomerKey = &s.config.SseC
+		params.CopySourceSSECustomerKeyMD5 = &s.config.SseCDigest
+	}
 
 	s3Log.Debug(params)
 
@@ -532,6 +546,10 @@ func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuI
 			if s.config.UseKMS && s.config.KMSKeyID != "" {
 				params.SSEKMSKeyId = &s.config.KMSKeyID
 			}
+		} else if s.config.SseC != "" {
+			params.SSECustomerAlgorithm = PString("AES256")
+			params.SSECustomerKey = &s.config.SseC
+			params.SSECustomerKeyMD5 = &s.config.SseCDigest
 		}
 
 		if s.config.ACL != "" {
@@ -640,6 +658,13 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 		if s.config.UseKMS && s.config.KMSKeyID != "" {
 			params.SSEKMSKeyId = &s.config.KMSKeyID
 		}
+	} else if s.config.SseC != "" {
+		params.SSECustomerAlgorithm = PString("AES256")
+		params.SSECustomerKey = &s.config.SseC
+		params.SSECustomerKeyMD5 = &s.config.SseCDigest
+		params.CopySourceSSECustomerAlgorithm = PString("AES256")
+		params.CopySourceSSECustomerKey = &s.config.SseC
+		params.CopySourceSSECustomerKeyMD5 = &s.config.SseCDigest
 	}
 
 	if s.config.ACL != "" {
@@ -659,6 +684,12 @@ func (s *S3Backend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 	get := s3.GetObjectInput{
 		Bucket: &s.bucket,
 		Key:    &param.Key,
+	}
+
+	if s.config.SseC != "" {
+		get.SSECustomerAlgorithm = PString("AES256")
+		get.SSECustomerKey = &s.config.SseC
+		get.SSECustomerKeyMD5 = &s.config.SseCDigest
 	}
 
 	if param.Start != 0 || param.Count != 0 {
@@ -713,6 +744,10 @@ func (s *S3Backend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 		if s.config.UseKMS && s.config.KMSKeyID != "" {
 			put.SSEKMSKeyId = &s.config.KMSKeyID
 		}
+	} else if s.config.SseC != "" {
+		put.SSECustomerAlgorithm = PString("AES256")
+		put.SSECustomerKey = &s.config.SseC
+		put.SSECustomerKeyMD5 = &s.config.SseCDigest
 	}
 
 	if s.config.ACL != "" {
@@ -742,6 +777,10 @@ func (s *S3Backend) MultipartBlobBegin(param *MultipartBlobBeginInput) (*Multipa
 		if s.config.UseKMS && s.config.KMSKeyID != "" {
 			mpu.SSEKMSKeyId = &s.config.KMSKeyID
 		}
+	} else if s.config.SseC != "" {
+		mpu.SSECustomerAlgorithm = PString("AES256")
+		mpu.SSECustomerKey = &s.config.SseC
+		mpu.SSECustomerKeyMD5 = &s.config.SseCDigest
 	}
 
 	if s.config.ACL != "" {
@@ -773,7 +812,11 @@ func (s *S3Backend) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBl
 		UploadId:   param.Commit.UploadId,
 		Body:       param.Body,
 	}
-
+	if s.config.SseC != "" {
+		params.SSECustomerAlgorithm = PString("AES256")
+		params.SSECustomerKey = &s.config.SseC
+		params.SSECustomerKeyMD5 = &s.config.SseCDigest
+	}
 	s3Log.Debug(params)
 
 	resp, err := s.UploadPart(&params)

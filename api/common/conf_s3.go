@@ -15,6 +15,9 @@
 package common
 
 import (
+	"crypto/md5"
+	"encoding/base64"
+	"fmt"
 	"net"
 	"net/http"
 	"time"
@@ -41,10 +44,12 @@ type S3Config struct {
 
 	StorageClass string
 
-	UseSSE   bool
-	UseKMS   bool
-	KMSKeyID string
-	ACL      string
+	UseSSE     bool
+	UseKMS     bool
+	KMSKeyID   string
+	SseC       string
+	SseCDigest string
+	ACL        string
 
 	Subdomain bool
 
@@ -127,6 +132,17 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 
 	if c.Credentials != nil {
 		awsConfig.Credentials = c.Credentials
+	}
+
+	if c.SseC != "" {
+		key, err := base64.StdEncoding.DecodeString(c.SseC)
+		if err != nil {
+			return nil, fmt.Errorf("sse-c is not base64-encoded: %v", err)
+		}
+
+		c.SseC = string(key)
+		m := md5.Sum(key)
+		c.SseCDigest = base64.StdEncoding.EncodeToString(m[:])
 	}
 
 	return awsConfig, nil

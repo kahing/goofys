@@ -40,13 +40,15 @@ type GCSMultipartBlobCommitInput struct {
 	Prev *MultipartBlobAddInput
 }
 
-func NewGCS3(bucket string, flags *FlagStorage, config *S3Config) *GCS3 {
-	s := &GCS3{
-		S3Backend: NewS3(bucket, flags, config),
+func NewGCS3(bucket string, flags *FlagStorage, config *S3Config) (*GCS3, error) {
+	s3Backend, err := NewS3(bucket, flags, config)
+	if err != nil {
+		return nil, err
 	}
+	s := &GCS3{S3Backend: s3Backend}
 	s.S3Backend.gcs = true
 	s.S3Backend.cap.NoParallelMultipart = true
-	return s
+	return s, nil
 }
 
 func (s *GCS3) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error) {
