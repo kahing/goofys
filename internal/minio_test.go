@@ -39,8 +39,8 @@ func (s *MinioTest) SetUpSuite(t *C) {
 		SecretKey: "zuf+tfteSlswRu7BJ86wekitnifILbZam1KYY3TG",
 	}).Init()
 	s.flags = FlagStorage{
-		Endpoint: "https://play.minio.io:9000",
-		Backend:  conf,
+		Endpoint:      "https://play.minio.io:9000",
+		BackendConfig: conf,
 	}
 
 	s.s3 = NewS3("", &s.flags, conf)

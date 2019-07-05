@@ -293,7 +293,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		s.waitForEmulator(t)
 
 		conf := s.selectTestConfig(t, flags)
-		flags.Backend = &conf
+		flags.BackendConfig = &conf
 
 		s3 := NewS3(bucket, flags, &conf)
 		s.cloud = s3
@@ -309,7 +309,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 
 	} else if cloud == "gcs" {
 		conf := s.selectTestConfig(t, flags)
-		flags.Backend = &conf
+		flags.BackendConfig = &conf
 
 		s.cloud = NewGCS3(bucket, flags, &conf)
 		t.Assert(s.cloud, NotNil)
@@ -359,7 +359,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 			}
 		}
 
-		flags.Backend = &config
+		flags.BackendConfig = &config
 
 		s.cloud, err = NewAZBlob(bucket, &config)
 		t.Assert(err, IsNil)
@@ -378,7 +378,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		}
 		config.Init()
 
-		flags.Backend = &config
+		flags.BackendConfig = &config
 
 		s.cloud, err = NewADLv1(bucket, flags, &config)
 		t.Assert(err, IsNil)
@@ -2601,7 +2601,7 @@ func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud S
 	var err error
 	switch s.cloud.(type) {
 	case *S3Backend:
-		config, _ := s.fs.flags.Backend.(*S3Config)
+		config, _ := s.fs.flags.BackendConfig.(*S3Config)
 		cloud = NewS3(bucket, s.fs.flags, config)
 		if s3, ok := cloud.(*S3Backend); ok {
 			s3.aws = hasEnv("AWS")
@@ -2613,15 +2613,15 @@ func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud S
 			}
 		}
 	case *GCS3:
-		config, _ := s.fs.flags.Backend.(*S3Config)
+		config, _ := s.fs.flags.BackendConfig.(*S3Config)
 		cloud = NewGCS3(bucket, s.fs.flags, config)
 		t.Assert(err, IsNil)
 	case *AZBlob:
-		config, _ := s.fs.flags.Backend.(*AZBlobConfig)
+		config, _ := s.fs.flags.BackendConfig.(*AZBlobConfig)
 		cloud, err = NewAZBlob(bucket, config)
 		t.Assert(err, IsNil)
 	case *ADLv1:
-		config, _ := s.fs.flags.Backend.(*ADLv1Config)
+		config, _ := s.fs.flags.BackendConfig.(*ADLv1Config)
 		cloud, err = NewADLv1(bucket, s.fs.flags, config)
 		t.Assert(err, IsNil)
 	default:
