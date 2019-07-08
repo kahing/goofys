@@ -78,7 +78,7 @@ $ sudo docker run -e BUCKET=$TESTBUCKET -e CACHE=false --rm --privileged --net=h
 # result will be written to $TESTBUCKET
 ```
 
-See also: [cached benchmark result](https://github.com/kahing/goofys/blob/master/bench/cache/) and [result on Azure](https://github.com/kahing/goofys/blob/master/bench/azure/).
+See also: [cached benchmark result](https://github.com/kahing/goofys/blob/master/bench/cache/README.md) and [result on Azure](https://github.com/kahing/goofys/blob/master/bench/azure/README.md).
 
 # License
 
