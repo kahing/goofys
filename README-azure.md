@@ -40,3 +40,12 @@ $ az account list
 $ az account set --subscription <name or id>
 $ $GOPATH/bin/goofys wasb://container@myaccount.blob.core.windows.net <mountpoint>
 ```
+
+# Azure Data Lake Storage Gen1
+
+Follow the Azure CLI login sequence from above, and then:
+
+```ShellSession
+$ $GOPATH/bin/goofys  adl://servicename.azuredatalakestore.net <mountpoint>
+$ $GOPATH/bin/goofys  adl://servicename.azuredatalakestore.net:prefix <mountpoint>
+```
