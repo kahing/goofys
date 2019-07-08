@@ -224,6 +224,19 @@ func AzureBlobConfig(endpoint string) (config AZBlobConfig, err error) {
 	key := os.Getenv("AZURE_STORAGE_KEY")
 	configDir := os.Getenv("AZURE_CONFIG_DIR")
 
+	if endpoint != "" {
+		var u *url.URL
+		u, err = url.Parse(endpoint)
+		if err != nil {
+			return
+		}
+
+		dot := strings.Index(u.Hostname(), ".")
+		if dot != -1 {
+			account = u.Hostname()[:dot]
+		}
+	}
+
 	if account == "" || key == "" {
 		if configDir == "" {
 			configDir, _ = homedir.Expand("~/.azure")
