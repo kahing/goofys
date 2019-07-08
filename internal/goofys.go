@@ -133,6 +133,11 @@ func ParseBucketSpec(bucket string) (spec BucketSpec, err error) {
 
 		spec.Scheme = u.Scheme
 		spec.Bucket = u.Host
+		if u.User != nil {
+			// wasb url can be wasb://container@storage-end-point
+			// we want to return the entire thing as bucket
+			spec.Bucket = u.User.String() + "@" + u.Host
+		}
 		spec.Prefix = u.Path
 	} else {
 		spec.Scheme = "s3"

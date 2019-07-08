@@ -41,6 +41,9 @@ type AZBlobConfig struct {
 	AccountKey       string
 	SasToken         SASTokenProvider
 	TokenRenewBuffer time.Duration
+
+	Container string
+	Prefix    string
 }
 
 func (config *AZBlobConfig) Init() {
@@ -219,11 +222,25 @@ func azureFindAccount(client azblob.AccountsClient, account string) (string, str
 	return "", "", fmt.Errorf("Azure account not found: %v", account)
 }
 
-func AzureBlobConfig(endpoint string) (config AZBlobConfig, err error) {
+func AzureBlobConfig(endpoint string, wasb string) (config AZBlobConfig, err error) {
 	account := os.Getenv("AZURE_STORAGE_ACCOUNT")
 	key := os.Getenv("AZURE_STORAGE_KEY")
 	configDir := os.Getenv("AZURE_CONFIG_DIR")
 
+	// check if the wasb url contains the storage endpoint
+	at := strings.Index(wasb, "@")
+	if at != -1 {
+		storageEndpoint := "https://" + wasb[at+1:]
+		u, urlErr := url.Parse(storageEndpoint)
+		if urlErr == nil {
+			// if it's valid, then it overrides --endpoint
+			endpoint = storageEndpoint
+			config.Container = wasb[:at]
+			config.Prefix = strings.Trim(u.Path, "/")
+		}
+	}
+
+	// parse account from endpoint
 	if endpoint != "" {
 		var u *url.URL
 		u, err = url.Parse(endpoint)

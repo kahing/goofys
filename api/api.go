@@ -62,14 +62,21 @@ func Mount(
 					bucketName = ":" + spec.Prefix
 				}
 			case "wasb":
-				config, err := AzureBlobConfig(flags.Endpoint)
+				config, err := AzureBlobConfig(flags.Endpoint, spec.Bucket)
 				if err != nil {
 					return nil, nil, err
 				}
 				flags.Backend = &config
-				bucketName = spec.Bucket
+				if config.Container != "" {
+					bucketName = config.Container
+				} else {
+					bucketName = spec.Bucket
+				}
+				if config.Prefix != "" {
+					spec.Prefix = config.Prefix
+				}
 				if spec.Prefix != "" {
-					bucketName = ":" + spec.Prefix
+					bucketName += ":" + spec.Prefix
 				}
 			}
 		}
