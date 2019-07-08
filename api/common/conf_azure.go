@@ -58,7 +58,10 @@ type ADLv1Config struct {
 func (config *ADLv1Config) Init() {
 }
 
-type AzureAuthorizerConfig struct{}
+type AzureAuthorizerConfig struct {
+	Log      *LogHandle
+	TenantId string
+}
 
 var azbLog = GetLogger("azblob")
 var adls1Log = GetLogger("adlv1")
@@ -121,6 +124,14 @@ func msiToAuthorizer(mc auth.MSIConfig) (autorest.Authorizer, error) {
 }
 
 func (c AzureAuthorizerConfig) Authorizer() (autorest.Authorizer, error) {
+	if c.TenantId == "" {
+		defaultSubscription, err := azureDefaultSubscription()
+		if err != nil {
+			return nil, err
+		}
+		c.TenantId = defaultSubscription.TenantID
+	}
+
 	env, err := auth.GetSettingsFromEnvironment()
 	if err != nil {
 		return nil, err
@@ -145,55 +156,68 @@ func (c AzureAuthorizerConfig) Authorizer() (autorest.Authorizer, error) {
 	if env.Values[auth.ActiveDirectoryEndpoint] == "" {
 		env.Values[auth.ActiveDirectoryEndpoint] = env.Environment.ActiveDirectoryEndpoint
 	}
-	resourceEndpoint := env.Values[auth.Resource]
+	adEndpoint := strings.Trim(env.Values[auth.ActiveDirectoryEndpoint], "/") +
+		"/" + c.TenantId
+	c.Log.Debugf("looking for access token for %v", adEndpoint)
 
 	accessTokensPath, err := cli.AccessTokensPath()
 	if err == nil {
 		accessTokens, err := cli.LoadTokens(accessTokensPath)
 		if err == nil {
 			for _, t := range accessTokens {
-				if t.Resource == resourceEndpoint {
-
-					authorizer, err := tokenToAuthorizer(&t)
+				if t.Authority == adEndpoint {
+					c.Log.Debugf("found token for %v %v", t.Resource, t.Authority)
+					var authorizer autorest.Authorizer
+					authorizer, err = tokenToAuthorizer(&t)
 					if err == nil {
 						return authorizer, nil
 					}
 				}
 			}
 		}
-		adls1Log.Errorf("%v", err)
+		if err != nil {
+			return nil, err
+		}
 	}
 
+	c.Log.Debug("falling back to MSI")
 	return msiToAuthorizer(env.GetMSI())
+}
+
+func azureDefaultSubscription() (*cli.Subscription, error) {
+	profilePath, err := cli.ProfilePath()
+	if err != nil {
+		return nil, err
+	}
+
+	profile, err := cli.LoadProfile(profilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, s := range profile.Subscriptions {
+		if s.IsDefault {
+			return &s, nil
+		}
+	}
+
+	return nil, fmt.Errorf("Unable to find default azure subscription id")
 }
 
 func azureAccountsClient(account string) (azblob.AccountsClient, error) {
 	var c azblob.AccountsClient
 
-	profilePath, err := cli.ProfilePath()
+	defaultSubscription, err := azureDefaultSubscription()
 	if err != nil {
 		return c, err
 	}
 
-	profile, err := cli.LoadProfile(profilePath)
-	if err != nil {
-		return c, err
-	}
+	c = azblob.NewAccountsClient(defaultSubscription.ID)
 
-	var subscriptionId string
-	for _, s := range profile.Subscriptions {
-		if s.IsDefault {
-			subscriptionId = s.ID
-			break
-		}
-	}
-
-	if subscriptionId == "" {
-		return c, fmt.Errorf("Unable to find default azure subscription id")
-	}
-
-	c = azblob.NewAccountsClient(subscriptionId)
-	authorizer, err := AzureAuthorizerConfig{}.Authorizer()
+	authorizer, err := AzureAuthorizerConfig{
+		Log:      azbLog,
+		TenantId: defaultSubscription.TenantID,
+	}.Authorizer()
 	if err != nil {
 		return c, err
 	}
@@ -315,8 +339,9 @@ func AzureBlobConfig(endpoint string, wasb string) (config AZBlobConfig, err err
 				// if not just take the first one
 				key = *(*keysRes.Keys)[0].Value
 			}
+		} else {
+			return
 		}
-		err = nil
 	}
 
 	if endpoint == "" {

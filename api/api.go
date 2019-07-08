@@ -44,7 +44,9 @@ func Mount(
 		if spec, err := internal.ParseBucketSpec(bucketName); err == nil {
 			switch spec.Scheme {
 			case "adl":
-				auth, err := AzureAuthorizerConfig{}.Authorizer()
+				auth, err := AzureAuthorizerConfig{
+					Log: GetLogger("adlv1"),
+				}.Authorizer()
 				if err != nil {
 					err = fmt.Errorf("couldn't load azure credentials: %v",
 						err)
