@@ -318,7 +318,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		t.Assert(s.cloud, NotNil)
 		t.Assert(err, IsNil)
 	} else if cloud == "azblob" {
-		config, err := AzureBlobConfig(os.Getenv("ENDPOINT"))
+		config, err := AzureBlobConfig(os.Getenv("ENDPOINT"), "")
 		t.Assert(err, IsNil)
 
 		if config.Endpoint == AzuriteEndpoint {

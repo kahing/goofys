@@ -265,7 +265,7 @@ func AzureBlobConfig(endpoint string, wasb string) (config AZBlobConfig, err err
 	}
 
 	// parse account from endpoint
-	if endpoint != "" {
+	if endpoint != "" && endpoint != "http://127.0.0.1:8080/devstoreaccount1/" {
 		var u *url.URL
 		u, err = url.Parse(endpoint)
 		if err != nil {
