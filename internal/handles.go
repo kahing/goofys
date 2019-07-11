@@ -913,6 +913,7 @@ func sealPastDirs(dirs map[*Inode]bool, d *Inode) {
 	dirs[d] = false
 }
 
+// LOCKS_REQUIRED(fs.mu)
 // LOCKS_REQUIRED(parent.mu)
 // LOCKS_REQUIRED(parent.fs.mu)
 func (parent *Inode) insertSubTree(path string, obj *BlobItemOutput, dirs map[*Inode]bool) {

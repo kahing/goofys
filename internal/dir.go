@@ -173,7 +173,9 @@ func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *ListBlobsOutput, err
 
 		slash := strings.Index(baseName, "/")
 		if slash != -1 {
+			inode.fs.mu.Lock()
 			inode.insertSubTree(baseName, &obj, dirs)
+			inode.fs.mu.Unlock()
 		}
 	}
 
