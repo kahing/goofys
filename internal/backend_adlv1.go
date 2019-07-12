@@ -152,6 +152,7 @@ func NewADLv1(bucket string, flags *FlagStorage, config *ADLv1Config) (*ADLv1, e
 		cap: Capabilities{
 			NoParallelMultipart: true,
 			DirBlob:             true,
+			Name:                "adl",
 		},
 	}
 

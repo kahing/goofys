@@ -123,6 +123,7 @@ func NewAZBlob(container string, config *AZBlobConfig) (*AZBlob, error) {
 		config: config,
 		cap: Capabilities{
 			MaxMultipartSize: 100 * 1024 * 1024,
+			Name:             "wasb",
 		},
 		pipeline:         p,
 		bucket:           container,

@@ -30,6 +30,7 @@ type Capabilities struct {
 	MaxMultipartSize    uint64
 	// indicates that the blob store has native support for directories
 	DirBlob bool
+	Name    string
 }
 
 type HeadBlobInput struct {

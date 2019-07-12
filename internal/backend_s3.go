@@ -61,6 +61,9 @@ func NewS3(bucket string, flags *FlagStorage, config *S3Config) (*S3Backend, err
 		awsConfig: awsConfig,
 		flags:     flags,
 		config:    config,
+		cap: Capabilities{
+			Name: "s3",
+		},
 	}
 
 	if flags.DebugS3 {
