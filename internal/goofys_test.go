@@ -1585,6 +1585,9 @@ func (s *GoofysTest) anonymous(t *C) {
 	s3, ok := cloud.(*S3Backend)
 	t.Assert(ok, Equals, true)
 
+	if s3.config.Profile != "" {
+		t.Skip("anonymous access is disabled with profile")
+	}
 	t.Assert(s3.awsConfig.Credentials, Equals, credentials.AnonymousCredentials)
 }
 
