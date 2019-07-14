@@ -751,7 +751,7 @@ func (inode *Inode) GetXattr(name string) ([]byte, error) {
 
 	value, ok := meta[name]
 	if ok {
-		return []byte(value), nil
+		return value, nil
 	} else {
 		return nil, syscall.ENODATA
 	}
@@ -777,6 +777,8 @@ func (inode *Inode) ListXattr() ([]string, error) {
 	for k, _ := range inode.userMetadata {
 		xattrs = append(xattrs, "user."+k)
 	}
+
+	sort.Strings(xattrs)
 
 	return xattrs, nil
 }

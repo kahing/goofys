@@ -763,7 +763,8 @@ func (s *S3Backend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 	}
 
 	return &PutBlobOutput{
-		ETag: resp.ETag,
+		ETag:         resp.ETag,
+		StorageClass: &storageClass,
 	}, nil
 }
 

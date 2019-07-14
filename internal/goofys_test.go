@@ -255,6 +255,10 @@ func (s *GoofysTest) setupEnv(t *C, env map[string]io.ReadSeeker, public bool) {
 	_, err := s.cloud.MakeBucket(&MakeBucketInput{})
 	t.Assert(err, IsNil)
 
+	if !s.emulator {
+		time.Sleep(time.Second)
+	}
+
 	s.setupBlobs(t, env)
 
 	t.Log("setupEnv done")
@@ -750,12 +754,26 @@ func (s *GoofysTest) testWriteFileAt(t *C, fileName string, offset int64, size i
 	var fh *FileHandle
 	root := s.getRoot(t)
 
-	if offset == 0 {
-		_, fh = root.Create(fileName)
-	} else {
-		in, err := root.LookUp(fileName)
-		t.Assert(err, IsNil)
+	lookup := fuseops.LookUpInodeOp{
+		Parent: root.Id,
+		Name:   fileName,
+	}
+	err := s.fs.LookUpInode(nil, &lookup)
+	if err != nil {
+		if err == fuse.ENOENT {
+			create := fuseops.CreateFileOp{
+				Parent: root.Id,
+				Name:   fileName,
+			}
+			err = s.fs.CreateFile(nil, &create)
+			t.Assert(err, IsNil)
 
+			fh = s.fs.fileHandles[create.Handle]
+		} else {
+			t.Assert(err, IsNil)
+		}
+	} else {
+		in := s.fs.inodes[lookup.Entry.Child]
 		fh, err = in.OpenFile()
 		t.Assert(err, IsNil)
 	}
@@ -778,7 +796,7 @@ func (s *GoofysTest) testWriteFileAt(t *C, fileName string, offset int64, size i
 		nwritten += int64(nread)
 	}
 
-	err := fh.FlushFile()
+	err = fh.FlushFile()
 	t.Assert(err, IsNil)
 
 	resp, err := s.cloud.HeadBlob(&HeadBlobInput{Key: fileName})
@@ -1808,6 +1826,17 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 
 		ia, err := s.LookUpInode(t, "ia")
 		t.Assert(err, IsNil)
+
+		names, err = ia.ListXattr()
+		t.Assert(names, DeepEquals, []string{"s3.etag", "s3.storage-class"})
+
+		value, err = ia.GetXattr("s3.storage-class")
+		t.Assert(err, IsNil)
+		// smaller than 128KB falls back to standard
+		t.Assert(string(value), Equals, "STANDARD")
+
+		s.testWriteFile(t, "ia", 128*1024, 128*1024)
+		time.Sleep(100 * time.Millisecond)
 
 		names, err = ia.ListXattr()
 		t.Assert(names, DeepEquals, []string{"s3.etag", "s3.storage-class"})

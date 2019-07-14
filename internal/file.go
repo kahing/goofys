@@ -585,7 +585,7 @@ func (fh *FileHandle) flushSmallFile() (err error) {
 	defer fs.replicators.Return(1)
 
 	cloud, key := fh.cloud()
-	_, err = cloud.PutBlob(&PutBlobInput{
+	resp, err := cloud.PutBlob(&PutBlobInput{
 		Key:         key,
 		Body:        buf,
 		Size:        PUInt64(uint64(buf.Len())),
@@ -593,6 +593,16 @@ func (fh *FileHandle) flushSmallFile() (err error) {
 	})
 	if err != nil {
 		fh.lastWriteError = err
+	} else {
+		inode := fh.inode
+		inode.mu.Lock()
+		defer inode.mu.Unlock()
+		if resp.ETag != nil {
+			inode.s3Metadata["etag"] = []byte(*resp.ETag)
+		}
+		if resp.StorageClass != nil {
+			inode.s3Metadata["storage-class"] = []byte(*resp.StorageClass)
+		}
 	}
 	return
 }

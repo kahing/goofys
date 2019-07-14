@@ -133,7 +133,8 @@ type PutBlobInput struct {
 }
 
 type PutBlobOutput struct {
-	ETag *string
+	ETag         *string
+	StorageClass *string
 }
 
 type MultipartBlobBeginInput struct {
