@@ -2971,3 +2971,32 @@ func (s *GoofysTest) testMountsNested(t *C, cloud StorageBackend,
 
 	s.assertEntries(t, in, []string{"in"})
 }
+
+func (s *GoofysTest) TestRmImplicitDir(t *C) {
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	s.mount(t, mountPoint)
+	defer s.umount(t, mountPoint)
+
+	defer os.Chdir("/")
+
+	dir, err := os.Open(mountPoint + "/dir2")
+	t.Assert(err, IsNil)
+	defer dir.Close()
+
+	err = dir.Chdir()
+	t.Assert(err, IsNil)
+
+	err = os.RemoveAll(mountPoint + "/dir2")
+	t.Assert(err, IsNil)
+
+	root, err := os.Open(mountPoint)
+	t.Assert(err, IsNil)
+	defer root.Close()
+
+	files, err := root.Readdirnames(0)
+	t.Assert(err, IsNil)
+	t.Assert(files, DeepEquals, []string{
+		"dir1", "dir4", "empty_dir", "empty_dir2", "file1", "file2", "zero",
+	})
+}

@@ -238,7 +238,6 @@ func (dh *DirHandle) listObjects(prefix string) (resp *ListBlobsOutput, err erro
 	if dh.Marker == nil &&
 		fs.flags.TypeCacheTTL != 0 &&
 		(parent != nil && parent.dir.seqOpenDirScore >= 2) {
-		fuseLog.Infof("slurp objects %v", prefix)
 		go func() {
 			resp, err := dh.listObjectsSlurp(prefix)
 			if err != nil {

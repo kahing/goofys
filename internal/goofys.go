@@ -584,7 +584,12 @@ func (fs *Goofys) LookUpInode(
 		var newInode *Inode
 
 		newInode, err = parent.LookUp(op.Name)
-		if err != nil {
+		if err == fuse.ENOENT && inode != nil && inode.isDir() {
+			// we may not be able to look up an implicit
+			// dir if all the children are removed, so we
+			// just pretend this dir is still around
+			err = nil
+		} else if err != nil {
 			if inode != nil {
 				// just kidding! pretend we didn't up the ref
 				fs.mu.Lock()
@@ -612,10 +617,12 @@ func (fs *Goofys) LookUpInode(
 			}
 			parent.mu.Unlock()
 		} else {
-			if newInode.Attributes.Mtime.IsZero() {
-				newInode.Attributes.Mtime = inode.Attributes.Mtime
+			if newInode != nil {
+				if newInode.Attributes.Mtime.IsZero() {
+					newInode.Attributes.Mtime = inode.Attributes.Mtime
+				}
+				inode.Attributes = newInode.Attributes
 			}
-			inode.Attributes = newInode.Attributes
 			inode.AttrTime = time.Now()
 		}
 	}

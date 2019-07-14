@@ -409,6 +409,10 @@ func (parent *Inode) Unlink(name string) (err error) {
 	_, err = cloud.DeleteBlob(&DeleteBlobInput{
 		Key: key,
 	})
+	if err == fuse.ENOENT {
+		// this might have been deleted out of band
+		err = nil
+	}
 	if err != nil {
 		return
 	}
@@ -534,20 +538,20 @@ func (parent *Inode) RmDir(name string) (err error) {
 	if err != nil {
 		return
 	}
-	if !isDir {
-		return fuse.ENOENT
-	}
+	// if this was an implicit dir, isEmptyDir would have returned
+	// isDir = false
+	if isDir {
+		cloud, key := parent.cloud()
+		key = appendChildName(key, name) + "/"
 
-	cloud, key := parent.cloud()
-	key = appendChildName(key, name) + "/"
+		params := DeleteBlobInput{
+			Key: key,
+		}
 
-	params := DeleteBlobInput{
-		Key: key,
-	}
-
-	_, err = cloud.DeleteBlob(&params)
-	if err != nil {
-		return
+		_, err = cloud.DeleteBlob(&params)
+		if err != nil {
+			return
+		}
 	}
 
 	// we know this entry is gone
