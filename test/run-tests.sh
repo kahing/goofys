@@ -25,9 +25,14 @@ if [ $CLOUD == "s3" ]; then
     rm -Rf /tmp/s3proxy
     mkdir -p /tmp/s3proxy
 
-    : ${LOG_LEVEL:="warn"}
-    export LOG_LEVEL
-    PROXY_BIN="java -jar s3proxy.jar --properties test/s3proxy.properties"
+    AWS_PROFILE=${AWS:-}
+    if [ "$AWS_PROFILE" == "" ]; then
+	: ${LOG_LEVEL:="warn"}
+	export LOG_LEVEL
+	PROXY_BIN="java -jar s3proxy.jar --properties test/s3proxy.properties"
+    else
+	export AWS
+    fi
 elif [ $CLOUD == "azblob" ]; then
     : ${AZURE_STORAGE_ACCOUNT:="devstoreaccount1"}
     : ${AZURE_STORAGE_KEY:="Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="}
