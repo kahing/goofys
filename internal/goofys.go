@@ -60,7 +60,7 @@ type Goofys struct {
 
 	// A lock protecting the state of the file system struct itself (distinct
 	// from per-inode locks). Make sure to see the notes on lock ordering above.
-	mu sync.Mutex
+	mu sync.RWMutex
 
 	// The next inode ID to hand out. We assume that this will never overflow,
 	// since even if we were handing out inode IDs at 4 GHz, it would still take
@@ -256,17 +256,17 @@ func RandStringBytesMaskImprSrc(n int) string {
 }
 
 func (fs *Goofys) SigUsr1() {
-	fs.mu.Lock()
+	fs.mu.RLock()
 
 	log.Infof("forgot %v inodes", fs.forgotCnt)
 	log.Infof("%v inodes", len(fs.inodes))
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 	debug.FreeOSMemory()
 }
 
 // Find the given inode. Panic if it doesn't exist.
 //
-// LOCKS_REQUIRED(fs.mu)
+// RLOCKS_REQUIRED(fs.mu)
 func (fs *Goofys) getInodeOrDie(id fuseops.InodeID) (inode *Inode) {
 	inode = fs.inodes[id]
 	if inode == nil {
@@ -355,9 +355,9 @@ func (fs *Goofys) mount(mp *Inode, b *Mount) {
 }
 
 func (fs *Goofys) MountAll(mounts []*Mount) {
-	fs.mu.Lock()
+	fs.mu.RLock()
 	root := fs.getInodeOrDie(fuseops.RootInodeID)
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	for _, m := range mounts {
 		fs.mount(root, m)
@@ -386,9 +386,9 @@ func (fs *Goofys) GetInodeAttributes(
 	ctx context.Context,
 	op *fuseops.GetInodeAttributesOp) (err error) {
 
-	fs.mu.Lock()
+	fs.mu.RLock()
 	inode := fs.getInodeOrDie(op.Inode)
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	attr, err := inode.GetAttributes()
 	if err == nil {
@@ -401,9 +401,9 @@ func (fs *Goofys) GetInodeAttributes(
 
 func (fs *Goofys) GetXattr(ctx context.Context,
 	op *fuseops.GetXattrOp) (err error) {
-	fs.mu.Lock()
+	fs.mu.RLock()
 	inode := fs.getInodeOrDie(op.Inode)
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	value, err := inode.GetXattr(op.Name)
 	if err != nil {
@@ -422,9 +422,9 @@ func (fs *Goofys) GetXattr(ctx context.Context,
 
 func (fs *Goofys) ListXattr(ctx context.Context,
 	op *fuseops.ListXattrOp) (err error) {
-	fs.mu.Lock()
+	fs.mu.RLock()
 	inode := fs.getInodeOrDie(op.Inode)
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	xattrs, err := inode.ListXattr()
 
@@ -452,9 +452,9 @@ func (fs *Goofys) ListXattr(ctx context.Context,
 
 func (fs *Goofys) RemoveXattr(ctx context.Context,
 	op *fuseops.RemoveXattrOp) (err error) {
-	fs.mu.Lock()
+	fs.mu.RLock()
 	inode := fs.getInodeOrDie(op.Inode)
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	err = inode.RemoveXattr(op.Name)
 
@@ -463,9 +463,9 @@ func (fs *Goofys) RemoveXattr(ctx context.Context,
 
 func (fs *Goofys) SetXattr(ctx context.Context,
 	op *fuseops.SetXattrOp) (err error) {
-	fs.mu.Lock()
+	fs.mu.RLock()
 	inode := fs.getInodeOrDie(op.Inode)
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	err = inode.SetXattr(op.Name, op.Value, op.Flags)
 	return
@@ -552,12 +552,11 @@ func (fs *Goofys) LookUpInode(
 	var ok bool
 	defer func() { fuseLog.Debugf("<-- LookUpInode %v %v %v", op.Parent, op.Name, err) }()
 
-	fs.mu.Lock()
+	fs.mu.RLock()
 	parent := fs.getInodeOrDie(op.Parent)
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	parent.mu.Lock()
-	fs.mu.Lock()
 	inode = parent.findChildUnlockedFull(op.Name)
 	if inode != nil {
 		ok = true
@@ -579,7 +578,6 @@ func (fs *Goofys) LookUpInode(
 	} else {
 		ok = false
 	}
-	fs.mu.Unlock()
 	parent.mu.Unlock()
 
 	if !ok {
@@ -672,25 +670,24 @@ func (fs *Goofys) addDotAndDotDot(dir *Inode) {
 	fs.insertInode(dir, dot)
 }
 
-// LOCKS_EXCLUDED(fs.mu)
 func (fs *Goofys) ForgetInode(
 	ctx context.Context,
 	op *fuseops.ForgetInodeOp) (err error) {
 
-	fs.mu.Lock()
+	fs.mu.RLock()
 	inode := fs.getInodeOrDie(op.Inode)
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	if inode.Parent != nil {
 		inode.Parent.mu.Lock()
 		defer inode.Parent.mu.Unlock()
 	}
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
 	stale := inode.DeRef(op.N)
 
 	if stale {
+		fs.mu.Lock()
+		defer fs.mu.Unlock()
+
 		delete(fs.inodes, op.Inode)
 		fs.forgotCnt += 1
 
@@ -734,15 +731,14 @@ func makeDirEntry(en *DirHandleEntry) fuseutil.Dirent {
 	}
 }
 
-// LOCKS_EXCLUDED(fs.mu)
 func (fs *Goofys) ReadDir(
 	ctx context.Context,
 	op *fuseops.ReadDirOp) (err error) {
 
 	// Find the handle.
-	fs.mu.Lock()
+	fs.mu.RLock()
 	dh := fs.dirHandles[op.Handle]
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	if dh == nil {
 		panic(fmt.Sprintf("can't find dh=%v", op.Handle))
@@ -800,9 +796,9 @@ func (fs *Goofys) ReleaseDirHandle(
 func (fs *Goofys) OpenFile(
 	ctx context.Context,
 	op *fuseops.OpenFileOp) (err error) {
-	fs.mu.Lock()
+	fs.mu.RLock()
 	in := fs.getInodeOrDie(op.Inode)
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	fh, err := in.OpenFile()
 	if err != nil {
@@ -827,9 +823,9 @@ func (fs *Goofys) ReadFile(
 	ctx context.Context,
 	op *fuseops.ReadFileOp) (err error) {
 
-	fs.mu.Lock()
+	fs.mu.RLock()
 	fh := fs.fileHandles[op.Handle]
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	op.BytesRead, err = fh.ReadFile(op.Offset, op.Dst)
 
@@ -849,9 +845,9 @@ func (fs *Goofys) FlushFile(
 	ctx context.Context,
 	op *fuseops.FlushFileOp) (err error) {
 
-	fs.mu.Lock()
+	fs.mu.RLock()
 	fh := fs.fileHandles[op.Handle]
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	err = fh.FlushFile()
 	if err != nil {
@@ -860,9 +856,9 @@ func (fs *Goofys) FlushFile(
 		// until TypeCacheTTL is over
 		// TODO: figure out a way to make the kernel forget this inode
 		// see TestWriteAnonymousFuse
-		fs.mu.Lock()
+		fs.mu.RLock()
 		inode := fs.getInodeOrDie(op.Inode)
-		fs.mu.Unlock()
+		fs.mu.RUnlock()
 
 		if inode.KnownSize == nil {
 			inode.AttrTime = time.Time{}
@@ -896,9 +892,9 @@ func (fs *Goofys) CreateFile(
 	ctx context.Context,
 	op *fuseops.CreateFileOp) (err error) {
 
-	fs.mu.Lock()
+	fs.mu.RLock()
 	parent := fs.getInodeOrDie(op.Parent)
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	inode, fh := parent.Create(op.Name)
 
@@ -932,9 +928,9 @@ func (fs *Goofys) MkDir(
 	ctx context.Context,
 	op *fuseops.MkDirOp) (err error) {
 
-	fs.mu.Lock()
+	fs.mu.RLock()
 	parent := fs.getInodeOrDie(op.Parent)
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	// ignore op.Mode for now
 	inode, err := parent.MkDir(op.Name)
@@ -962,9 +958,9 @@ func (fs *Goofys) RmDir(
 	ctx context.Context,
 	op *fuseops.RmDirOp) (err error) {
 
-	fs.mu.Lock()
+	fs.mu.RLock()
 	parent := fs.getInodeOrDie(op.Parent)
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	err = parent.RmDir(op.Name)
 	parent.logFuse("<-- RmDir", op.Name, err)
@@ -975,9 +971,9 @@ func (fs *Goofys) SetInodeAttributes(
 	ctx context.Context,
 	op *fuseops.SetInodeAttributesOp) (err error) {
 
-	fs.mu.Lock()
+	fs.mu.RLock()
 	inode := fs.getInodeOrDie(op.Inode)
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	attr, err := inode.GetAttributes()
 	if err == nil {
@@ -991,13 +987,13 @@ func (fs *Goofys) WriteFile(
 	ctx context.Context,
 	op *fuseops.WriteFileOp) (err error) {
 
-	fs.mu.Lock()
+	fs.mu.RLock()
 
 	fh, ok := fs.fileHandles[op.Handle]
 	if !ok {
 		panic(fmt.Sprintf("WriteFile: can't find handle %v", op.Handle))
 	}
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	err = fh.WriteFile(op.Offset, op.Data)
 
@@ -1008,9 +1004,9 @@ func (fs *Goofys) Unlink(
 	ctx context.Context,
 	op *fuseops.UnlinkOp) (err error) {
 
-	fs.mu.Lock()
+	fs.mu.RLock()
 	parent := fs.getInodeOrDie(op.Parent)
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	err = parent.Unlink(op.Name)
 	return
@@ -1022,10 +1018,10 @@ func (fs *Goofys) Rename(
 	ctx context.Context,
 	op *fuseops.RenameOp) (err error) {
 
-	fs.mu.Lock()
+	fs.mu.RLock()
 	parent := fs.getInodeOrDie(op.OldParent)
 	newParent := fs.getInodeOrDie(op.NewParent)
-	fs.mu.Unlock()
+	fs.mu.RUnlock()
 
 	// XXX don't hold the lock the entire time
 	if op.OldParent == op.NewParent {
@@ -1081,16 +1077,4 @@ func (fs *Goofys) Rename(
 		}
 	}
 	return
-}
-
-// GetFullName returns full name of the given inode
-func (fs *Goofys) GetFullName(id fuseops.InodeID) *string {
-	fs.mu.Lock()
-	inode := fs.inodes[id]
-	fs.mu.Unlock()
-	if inode == nil {
-		return nil
-	}
-	return inode.FullName()
-
 }

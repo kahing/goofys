@@ -167,17 +167,20 @@ func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *ListBlobsOutput, err
 		return
 	}
 
+	inode.mu.Lock()
+	inode.fs.mu.Lock()
+
 	dirs := make(map[*Inode]bool)
 	for _, obj := range resp.Items {
 		baseName := (*obj.Key)[len(reqPrefix):]
 
 		slash := strings.Index(baseName, "/")
 		if slash != -1 {
-			inode.fs.mu.Lock()
 			inode.insertSubTree(baseName, &obj, dirs)
-			inode.fs.mu.Unlock()
 		}
 	}
+	inode.fs.mu.Unlock()
+	inode.mu.Unlock()
 
 	for d, sealed := range dirs {
 		if d == dh.inode {
@@ -235,6 +238,7 @@ func (dh *DirHandle) listObjects(prefix string) (resp *ListBlobsOutput, err erro
 	if dh.Marker == nil &&
 		fs.flags.TypeCacheTTL != 0 &&
 		(parent != nil && parent.dir.seqOpenDirScore >= 2) {
+		fuseLog.Infof("slurp objects %v", prefix)
 		go func() {
 			resp, err := dh.listObjectsSlurp(prefix)
 			if err != nil {

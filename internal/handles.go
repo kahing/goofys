@@ -387,7 +387,6 @@ func (inode *Inode) Ref() {
 	return
 }
 
-// LOCKS_REQUIRED(fs.mu)
 func (inode *Inode) DeRef(n uint64) (stale bool) {
 	inode.logFuse("DeRef", n, inode.refcnt)
 
@@ -925,8 +924,20 @@ func (parent *Inode) insertSubTree(path string, obj *BlobItemOutput, dirs map[*I
 			inode = NewInode(fs, parent, &path)
 			inode.refcnt = 0
 			fs.insertInode(parent, inode)
+			inode.SetFromBlobItem(obj)
+		} else {
+			// our locking order is most specific lock
+			// first, ie: lock a/b before a/. But here we
+			// already have a/ and also global lock. For
+			// new inode we don't care about that
+			// violation because no one else will take
+			// that lock anyway
+			fs.mu.Unlock()
+			parent.mu.Unlock()
+			inode.SetFromBlobItem(obj)
+			parent.mu.Lock()
+			fs.mu.Lock()
 		}
-		inode.SetFromBlobItem(obj)
 		sealPastDirs(dirs, parent)
 	} else {
 		dir := path[:slash]
@@ -939,11 +950,17 @@ func (parent *Inode) insertSubTree(path string, obj *BlobItemOutput, dirs map[*I
 				inode.ToDir()
 				inode.refcnt = 0
 				fs.insertInode(parent, inode)
+				inode.SetFromBlobItem(obj)
 			} else if !inode.isDir() {
 				inode.ToDir()
 				fs.addDotAndDotDot(inode)
+			} else {
+				fs.mu.Unlock()
+				parent.mu.Unlock()
+				inode.SetFromBlobItem(obj)
+				parent.mu.Lock()
+				fs.mu.Lock()
 			}
-			inode.SetFromBlobItem(obj)
 			sealPastDirs(dirs, inode)
 		} else {
 			// ensure that the potentially implicit dir is added
@@ -962,7 +979,15 @@ func (parent *Inode) insertSubTree(path string, obj *BlobItemOutput, dirs map[*I
 			// until we get to the leaf
 			dirs[inode] = false
 
+			fs.mu.Unlock()
+			parent.mu.Unlock()
+			inode.mu.Lock()
+			fs.mu.Lock()
 			inode.insertSubTree(path, obj, dirs)
+			inode.mu.Unlock()
+			fs.mu.Unlock()
+			parent.mu.Lock()
+			fs.mu.Lock()
 		}
 	}
 }
