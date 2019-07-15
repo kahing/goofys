@@ -185,7 +185,7 @@ func (s *GoofysTest) deleteBucket(t *C) {
 	t.Assert(err, IsNil)
 }
 
-func (s *GoofysTest) TearDownSuite(t *C) {
+func (s *GoofysTest) TearDownTest(t *C) {
 	if s.cloud != nil {
 		s.deleteBucket(t)
 	}
@@ -2495,8 +2495,10 @@ func (s *GoofysTest) TestDirMTimeNoTTL(t *C) {
 	t.Assert(err, IsNil)
 
 	attr3, _ := dir3.GetAttributes()
-	// setupDefaultEnv is before mounting
-	t.Assert(attr3.Mtime.Before(m2), Equals, true)
+	// setupDefaultEnv is before mounting but we can't really
+	// compare the time here since dir3 is s3 server time and dir2
+	// is local time
+	t.Assert(attr3.Mtime, Not(Equals), m2)
 }
 
 func (s *GoofysTest) TestIssue326(t *C) {
