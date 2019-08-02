@@ -159,6 +159,10 @@ func NewADLv1(bucket string, flags *FlagStorage, config *ADLv1Config) (*ADLv1, e
 	return b, nil
 }
 
+func (b *ADLv1) Bucket() string {
+	return b.bucket
+}
+
 func mapADLv1Error(resp *http.Response, err error, rawError bool) error {
 	if resp == nil {
 		if err != nil {

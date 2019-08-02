@@ -82,6 +82,10 @@ func NewS3(bucket string, flags *FlagStorage, config *S3Config) (*S3Backend, err
 	return s, nil
 }
 
+func (s *S3Backend) Bucket() string {
+	return s.bucket
+}
+
 func (s *S3Backend) Capabilities() *Capabilities {
 	return &s.cap
 }
@@ -276,9 +280,14 @@ func (s *S3Backend) Init(key string) error {
 	return nil
 }
 
-func (s *S3Backend) ListObjectsV2(params *s3.ListObjectsV2Input) (*s3.ListObjectsV2Output, error) {
+func (s *S3Backend) ListObjectsV2(params *s3.ListObjectsV2Input) (*s3.ListObjectsV2Output, string, error) {
 	if s.aws {
-		return s.S3.ListObjectsV2(params)
+		req, resp := s.S3.ListObjectsV2Request(params)
+		err := req.Send()
+		if err != nil {
+			return nil, "", err
+		}
+		return resp, s.getRequestId(req), nil
 	} else {
 		v1 := s3.ListObjectsInput{
 			Bucket:       params.Bucket,
@@ -296,7 +305,7 @@ func (s *S3Backend) ListObjectsV2(params *s3.ListObjectsV2Input) (*s3.ListObject
 
 		objs, err := s.S3.ListObjects(&v1)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 
 		count := int64(len(objs.Contents))
@@ -315,7 +324,7 @@ func (s *S3Backend) ListObjectsV2(params *s3.ListObjectsV2Input) (*s3.ListObject
 			StartAfter:            objs.Marker,
 		}
 
-		return &v2Objs, nil
+		return &v2Objs, "", nil
 	}
 }
 
@@ -336,10 +345,14 @@ func metadataToLower(m map[string]*string) map[string]*string {
 	return m
 }
 
+func (s *S3Backend) getRequestId(r *request.Request) string {
+	return r.HTTPResponse.Header.Get("x-amz-request-id") + ": " +
+		r.HTTPResponse.Header.Get("x-amz-id-2")
+}
+
 func (s *S3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
-	head := s3.HeadObjectInput{
-		Bucket: &s.bucket,
-		Key:    &param.Key,
+	head := s3.HeadObjectInput{Bucket: &s.bucket,
+		Key: &param.Key,
 	}
 	if s.config.SseC != "" {
 		head.SSECustomerAlgorithm = PString("AES256")
@@ -347,7 +360,8 @@ func (s *S3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 		head.SSECustomerKeyMD5 = &s.config.SseCDigest
 	}
 
-	resp, err := s.S3.HeadObject(&head)
+	req, resp := s.S3.HeadObjectRequest(&head)
+	err := req.Send()
 	if err != nil {
 		return nil, mapAwsError(err)
 	}
@@ -362,6 +376,7 @@ func (s *S3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 		ContentType: resp.ContentType,
 		Metadata:    metadataToLower(resp.Metadata),
 		IsDirBlob:   strings.HasSuffix(param.Key, "/"),
+		RequestId:   s.getRequestId(req),
 	}, nil
 }
 
@@ -372,7 +387,7 @@ func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		maxKeys = aws.Int64(int64(*param.MaxKeys))
 	}
 
-	resp, err := s.ListObjectsV2(&s3.ListObjectsV2Input{
+	resp, reqId, err := s.ListObjectsV2(&s3.ListObjectsV2Input{
 		Bucket:            &s.bucket,
 		Prefix:            param.Prefix,
 		Delimiter:         param.Delimiter,
@@ -406,18 +421,20 @@ func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		Items:                 items,
 		NextContinuationToken: resp.NextContinuationToken,
 		IsTruncated:           *resp.IsTruncated,
+		RequestId:             reqId,
 	}, nil
 }
 
 func (s *S3Backend) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error) {
-	_, err := s.DeleteObject(&s3.DeleteObjectInput{
+	req, _ := s.DeleteObjectRequest(&s3.DeleteObjectInput{
 		Bucket: &s.bucket,
 		Key:    &param.Key,
 	})
+	err := req.Send()
 	if err != nil {
 		return nil, mapAwsError(err)
 	}
-	return &DeleteBlobOutput{}, nil
+	return &DeleteBlobOutput{s.getRequestId(req)}, nil
 }
 
 func (s *S3Backend) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error) {
@@ -432,15 +449,17 @@ func (s *S3Backend) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, er
 
 	// Add list of objects to delete to Delete object
 	items.SetObjects(objs)
-	_, err := s.DeleteObjects(&s3.DeleteObjectsInput{
+
+	req, _ := s.DeleteObjectsRequest(&s3.DeleteObjectsInput{
 		Bucket: &s.bucket,
 		Delete: &items,
 	})
+	err := req.Send()
 	if err != nil {
 		return nil, mapAwsError(err)
 	}
 
-	return &DeleteBlobsOutput{}, nil
+	return &DeleteBlobsOutput{s.getRequestId(req)}, nil
 }
 
 func (s *S3Backend) RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error) {
@@ -531,7 +550,7 @@ func (s *S3Backend) mpuCopyParts(size int64, from string, to string, mpuId strin
 }
 
 func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuId string,
-	srcEtag *string, metadata map[string]*string, storageClass *string) (err error) {
+	srcEtag *string, metadata map[string]*string, storageClass *string) (requestId string, err error) {
 	nParts, partSize := sizeToParts(size)
 	etags := make([]*string, nParts)
 
@@ -561,7 +580,7 @@ func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuI
 
 		resp, err := s.CreateMultipartUpload(params)
 		if err != nil {
-			return mapAwsError(err)
+			return "", mapAwsError(err)
 		}
 
 		mpuId = *resp.UploadId
@@ -591,10 +610,13 @@ func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuI
 
 		s3Log.Debug(params)
 
-		_, err := s.CompleteMultipartUpload(params)
+		req, _ := s.CompleteMultipartUploadRequest(params)
+		err = req.Send()
 		if err != nil {
 			s3Log.Errorf("Complete MPU %v = %v", params, err)
-			return mapAwsError(err)
+			err = mapAwsError(err)
+		} else {
+			requestId = s.getRequestId(req)
 		}
 	}
 
@@ -637,11 +659,11 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 	from := s.bucket + "/" + param.Source
 
 	if !s.gcs && *param.Size > COPY_LIMIT {
-		err := s.copyObjectMultipart(int64(*param.Size), from, param.Destination, "", param.ETag, param.Metadata, param.StorageClass)
+		reqId, err := s.copyObjectMultipart(int64(*param.Size), from, param.Destination, "", param.ETag, param.Metadata, param.StorageClass)
 		if err != nil {
 			return nil, err
 		}
-		return &CopyBlobOutput{}, nil
+		return &CopyBlobOutput{reqId}, nil
 	}
 
 	params := &s3.CopyObjectInput{
@@ -674,13 +696,14 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 		params.ACL = &s.config.ACL
 	}
 
-	_, err := s.CopyObject(params)
+	req, _ := s.CopyObjectRequest(params)
+	err := req.Send()
 	if err != nil {
 		s3Log.Errorf("CopyObject %v = %v", params, err)
 		return nil, mapAwsError(err)
 	}
 
-	return &CopyBlobOutput{}, nil
+	return &CopyBlobOutput{s.getRequestId(req)}, nil
 }
 
 func (s *S3Backend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
@@ -706,7 +729,8 @@ func (s *S3Backend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 	}
 	// TODO handle IfMatch
 
-	resp, err := s.GetObject(&get)
+	req, resp := s.GetObjectRequest(&get)
+	err := req.Send()
 	if err != nil {
 		return nil, mapAwsError(err)
 	}
@@ -723,7 +747,8 @@ func (s *S3Backend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 			ContentType: resp.ContentType,
 			Metadata:    metadataToLower(resp.Metadata),
 		},
-		Body: resp.Body,
+		Body:      resp.Body,
+		RequestId: s.getRequestId(req),
 	}, nil
 }
 
@@ -757,7 +782,8 @@ func (s *S3Backend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 		put.ACL = &s.config.ACL
 	}
 
-	resp, err := s.PutObject(put)
+	req, resp := s.PutObjectRequest(put)
+	err := req.Send()
 	if err != nil {
 		return nil, mapAwsError(err)
 	}
@@ -765,6 +791,7 @@ func (s *S3Backend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 	return &PutBlobOutput{
 		ETag:         resp.ETag,
 		StorageClass: &storageClass,
+		RequestId:    s.getRequestId(req),
 	}, nil
 }
 
@@ -823,7 +850,8 @@ func (s *S3Backend) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBl
 	}
 	s3Log.Debug(params)
 
-	resp, err := s.UploadPart(&params)
+	req, resp := s.UploadPartRequest(&params)
+	err := req.Send()
 	if err != nil {
 		return nil, mapAwsError(err)
 	}
@@ -833,7 +861,7 @@ func (s *S3Backend) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBl
 	}
 	*en = resp.ETag
 
-	return &MultipartBlobAddOutput{}, nil
+	return &MultipartBlobAddOutput{s.getRequestId(req)}, nil
 }
 
 func (s *S3Backend) MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error) {
@@ -856,7 +884,8 @@ func (s *S3Backend) MultipartBlobCommit(param *MultipartBlobCommitInput) (*Multi
 
 	s3Log.Debug(mpu)
 
-	resp, err := s.CompleteMultipartUpload(&mpu)
+	req, resp := s.CompleteMultipartUploadRequest(&mpu)
+	err := req.Send()
 	if err != nil {
 		return nil, mapAwsError(err)
 	}
@@ -864,7 +893,8 @@ func (s *S3Backend) MultipartBlobCommit(param *MultipartBlobCommitInput) (*Multi
 	s3Log.Debug(resp)
 
 	return &MultipartBlobCommitOutput{
-		ETag: resp.ETag,
+		ETag:      resp.ETag,
+		RequestId: s.getRequestId(req),
 	}, nil
 }
 
@@ -874,11 +904,12 @@ func (s *S3Backend) MultipartBlobAbort(param *MultipartBlobCommitInput) (*Multip
 		Key:      param.Key,
 		UploadId: param.UploadId,
 	}
-	_, err := s.AbortMultipartUpload(&mpu)
+	req, _ := s.AbortMultipartUploadRequest(&mpu)
+	err := req.Send()
 	if err != nil {
 		return nil, mapAwsError(err)
 	}
-	return &MultipartBlobAbortOutput{}, nil
+	return &MultipartBlobAbortOutput{s.getRequestId(req)}, nil
 }
 
 func (s *S3Backend) MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error) {

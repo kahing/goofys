@@ -142,6 +142,10 @@ func (b *AZBlob) Capabilities() *Capabilities {
 	return &b.cap
 }
 
+func (b *AZBlob) Bucket() string {
+	return b.bucket
+}
+
 func (b *AZBlob) refreshToken() (*azblob.ContainerURL, error) {
 	if b.sasTokenProvider == nil {
 		return b.c, nil

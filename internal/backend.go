@@ -51,6 +51,8 @@ type HeadBlobOutput struct {
 	ContentType *string
 	Metadata    map[string]*string
 	IsDirBlob   bool
+
+	RequestId string
 }
 
 type ListBlobsInput struct {
@@ -72,6 +74,8 @@ type ListBlobsOutput struct {
 	Items                 []BlobItemOutput
 	NextContinuationToken *string
 	IsTruncated           bool
+
+	RequestId string
 }
 
 type DeleteBlobInput struct {
@@ -79,6 +83,7 @@ type DeleteBlobInput struct {
 }
 
 type DeleteBlobOutput struct {
+	RequestId string
 }
 
 type DeleteBlobsInput struct {
@@ -86,6 +91,7 @@ type DeleteBlobsInput struct {
 }
 
 type DeleteBlobsOutput struct {
+	RequestId string
 }
 
 type RenameBlobInput struct {
@@ -94,6 +100,7 @@ type RenameBlobInput struct {
 }
 
 type RenameBlobOutput struct {
+	RequestId string
 }
 
 type CopyBlobInput struct {
@@ -107,6 +114,7 @@ type CopyBlobInput struct {
 }
 
 type CopyBlobOutput struct {
+	RequestId string
 }
 
 type GetBlobInput struct {
@@ -120,6 +128,8 @@ type GetBlobOutput struct {
 	HeadBlobOutput
 
 	Body io.ReadCloser
+
+	RequestId string
 }
 
 type PutBlobInput struct {
@@ -135,6 +145,8 @@ type PutBlobInput struct {
 type PutBlobOutput struct {
 	ETag         *string
 	StorageClass *string
+
+	RequestId string
 }
 
 type MultipartBlobBeginInput struct {
@@ -166,31 +178,37 @@ type MultipartBlobAddInput struct {
 }
 
 type MultipartBlobAddOutput struct {
+	RequestId string
 }
 
 type MultipartBlobCommitOutput struct {
-	ETag *string
+	ETag      *string
+	RequestId string
 }
 
 type MultipartBlobAbortOutput struct {
+	RequestId string
 }
 
 type MultipartExpireInput struct {
 }
 
 type MultipartExpireOutput struct {
+	RequestId string
 }
 
 type RemoveBucketInput struct {
 }
 
 type RemoveBucketOutput struct {
+	RequestId string
 }
 
 type MakeBucketInput struct {
 }
 
 type MakeBucketOutput struct {
+	RequestId string
 }
 
 /// Implementations of all the functions here are expected to be
@@ -199,10 +217,12 @@ type MakeBucketOutput struct {
 /// Init() is called exactly once before any other functions are
 /// called.
 ///
-/// Capabilities() is expected to be const
+/// Capabilities()/Bucket() are expected to be const
 type StorageBackend interface {
 	Init(key string) error
 	Capabilities() *Capabilities
+	// typically this would return bucket/prefix
+	Bucket() string
 	HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error)
 	ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error)
 	DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error)
@@ -294,6 +314,10 @@ func (s *StorageBackendInitWrapper) Capabilities() *Capabilities {
 	return s.StorageBackend.Capabilities()
 }
 
+func (s *StorageBackendInitWrapper) Bucket() string {
+	return s.StorageBackend.Bucket()
+}
+
 func (s *StorageBackendInitWrapper) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	s.Init("")
 	return s.StorageBackend.HeadBlob(param)
@@ -379,6 +403,10 @@ func (e StorageBackendInitError) Init(key string) error {
 
 func (e StorageBackendInitError) Capabilities() *Capabilities {
 	return &Capabilities{}
+}
+
+func (s StorageBackendInitError) Bucket() string {
+	return ""
 }
 
 func (e StorageBackendInitError) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
