@@ -2151,8 +2151,14 @@ func (s *GoofysTest) TestReadDirCached(t *C) {
 
 func (s *GoofysTest) TestReadDirLookUp(t *C) {
 	s.getRoot(t).dir.seqOpenDirScore = 2
+
+	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
-		go s.readDirIntoCache(t, fuseops.RootInodeID)
+		wg.Add(2)
+		go func() {
+			s.readDirIntoCache(t, fuseops.RootInodeID)
+			wg.Done()
+		}()
 		go func() {
 			lookup := fuseops.LookUpInodeOp{
 				Parent: fuseops.RootInodeID,
@@ -2160,8 +2166,10 @@ func (s *GoofysTest) TestReadDirLookUp(t *C) {
 			}
 			err := s.fs.LookUpInode(nil, &lookup)
 			t.Assert(err, IsNil)
+			wg.Done()
 		}()
 	}
+	wg.Wait()
 }
 
 func (s *GoofysTest) writeSeekWriteFuse(t *C, file string, fh *os.File, first string, second string, third string) {
