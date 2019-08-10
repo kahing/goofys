@@ -17,6 +17,7 @@ package common
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -28,7 +29,9 @@ import (
 	"github.com/Azure/go-autorest/autorest/azure/auth"
 	"github.com/Azure/go-autorest/autorest/azure/cli"
 
+	"github.com/Azure/azure-pipeline-go/pipeline"
 	azblob "github.com/Azure/azure-sdk-for-go/services/storage/mgmt/2019-04-01/storage"
+	azblob2 "github.com/Azure/azure-storage-blob-go/azblob"
 	"github.com/mitchellh/go-homedir"
 	ini "gopkg.in/ini.v1"
 )
@@ -50,12 +53,46 @@ func (config *AZBlobConfig) Init() {
 	config.TokenRenewBuffer = 15 * time.Minute
 }
 
+type returnRequestPolicy struct {
+}
+
+func (p returnRequestPolicy) Do(ctx context.Context, r pipeline.Request) (pipeline.Response, error) {
+	resp := pipeline.NewHTTPResponse(&http.Response{})
+	resp.Response().Request = r.Request
+	return resp, nil
+}
+
+// hijack the SharedKeyCredentials signing code from azure-storage-blob-go
+// https://github.com/Azure/go-autorest/issues/456
+func (config *AZBlobConfig) WithAuthorization() autorest.PrepareDecorator {
+	return func(p autorest.Preparer) autorest.Preparer {
+		return autorest.PreparerFunc(func(r *http.Request) (*http.Request, error) {
+			cred, err := azblob2.NewSharedKeyCredential(config.AccountName, config.AccountKey)
+			if err != nil {
+				return nil, err
+			}
+
+			resp, err := cred.New(returnRequestPolicy{}, nil).Do(context.TODO(),
+				pipeline.Request{r})
+			if err != nil {
+				return nil, err
+			}
+			return resp.Response().Request, nil
+		})
+	}
+}
+
 type ADLv1Config struct {
 	Endpoint   string
 	Authorizer autorest.Authorizer
 }
 
 func (config *ADLv1Config) Init() {
+}
+
+type ADLv2Config struct {
+	Endpoint   string
+	Authorizer autorest.Authorizer
 }
 
 type AzureAuthorizerConfig struct {
@@ -226,10 +263,10 @@ func azureAccountsClient(account string) (azblob.AccountsClient, error) {
 	return c, nil
 }
 
-func azureFindAccount(client azblob.AccountsClient, account string) (string, string, error) {
+func azureFindAccount(client azblob.AccountsClient, account string) (*azblob.Endpoints, string, error) {
 	accountsRes, err := client.List(context.TODO())
 	if err != nil {
-		return "", "", err
+		return nil, "", err
 	}
 
 	for _, acc := range *accountsRes.Value {
@@ -237,29 +274,33 @@ func azureFindAccount(client azblob.AccountsClient, account string) (string, str
 			// /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/...
 			parts := strings.SplitN(*acc.ID, "/", 6)
 			if len(parts) != 6 {
-				return "", "", fmt.Errorf("Malformed account id: %v", *acc.ID)
+				return nil, "", fmt.Errorf("Malformed account id: %v", *acc.ID)
 			}
-			return *acc.PrimaryEndpoints.Blob, parts[4], nil
+			return acc.PrimaryEndpoints, parts[4], nil
 		}
 	}
 
-	return "", "", fmt.Errorf("Azure account not found: %v", account)
+	return nil, "", fmt.Errorf("Azure account not found: %v", account)
 }
 
-func AzureBlobConfig(endpoint string, wasb string) (config AZBlobConfig, err error) {
+func AzureBlobConfig(endpoint string, location string, storageType string) (config AZBlobConfig, err error) {
+	if storageType != "blob" && storageType != "dfs" {
+		panic(fmt.Sprintf("unknown storage type: %v", storageType))
+	}
+
 	account := os.Getenv("AZURE_STORAGE_ACCOUNT")
 	key := os.Getenv("AZURE_STORAGE_KEY")
 	configDir := os.Getenv("AZURE_CONFIG_DIR")
 
-	// check if the wasb url contains the storage endpoint
-	at := strings.Index(wasb, "@")
+	// check if the url contains the storage endpoint
+	at := strings.Index(location, "@")
 	if at != -1 {
-		storageEndpoint := "https://" + wasb[at+1:]
+		storageEndpoint := "https://" + location[at+1:]
 		u, urlErr := url.Parse(storageEndpoint)
 		if urlErr == nil {
 			// if it's valid, then it overrides --endpoint
 			endpoint = storageEndpoint
-			config.Container = wasb[:at]
+			config.Container = location[:at]
 			config.Prefix = strings.Trim(u.Path, "/")
 		}
 	}
@@ -310,12 +351,19 @@ func AzureBlobConfig(endpoint string, wasb string) (config AZBlobConfig, err err
 		client, err = azureAccountsClient(account)
 		if err == nil {
 			var resourceGroup string
-			endpoint, resourceGroup, err = azureFindAccount(client, account)
+			var endpoints *azblob.Endpoints
+			endpoints, resourceGroup, err = azureFindAccount(client, account)
 			if err != nil {
 				if key == "" {
 					err = fmt.Errorf("Missing key: configure via AZURE_STORAGE_KEY "+
 						"or %v/config", configDir)
 					return
+				}
+			} else {
+				if storageType == "blob" {
+					endpoint = *endpoints.Blob
+				} else if storageType == "dfs" {
+					endpoint = *endpoints.Dfs
 				}
 			}
 			azbLog.Debugf("Using detected account endpoint: %v", endpoint)
@@ -345,7 +393,7 @@ func AzureBlobConfig(endpoint string, wasb string) (config AZBlobConfig, err err
 	}
 
 	if endpoint == "" {
-		endpoint = "https://" + account + ".blob." +
+		endpoint = "https://" + account + "." + storageType + "." +
 			azure.PublicCloud.StorageEndpointSuffix
 		azbLog.Debugf("Unable to detect endpoint for account %v, using %v",
 			account, endpoint)

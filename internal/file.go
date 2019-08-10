@@ -112,6 +112,7 @@ func (fh *FileHandle) mpuPartNoSpawn(buf *MBuf, part uint32, total int64, last b
 		Body:       buf,
 		Size:       uint64(buf.Len()),
 		Last:       last,
+		Offset:     uint64(total - int64(buf.Len())),
 	}
 
 	defer func() {

@@ -262,6 +262,31 @@ func (b *ADLv1) appendToListResults(path string, recursive bool, startAfter stri
 		return adl.FileStatusesResult{}, nil, nil, err
 	}
 
+	if path != "" {
+		if len(*res.FileStatuses.FileStatus) == 1 &&
+			*(*res.FileStatuses.FileStatus)[0].PathSuffix == "" {
+			// path is actually a file
+			if !strings.HasSuffix(path, "/") {
+				items = append(items,
+					adlv1FileStatus2BlobItem(&(*res.FileStatuses.FileStatus)[0], &path))
+			}
+			return res, prefixes, items, nil
+		}
+
+		if !recursive {
+			if strings.HasSuffix(path, "/") {
+				// we listed for the dir object itself
+				items = append(items, BlobItemOutput{
+					Key: PString(path),
+				})
+			} else {
+				prefixes = append(prefixes, BlobPrefixOutput{
+					PString(path + "/"),
+				})
+			}
+		}
+	}
+
 	path = strings.TrimRight(path, "/")
 
 	if maxKeys != nil {
@@ -278,7 +303,8 @@ func (b *ADLv1) appendToListResults(path string, recursive bool, startAfter stri
 			if recursive {
 				// we shouldn't generate prefixes if
 				// it's a recursive listing
-				items = append(items, adlv1FileStatus2BlobItem(&i, &key))
+				items = append(items,
+					adlv1FileStatus2BlobItem(&i, PString(key+"/")))
 
 				_, prefixes, items, err = b.appendToListResults(key,
 					recursive, "", maxKeys, prefixes, items)
@@ -315,42 +341,10 @@ func (b *ADLv1) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 
 	_, prefixes, items, err := b.appendToListResults(nilStr(param.Prefix),
 		recursive, nilStr(continuationToken), param.MaxKeys, nil, nil)
-	if err != fuse.ENOENT {
-		if err != nil {
-			return nil, err
-		}
-
-		if continuationToken == nil {
-			if len(prefixes) == 0 && len(items) == 0 && param.Prefix != nil {
-				// the only way we get nothing is if we are listing an empty dir,
-				// because ADLv1 returns 404 if the prefix didn't exist
-				if strings.HasSuffix(*param.Prefix, "/") {
-					items = []BlobItemOutput{BlobItemOutput{
-						Key: param.Prefix,
-					},
-					}
-				} else {
-					prefixes = []BlobPrefixOutput{BlobPrefixOutput{
-						Prefix: PString(*param.Prefix + "/"),
-					},
-					}
-				}
-			} else if len(items) != 0 && param.Prefix != nil &&
-				strings.HasSuffix(*items[0].Key, "/") {
-				if *items[0].Key == *param.Prefix {
-					// if we list "file/", somehow we will
-					// get back pathSuffix="" which
-					// appendToListResults would massage
-					// back into "file1/", we don't want
-					// that entry
-					items = items[1:]
-				} else if *items[0].Key == (*param.Prefix + "/") {
-					items[0].Key = PString(*param.Prefix)
-				}
-			}
-		}
-	} else {
+	if err == fuse.ENOENT {
 		err = nil
+	} else if err != nil {
+		return nil, err
 	}
 
 	return &ListBlobsOutput{

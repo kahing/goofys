@@ -173,8 +173,9 @@ type MultipartBlobAddInput struct {
 
 	Body io.ReadSeeker
 
-	Size uint64 // GCS wants to know part size
-	Last bool   // GCS needs to know if this part is the last one
+	Size   uint64 // GCS wants to know part size
+	Last   bool   // GCS needs to know if this part is the last one
+	Offset uint64 // ADLv2 needs to know offset
 }
 
 type MultipartBlobAddOutput struct {

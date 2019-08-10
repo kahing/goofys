@@ -104,6 +104,8 @@ func NewBackend(bucket string, flags *FlagStorage) (cloud StorageBackend, err er
 		cloud, err = NewAZBlob(bucket, config)
 	} else if config, ok := flags.Backend.(*ADLv1Config); ok {
 		cloud, err = NewADLv1(bucket, flags, config)
+	} else if config, ok := flags.Backend.(*ADLv2Config); ok {
+		cloud, err = NewADLv2(bucket, flags, config)
 	} else if config, ok := flags.Backend.(*S3Config); ok {
 		if strings.HasSuffix(flags.Endpoint, "/storage.googleapis.com") {
 			cloud, err = NewGCS3(bucket, flags, config)

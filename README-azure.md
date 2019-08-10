@@ -46,6 +46,15 @@ $ $GOPATH/bin/goofys wasb://container@myaccount.blob.core.windows.net <mountpoin
 Follow the Azure CLI login sequence from above, and then:
 
 ```ShellSession
-$ $GOPATH/bin/goofys  adl://servicename.azuredatalakestore.net <mountpoint>
-$ $GOPATH/bin/goofys  adl://servicename.azuredatalakestore.net:prefix <mountpoint>
+$ $GOPATH/bin/goofys adl://servicename.azuredatalakestore.net <mountpoint>
+$ $GOPATH/bin/goofys adl://servicename.azuredatalakestore.net:prefix <mountpoint>
+```
+
+# Azure Data Lake Storage Gen2
+
+Configure your credentials the same way as [Azure Blob Storage](https://github.com/kahing/goofys/blob/master/README-azure.md#azure-blob-storage) above, and then:
+
+```ShellSession
+$ $GOPATH/bin/goofys abfs://container <mountpoint>
+$ $GOPATH/bin/goofys abfs://container:prefix <mountpoint>
 ```

@@ -43,6 +43,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 
 	"github.com/Azure/azure-storage-blob-go/azblob"
+	"github.com/Azure/go-autorest/autorest"
+	"github.com/Azure/go-autorest/autorest/azure"
 	azureauth "github.com/Azure/go-autorest/autorest/azure/auth"
 
 	"github.com/kahing/go-xattr"
@@ -194,6 +196,7 @@ func (s *GoofysTest) TearDownTest(t *C) {
 func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*string) {
 	var wg sync.WaitGroup
 
+	var globalErr error
 	for path, c := range env {
 		wg.Add(1)
 		go func(path string, content *string) {
@@ -214,6 +217,7 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 			params := &PutBlobInput{
 				Key:  path,
 				Body: bytes.NewReader([]byte(*content)),
+				Size: PUInt64(uint64(len(*content))),
 				Metadata: map[string]*string{
 					"name": aws.String(path + "+/#%00"),
 				},
@@ -221,10 +225,14 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 			}
 
 			_, err := cloud.PutBlob(params)
+			if err != nil {
+				globalErr = err
+			}
 			t.Assert(err, IsNil)
 		}(path, c)
 	}
 	wg.Wait()
+	t.Assert(globalErr, IsNil)
 
 	// double check
 	for path, c := range env {
@@ -244,6 +252,7 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 		}(path, c)
 	}
 	wg.Wait()
+	t.Assert(globalErr, IsNil)
 }
 
 func (s *GoofysTest) setupEnv(t *C, env map[string]*string, public bool) {
@@ -323,7 +332,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		t.Assert(s.cloud, NotNil)
 		t.Assert(err, IsNil)
 	} else if cloud == "azblob" {
-		config, err := AzureBlobConfig(os.Getenv("ENDPOINT"), "")
+		config, err := AzureBlobConfig(os.Getenv("ENDPOINT"), "", "blob")
 		t.Assert(err, IsNil)
 
 		if config.Endpoint == AzuriteEndpoint {
@@ -390,6 +399,35 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		flags.Backend = &config
 
 		s.cloud, err = NewADLv1(bucket, flags, &config)
+		t.Assert(err, IsNil)
+		t.Assert(s.cloud, NotNil)
+	} else if cloud == "adlv2" {
+		var err error
+		var auth autorest.Authorizer
+
+		if os.Getenv("AZURE_STORAGE_ACCOUNT") != "" && os.Getenv("AZURE_STORAGE_KEY") != "" {
+			auth = &AZBlobConfig{
+				AccountName: os.Getenv("AZURE_STORAGE_ACCOUNT"),
+				AccountKey:  os.Getenv("AZURE_STORAGE_KEY"),
+			}
+		} else {
+			cred := azureauth.NewClientCredentialsConfig(
+				os.Getenv("ADLV2_CLIENT_ID"),
+				os.Getenv("ADLV2_CLIENT_CREDENTIAL"),
+				os.Getenv("ADLV2_TENANT_ID"))
+			cred.Resource = azure.PublicCloud.ResourceIdentifiers.Storage
+			auth, err = cred.Authorizer()
+			t.Assert(err, IsNil)
+		}
+
+		config := ADLv2Config{
+			Endpoint:   os.Getenv("ENDPOINT"),
+			Authorizer: auth,
+		}
+
+		flags.Backend = &config
+
+		s.cloud, err = NewADLv2(bucket, flags, &config)
 		t.Assert(err, IsNil)
 		t.Assert(s.cloud, NotNil)
 	} else {
@@ -1011,6 +1049,7 @@ func (s *GoofysTest) TestBackendListPrefix(t *C) {
 	t.Assert(err, IsNil)
 	t.Assert(len(res.Prefixes), Equals, 0)
 	t.Assert(len(res.Items), Equals, 1)
+	t.Assert(*res.Items[0].Key, Equals, "file1")
 
 	res, err = s.cloud.ListBlobs(&ListBlobsInput{
 		Prefix:    PString("file1/"),
@@ -1027,7 +1066,39 @@ func (s *GoofysTest) TestBackendListPrefix(t *C) {
 	t.Assert(err, IsNil)
 	t.Assert(len(res.Prefixes), Equals, 1)
 	t.Assert(*res.Prefixes[0].Prefix, Equals, "dir2/dir3/")
-	t.Assert(len(res.Items), Equals, 0)
+	if s.cloud.Capabilities().DirBlob {
+		t.Assert(len(res.Items), Equals, 1)
+		t.Assert(*res.Items[0].Key, Equals, "dir2/")
+	} else {
+		t.Assert(len(res.Items), Equals, 0)
+	}
+
+	res, err = s.cloud.ListBlobs(&ListBlobsInput{
+		Prefix:    PString("dir2/dir3/"),
+		Delimiter: PString("/"),
+	})
+	t.Assert(err, IsNil)
+	t.Assert(len(res.Prefixes), Equals, 0)
+	t.Assert(len(res.Items), Equals, 2)
+	t.Assert(*res.Items[0].Key, Equals, "dir2/dir3/")
+	t.Assert(*res.Items[1].Key, Equals, "dir2/dir3/file4")
+
+	res, err = s.cloud.ListBlobs(&ListBlobsInput{
+		Prefix: PString("dir2/"),
+	})
+	t.Assert(err, IsNil)
+	t.Assert(len(res.Prefixes), Equals, 0)
+	t.Assert(len(res.Items), Equals, 2)
+	t.Assert(*res.Items[0].Key, Equals, "dir2/dir3/")
+	t.Assert(*res.Items[1].Key, Equals, "dir2/dir3/file4")
+
+	res, err = s.cloud.ListBlobs(&ListBlobsInput{
+		Prefix: PString("dir2/dir3/file4"),
+	})
+	t.Assert(err, IsNil)
+	t.Assert(len(res.Prefixes), Equals, 0)
+	t.Assert(len(res.Items), Equals, 1)
+	t.Assert(*res.Items[0].Key, Equals, "dir2/dir3/file4")
 }
 
 func (s *GoofysTest) TestRenameDir(t *C) {
@@ -1713,6 +1784,7 @@ func (s *GoofysTest) TestIssue162(t *C) {
 	params := &PutBlobInput{
 		Key:  "dir1/l├â┬╢r 006.jpg",
 		Body: bytes.NewReader([]byte("foo")),
+		Size: PUInt64(3),
 	}
 	_, err := s.cloud.PutBlob(params)
 	t.Assert(err, IsNil)
@@ -1803,13 +1875,15 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 		t.Assert(string(value), Equals, "\"d41d8cd98f00b204e9800998ecf8427e\"")
 	}
 
-	// implicit dir blobs don't have s3.etag at all
-	names, err = dir1.ListXattr()
-	t.Assert(err, IsNil)
-	t.Assert(names, HasLen, 0)
+	if !s.cloud.Capabilities().DirBlob {
+		// implicit dir blobs don't have s3.etag at all
+		names, err = dir1.ListXattr()
+		t.Assert(err, IsNil)
+		t.Assert(names, HasLen, 0)
 
-	value, err = dir1.GetXattr("s3.etag")
-	t.Assert(err, Equals, syscall.ENODATA)
+		value, err = dir1.GetXattr("s3.etag")
+		t.Assert(err, Equals, syscall.ENODATA)
+	}
 
 	// s3proxy doesn't support storage class yet
 	if hasEnv("AWS") {
@@ -2246,6 +2320,7 @@ func (s *GoofysTest) TestDirMtimeLs(t *C) {
 	params := &PutBlobInput{
 		Key:  "newfile",
 		Body: bytes.NewReader([]byte("foo")),
+		Size: PUInt64(3),
 	}
 	_, err := s.cloud.PutBlob(params)
 	t.Assert(err, IsNil)
@@ -2394,6 +2469,13 @@ func (s *GoofysTest) TestDirMTime(t *C) {
 	root := s.getRoot(t)
 	t.Assert(time.Time{}.Before(root.Attributes.Mtime), Equals, true)
 
+	file1, err := s.LookUpInode(t, "dir1")
+	t.Assert(err, IsNil)
+
+	// take mtime from a blob as init time because when we test against
+	// real cloud, server time can be way off from local time
+	initTime := file1.Attributes.Mtime
+
 	dir1, err := s.LookUpInode(t, "dir1")
 	t.Assert(err, IsNil)
 
@@ -2427,7 +2509,7 @@ func (s *GoofysTest) TestDirMTime(t *C) {
 	// granularity
 	attr2, _ = dir2.GetAttributes()
 	t.Assert(m2, Not(Equals), attr2.Mtime)
-	t.Assert(root.Attributes.Mtime.Add(time.Second).Before(attr2.Mtime), Equals, true)
+	t.Assert(initTime.Add(time.Second).Before(attr2.Mtime), Equals, true)
 
 	// different dir2
 	dir2, err = s.LookUpInode(t, "dir2")
@@ -2455,6 +2537,7 @@ func (s *GoofysTest) TestDirMTime(t *C) {
 	params := &PutBlobInput{
 		Key:  "dir2/newfile",
 		Body: bytes.NewReader([]byte("foo")),
+		Size: PUInt64(3),
 	}
 	_, err = s.cloud.PutBlob(params)
 	t.Assert(err, IsNil)
@@ -2524,6 +2607,7 @@ func (s *GoofysTest) TestSlurpFileAndDir(t *C) {
 		params := &PutBlobInput{
 			Key:  b,
 			Body: bytes.NewReader([]byte("foo")),
+			Size: PUInt64(3),
 		}
 		_, err := s.cloud.PutBlob(params)
 		t.Assert(err, IsNil)
@@ -2571,6 +2655,7 @@ func (s *GoofysTest) TestAzureDirBlob(t *C) {
 			Metadata: map[string]*string{
 				AzureDirBlobMetadataKey: PString("true"),
 			},
+			Size: PUInt64(0),
 		}
 		_, err := s.cloud.PutBlob(params)
 		t.Assert(err, IsNil)
@@ -2666,6 +2751,10 @@ func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud S
 	case *ADLv1:
 		config, _ := s.fs.flags.Backend.(*ADLv1Config)
 		cloud, err = NewADLv1(bucket, s.fs.flags, config)
+		t.Assert(err, IsNil)
+	case *ADLv2:
+		config, _ := s.fs.flags.Backend.(*ADLv2Config)
+		cloud, err = NewADLv2(bucket, s.fs.flags, config)
 		t.Assert(err, IsNil)
 	default:
 		t.Fatal("unknown backend")
@@ -2884,6 +2973,11 @@ func (s *GoofysTest) TestMountsError(t *C) {
 		cloud = s.newBackend(t, bucket, true)
 		adlCloud, _ := cloud.(*ADLv1)
 		adlCloud.account = ""
+	} else if _, ok := s.cloud.(*ADLv2); ok {
+		// ADLv2 currently doesn't detect bucket doesn't exist
+		cloud = s.newBackend(t, bucket, true)
+		adlCloud, _ := cloud.(*ADLv2)
+		adlCloud.client.BaseClient.AccountName = ""
 	} else {
 		cloud = s.newBackend(t, bucket, false)
 	}
