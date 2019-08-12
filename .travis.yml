@@ -2,9 +2,13 @@ language: go
 sudo: required
 dist: xenial
 env:
+node_js: "12"
+before_install:
+- npm install -g azurite
 install:
 - go get -t $(go list ./... | grep -v /vendor/)
 - mkdir /tmp/mnt
 - make
+- CLOUD=azblob ./test/run-tests.sh
 go:
   - 1.11.5
