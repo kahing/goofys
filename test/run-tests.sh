@@ -7,6 +7,7 @@ set -o nounset
 : ${CLOUD:="s3"}
 : ${PROXY_BIN:=""}
 : ${PROXY_PID:=""}
+: ${TIMEOUT:="20m"}
 
 function cleanup {
     if [ "$PROXY_PID" != "" ]; then
@@ -54,6 +55,8 @@ elif [ $CLOUD == "azblob" ]; then
     export AZURE_STORAGE_ACCOUNT
     export AZURE_STORAGE_KEY
     export ENDPOINT
+elif [ $CLOUD == "adlv1" ]; then
+    TIMEOUT=40m
 fi
 
 if [ "$PROXY_BIN" != "" ]; then
@@ -62,5 +65,5 @@ if [ "$PROXY_BIN" != "" ]; then
 fi
 
 export CLOUD
-go test -timeout 20m -v $(go list ./... | grep -v /vendor/) -check.vv $T
+go test -timeout $TIMEOUT -v $(go list ./... | grep -v /vendor/) -check.vv $T
 exit $?
