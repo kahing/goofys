@@ -917,9 +917,6 @@ func (s *GoofysTest) TestRenamePreserveMetadata(t *C) {
 	if _, ok := s.cloud.(*ADLv1); ok {
 		t.Skip("ADLv1 doesn't support metadata")
 	}
-	if s.azurite {
-		t.Skip("https://github.com/Azure/Azurite/issues/220")
-	}
 	root := s.getRoot(t)
 
 	from, to := "file1", "new_file"
@@ -1004,6 +1001,7 @@ func (s *GoofysTest) TestBackendListPrefix(t *C) {
 	t.Assert(err, IsNil)
 	t.Assert(len(res.Prefixes), Equals, 0)
 	t.Assert(len(res.Items), Equals, 1)
+	t.Assert(*res.Items[0].Key, Equals, "empty_dir/")
 
 	res, err = s.cloud.ListBlobs(&ListBlobsInput{
 		Prefix:    PString("file1"),
@@ -1126,13 +1124,7 @@ func (s *GoofysTest) TestRename(t *C) {
 
 	from, to = "no_such_file", "new_file"
 	err = root.Rename(from, root, to)
-	if s.azurite {
-		// Azurite returns 400 when copy source doesn't exist
-		// https://github.com/Azure/Azurite/issues/219
-		t.Assert(err, Equals, fuse.EINVAL)
-	} else {
-		t.Assert(err, Equals, fuse.ENOENT)
-	}
+	t.Assert(err, Equals, fuse.ENOENT)
 
 	if s3, ok := s.cloud.(*S3Backend); ok {
 		if !hasEnv("GCS") {
@@ -1882,13 +1874,7 @@ func (s *GoofysTest) TestXAttrCopied(t *C) {
 	t.Assert(err, IsNil)
 
 	_, err = in.GetXattr("user.name")
-	if !s.azurite {
-		t.Assert(err, IsNil)
-	} else {
-		// Azurite doesn't copy over metadata:
-		// https://github.com/Azure/Azurite/issues/220
-		t.Assert(err, NotNil)
-	}
+	t.Assert(err, IsNil)
 }
 
 func (s *GoofysTest) TestXAttrRemove(t *C) {

@@ -369,6 +369,17 @@ func (b *AZBlob) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 		return nil, err
 	}
 
+	if strings.HasSuffix(param.Key, "/") {
+		dirBlob, err := b.HeadBlob(&HeadBlobInput{Key: param.Key[:len(param.Key)-1]})
+		if err == nil {
+			if !dirBlob.IsDirBlob {
+				// we requested for a dir suffix, but this isn't one
+				err = fuse.ENOENT
+			}
+		}
+		return dirBlob, err
+	}
+
 	blob := c.NewBlobURL(param.Key)
 	resp, err := blob.GetProperties(context.TODO(), azblob.BlobAccessConditions{})
 	if err != nil {
@@ -380,6 +391,8 @@ func (b *AZBlob) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	if !isDir && metadata != nil {
 		_, isDir = metadata[AzureDirBlobMetadataKey]
 	}
+	// don't expose this to user land
+	delete(metadata, AzureDirBlobMetadataKey)
 
 	return &HeadBlobOutput{
 		BlobItemOutput: BlobItemOutput{
@@ -525,6 +538,22 @@ func (b *AZBlob) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 			StorageClass: PString(string(p.AccessTier)),
 		})
 	}
+
+	if strings.HasSuffix(options.Prefix, "/") {
+		// because azure doesn't use dir/ blobs, dir/ would not show up
+		// so we make another request to fill that in
+		dirBlob, err := b.HeadBlob(&HeadBlobInput{options.Prefix})
+		if err == nil {
+			*dirBlob.Key += "/"
+			items = append(items, dirBlob.BlobItemOutput)
+			sortItems = true
+		} else if err == fuse.ENOENT {
+			err = nil
+		} else {
+			return nil, err
+		}
+	}
+
 	// items are supposed to be alphabetical, but if there was a directory we would
 	// have changed the ordering. XXX re-sort this for now but we can probably
 	// insert smarter instead
@@ -549,6 +578,10 @@ func (b *AZBlob) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error) {
 	c, err := b.refreshToken()
 	if err != nil {
 		return nil, err
+	}
+
+	if strings.HasSuffix(param.Key, "/") {
+		return b.DeleteBlob(&DeleteBlobInput{Key: param.Key[:len(param.Key)-1]})
 	}
 
 	blob := c.NewBlobURL(param.Key)
@@ -600,6 +633,12 @@ func (b *AZBlob) RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error) {
 }
 
 func (b *AZBlob) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
+	if strings.HasSuffix(param.Source, "/") && strings.HasSuffix(param.Destination, "/") {
+		param.Source = param.Source[:len(param.Source)-1]
+		param.Destination = param.Destination[:len(param.Destination)-1]
+		return b.CopyBlob(param)
+	}
+
 	c, err := b.refreshToken()
 	if err != nil {
 		return nil, err
@@ -654,6 +693,9 @@ func (b *AZBlob) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 		return nil, mapAZBError(err)
 	}
 
+	metadata := pMetadata(resp.NewMetadata())
+	delete(metadata, AzureDirBlobMetadataKey)
+
 	return &GetBlobOutput{
 		HeadBlobOutput: HeadBlobOutput{
 			BlobItemOutput: BlobItemOutput{
@@ -663,7 +705,7 @@ func (b *AZBlob) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 				Size:         uint64(resp.ContentLength()),
 			},
 			ContentType: PString(resp.ContentType()),
-			Metadata:    pMetadata(resp.NewMetadata()),
+			Metadata:    metadata,
 		},
 		Body: resp.Body(azblob.RetryReaderOptions{}),
 	}, nil
@@ -673,6 +715,19 @@ func (b *AZBlob) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 	c, err := b.refreshToken()
 	if err != nil {
 		return nil, err
+	}
+
+	if param.DirBlob && strings.HasSuffix(param.Key, "/") {
+		// turn this into an empty blob with "hdi_isfolder" metadata
+		param.Key = param.Key[:len(param.Key)-1]
+		if param.Metadata != nil {
+			param.Metadata[AzureDirBlobMetadataKey] = PString("1")
+		} else {
+			param.Metadata = map[string]*string{
+				AzureDirBlobMetadataKey: PString("1"),
+			}
+		}
+		return b.PutBlob(param)
 	}
 
 	body := param.Body
