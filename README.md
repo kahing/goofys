@@ -57,7 +57,7 @@ configured for `root`, and can add this to `/etc/fstab`:
 goofys#bucket   /mnt/mountpoint        fuse     _netdev,allow_other,--file-mode=0666,--dir-mode=0777    0       0
 ```
 
-See also: [Instruction for Azure Blob Storage or Azure Data Lake Gen1](https://github.com/kahing/goofys/blob/master/README-azure.md).
+See also: [Instruction for Azure Blob Storage, Azure Data Lake Gen1, and Azure Data Lake Gen2](https://github.com/kahing/goofys/blob/master/README-azure.md).
 
 Got more questions? Check out [questions other people asked](https://github.com/kahing/goofys/issues?utf8=%E2%9C%93&q=is%3Aissue%20label%3Aquestion%20)
 
