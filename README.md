@@ -105,7 +105,7 @@ In addition to the items above, the following are supportable but not yet implem
 
 ## Compatibility with non-AWS S3
 
-goofys has been tested with the following non-AWS providers:
+goofys has been tested with the following non-AWS S3 providers:
 
 * Amplidata
 * Ceph (ex: Digital Ocean Spaces, DreamObjects, gridscale)
@@ -115,6 +115,12 @@ goofys has been tested with the following non-AWS providers:
 * S3Proxy
 * Minio (limited)
 * Wasabi
+
+Additionally, goofys also works with the following non-S3 object stores:
+
+* Azure Blob Storage
+* Azure Data Lake Gen1
+* Azure Data Lake Gen2
 
 # References
 
