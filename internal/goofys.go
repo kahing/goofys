@@ -277,6 +277,7 @@ func (fs *Goofys) getInodeOrDie(id fuseops.InodeID) (inode *Inode) {
 }
 
 type Mount struct {
+	// Mount Point relative to goofys's root mount.
 	name    string
 	cloud   StorageBackend
 	prefix  string
@@ -340,15 +341,16 @@ func (fs *Goofys) mount(mp *Inode, b *Mount) {
 			panic(fmt.Sprintf("inode %v is not a directory", *prev.FullName()))
 		}
 
+		// This inode might have some cached data from a parent mount.
+		// Clear this cache by resetting the DirTime.
+		// Note: resetDirTimeRec should be called without holding the lock.
+		prev.resetDirTimeRec()
 		prev.mu.Lock()
 		defer prev.mu.Unlock()
 		prev.dir.cloud = b.cloud
 		prev.dir.mountPrefix = b.prefix
 		prev.AttrTime = TIME_MAX
-		// unset this so that if there was a specific mount
-		// for a/b and we are mounted at a/, listing would
-		// actually list this backend
-		prev.dir.DirTime = time.Time{}
+
 	}
 	fuseLog.Infof("mounted /%v", *prev.FullName())
 	b.mounted = true
@@ -362,6 +364,33 @@ func (fs *Goofys) MountAll(mounts []*Mount) {
 	for _, m := range mounts {
 		fs.mount(root, m)
 	}
+}
+
+func (fs *Goofys) Mount(mount *Mount) {
+	fs.mu.RLock()
+	root := fs.getInodeOrDie(fuseops.RootInodeID)
+	fs.mu.RUnlock()
+	fs.mount(root, mount)
+}
+
+func (fs *Goofys) Unmount(mountPoint string) {
+	fs.mu.RLock()
+	mp := fs.getInodeOrDie(fuseops.RootInodeID)
+	fs.mu.RUnlock()
+
+	fuseLog.Infof("Attempting to unmount %v", mountPoint)
+	path := strings.Split(strings.Trim(mountPoint, "/"), "/")
+	for _, localName := range path {
+		dirInode := mp.findChild(localName)
+		if dirInode == nil || !dirInode.isDir() {
+			fuseLog.Errorf("Failed to find directory:%v while unmounting %v. "+
+				"Ignoring the unmount operation.", localName, mountPoint)
+			return
+		}
+		mp = dirInode
+	}
+	mp.ResetForUnmount()
+	return
 }
 
 func (fs *Goofys) StatFS(

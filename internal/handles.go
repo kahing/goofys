@@ -65,6 +65,56 @@ type Inode struct {
 	refcnt uint64
 }
 
+// Recursively resets the DirTime for child directories.
+// ACQUIRES_LOCK(inode.mu)
+func (inode *Inode) resetDirTimeRec() {
+	inode.mu.Lock()
+	if inode.dir == nil {
+		inode.mu.Unlock()
+		return
+	}
+	inode.dir.DirTime = time.Time{}
+	// Make a copy of the child nodes before giving up the lock.
+	// This protects us from any addition/removal of child nodes
+	// under this node.
+	children := make([]*Inode, len(inode.dir.Children))
+	copy(children, inode.dir.Children)
+	inode.mu.Unlock()
+	for _, child := range children {
+		child.resetDirTimeRec()
+	}
+}
+
+// ResetForUnmount resets the Inode as part of unmounting a storage backend
+// mounted at the given inode.
+// ACQUIRES_LOCK(inode.mu)
+func (inode *Inode) ResetForUnmount() {
+	if inode.dir == nil {
+		panic(fmt.Sprintf("ResetForUnmount called on a non-directory. name:%v",
+			inode.Name))
+	}
+
+	inode.mu.Lock()
+	// First reset the cloud info for this directory. After that, any read and
+	// write operations under this directory will not know about this cloud.
+	inode.dir.cloud = nil
+	inode.dir.mountPrefix = ""
+
+	// Clear metadata.
+	// Set the metadata values to nil instead of deleting them so that
+	// we know to fetch them again next time instead of thinking there's
+	// no metadata
+	inode.userMetadata = nil
+	inode.s3Metadata = nil
+	inode.Attributes = InodeAttributes{}
+	inode.Invalid, inode.ImplicitDir = false, false
+	inode.mu.Unlock()
+	// Reset DirTime for recursively for this node and all its child nodes.
+	// Note: resetDirTimeRec should be called without holding the lock.
+	inode.resetDirTimeRec()
+
+}
+
 func NewInode(fs *Goofys, parent *Inode, name *string) (inode *Inode) {
 	if strings.Index(*name, "/") != -1 {
 		fuseLog.Errorf("%v is not a valid name", *name)

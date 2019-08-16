@@ -95,7 +95,7 @@ type GoofysTest struct {
 	emulator  bool
 	azurite   bool
 
-	env map[string]io.ReadSeeker
+	env map[string]*string
 }
 
 func Test(t *testing.T) {
@@ -191,61 +191,62 @@ func (s *GoofysTest) TearDownTest(t *C) {
 	}
 }
 
-func (s *GoofysTest) setupBlobs(t *C, env map[string]io.ReadSeeker) {
+func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*string) {
 	var wg sync.WaitGroup
 
-	for path, r := range env {
+	for path, c := range env {
 		wg.Add(1)
-		go func(path string, r io.ReadSeeker) {
+		go func(path string, content *string) {
 			dir := false
-			if r == nil {
+			if content == nil {
 				if strings.HasSuffix(path, "/") {
-					if s.cloud.Capabilities().DirBlob {
+					if cloud.Capabilities().DirBlob {
 						path = strings.TrimRight(path, "/")
 					}
 					dir = true
-					r = bytes.NewReader([]byte{})
+					content = PString("")
 				} else {
-					r = bytes.NewReader([]byte(path))
+					content = &path
 				}
 			}
-
 			defer wg.Done()
 
 			params := &PutBlobInput{
 				Key:  path,
-				Body: r,
+				Body: bytes.NewReader([]byte(*content)),
 				Metadata: map[string]*string{
 					"name": aws.String(path + "+/#%00"),
 				},
 				DirBlob: dir,
 			}
 
-			_, err := s.cloud.PutBlob(params)
+			_, err := cloud.PutBlob(params)
 			t.Assert(err, IsNil)
-		}(path, r)
+		}(path, c)
 	}
 	wg.Wait()
 
 	// double check
-	for path := range env {
+	for path, c := range env {
 		wg.Add(1)
-		go func(path string) {
+		go func(path string, content *string) {
 			defer wg.Done()
 			params := &HeadBlobInput{Key: path}
-			res, err := s.cloud.HeadBlob(params)
+			res, err := cloud.HeadBlob(params)
 			t.Assert(err, IsNil)
-			if strings.HasSuffix(path, "/") || path == "zero" {
+			if content != nil {
+				t.Assert(res.Size, Equals, uint64(len(*content)))
+			} else if strings.HasSuffix(path, "/") || path == "zero" {
 				t.Assert(res.Size, Equals, uint64(0))
 			} else {
 				t.Assert(res.Size, Equals, uint64(len(path)))
 			}
-		}(path)
+		}(path, c)
 	}
 	wg.Wait()
 }
 
-func (s *GoofysTest) setupEnv(t *C, env map[string]io.ReadSeeker, public bool) {
+func (s *GoofysTest) setupEnv(t *C, env map[string]*string, public bool) {
 	if public {
 		if s3, ok := s.cloud.(*S3Backend); ok {
 			s3.config.ACL = "public-read"
@@ -259,13 +260,13 @@ func (s *GoofysTest) setupEnv(t *C, env map[string]io.ReadSeeker, public bool) {
 		time.Sleep(time.Second)
 	}
 
-	s.setupBlobs(t, env)
+	s.setupBlobs(s.cloud, t, env)
 
 	t.Log("setupEnv done")
 }
 
 func (s *GoofysTest) setupDefaultEnv(t *C, public bool) {
-	s.env = map[string]io.ReadSeeker{
+	s.env = map[string]*string{
 		"file1":           nil,
 		"file2":           nil,
 		"dir1/file3":      nil,
@@ -275,7 +276,7 @@ func (s *GoofysTest) setupDefaultEnv(t *C, public bool) {
 		"dir4/file5":      nil,
 		"empty_dir/":      nil,
 		"empty_dir2/":     nil,
-		"zero":            bytes.NewReader([]byte{}),
+		"zero":            PString(""),
 	}
 
 	s.setupEnv(t, s.env, public)
@@ -2585,7 +2586,7 @@ func (s *GoofysTest) TestAzureDirBlob(t *C) {
 		}
 	}()
 
-	s.setupBlobs(t, map[string]io.ReadSeeker{
+	s.setupBlobs(s.cloud, t, map[string]*string{
 		// "azuredir/dir" would have gone here
 		"azuredir/dir3,/":           nil,
 		"azuredir/dir3/file1":       nil,
@@ -2998,6 +2999,113 @@ func (s *GoofysTest) testMountsNested(t *C, cloud StorageBackend,
 	defer resp.Body.Close()
 
 	s.assertEntries(t, in, []string{"in"})
+}
+
+func verifyFileData(t *C, mountPoint string, path string, content *string) {
+	if !strings.HasSuffix(mountPoint, "/") {
+		mountPoint = mountPoint + "/"
+	}
+	path = mountPoint + path
+	data, err := ioutil.ReadFile(path)
+	comment := Commentf("failed while verifying %v", path)
+	if content != nil {
+		t.Assert(err, IsNil, comment)
+		t.Assert(strings.TrimSpace(string(data)), Equals, *content, comment)
+	} else {
+		t.Assert(err, Not(IsNil), comment)
+		t.Assert(strings.Contains(err.Error(), "no such file or directory"), Equals, true, comment)
+	}
+}
+
+func (s *GoofysTest) TestNestedMountUnmountSimple(t *C) {
+	childBucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
+	childCloud := s.newBackend(t, childBucket, true)
+
+	parFileContent := "parent"
+	childFileContent := "child"
+	parEnv := map[string]*string{
+		"childmnt/x/in_child_and_par": &parFileContent,
+		"childmnt/x/in_par_only":      &parFileContent,
+		"nonchildmnt/something":       &parFileContent,
+	}
+	childEnv := map[string]*string{
+		"x/in_child_only":    &childFileContent,
+		"x/in_child_and_par": &childFileContent,
+	}
+	s.setupBlobs(s.cloud, t, parEnv)
+	s.setupBlobs(childCloud, t, childEnv)
+
+	rootMountPath := "/tmp/fusetesting/" + RandStringBytesMaskImprSrc(16)
+	s.mount(t, rootMountPath)
+	defer s.umount(t, rootMountPath)
+	// Files under /tmp/fusetesting/ should all be from goofys root.
+	verifyFileData(t, rootMountPath, "childmnt/x/in_par_only", &parFileContent)
+	verifyFileData(t, rootMountPath, "childmnt/x/in_child_and_par", &parFileContent)
+	verifyFileData(t, rootMountPath, "nonchildmnt/something", &parFileContent)
+	verifyFileData(t, rootMountPath, "childmnt/x/in_child_only", nil)
+
+	childMount := &Mount{"childmnt", childCloud, "", false}
+	s.fs.Mount(childMount)
+	// Now files under /tmp/fusetesting/childmnt should be from childBucket
+	verifyFileData(t, rootMountPath, "childmnt/x/in_par_only", nil)
+	verifyFileData(t, rootMountPath, "childmnt/x/in_child_and_par", &childFileContent)
+	verifyFileData(t, rootMountPath, "childmnt/x/in_child_only", &childFileContent)
+	// /tmp/fusetesting/nonchildmnt should be from parent bucket.
+	verifyFileData(t, rootMountPath, "nonchildmnt/something", &parFileContent)
+
+	s.fs.Unmount(childMount.name)
+	// Child is unmounted. So files under /tmp/fusetesting/ should all be from goofys root.
+	verifyFileData(t, rootMountPath, "childmnt/x/in_par_only", &parFileContent)
+	verifyFileData(t, rootMountPath, "childmnt/x/in_child_and_par", &parFileContent)
+	verifyFileData(t, rootMountPath, "nonchildmnt/something", &parFileContent)
+	verifyFileData(t, rootMountPath, "childmnt/x/in_child_only", nil)
+}
+
+func (s *GoofysTest) TestUnmountBucketWithChild(t *C) {
+	// This bucket will be mounted at ${goofysroot}/c
+	cBucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
+	cCloud := s.newBackend(t, cBucket, true)
+
+	// This bucket will be mounted at ${goofysroot}/c/c
+	ccBucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
+	ccCloud := s.newBackend(t, ccBucket, true)
+
+	pFileContent := "parent"
+	cFileContent := "child"
+	ccFileContent := "childchild"
+	pEnv := map[string]*string{
+		"c/c/x/foo": &pFileContent,
+	}
+	cEnv := map[string]*string{
+		"c/x/foo": &cFileContent,
+	}
+	ccEnv := map[string]*string{
+		"x/foo": &ccFileContent,
+	}
+
+	s.setupBlobs(s.cloud, t, pEnv)
+	s.setupBlobs(cCloud, t, cEnv)
+	s.setupBlobs(ccCloud, t, ccEnv)
+
+	rootMountPath := "/tmp/fusetesting/" + RandStringBytesMaskImprSrc(16)
+	s.mount(t, rootMountPath)
+	defer s.umount(t, rootMountPath)
+	// c/c/foo should come from root mount.
+	verifyFileData(t, rootMountPath, "c/c/x/foo", &pFileContent)
+
+	cMount := &Mount{"c", cCloud, "", false}
+	s.fs.Mount(cMount)
+	// c/c/foo should come from "c" mount.
+	verifyFileData(t, rootMountPath, "c/c/x/foo", &cFileContent)
+
+	ccMount := &Mount{"c/c", ccCloud, "", false}
+	s.fs.Mount(ccMount)
+	// c/c/foo should come from "c/c" mount.
+	verifyFileData(t, rootMountPath, "c/c/x/foo", &ccFileContent)
+
+	s.fs.Unmount(cMount.name)
+	// c/c/foo should still come from "c/c" mount.
+	verifyFileData(t, rootMountPath, "c/c/x/foo", &ccFileContent)
 }
 
 func (s *GoofysTest) TestRmImplicitDir(t *C) {
