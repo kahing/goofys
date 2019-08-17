@@ -469,7 +469,7 @@ func (b *ADLv2) RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error) {
 	var requestId string
 	for cont := true; cont; cont = continuation != "" {
 		res, err := b.client.Create(context.TODO(), b.bucket, renameDest,
-			"", continuation, adl2.Posix, "", "", "", "", "", "", "", "", "",
+			"", continuation, "", "", "", "", "", "", "", "", "", "",
 			renameSource, "", "", "", "", "", "", "", "", "", "", "",
 			"", "", "", nil, "")
 		if err != nil {
