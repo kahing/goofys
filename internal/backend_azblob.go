@@ -605,11 +605,13 @@ func (b *AZBlob) DeleteBlobs(param *DeleteBlobsInput) (ret *DeleteBlobsOutput, d
 
 	for _, i := range param.Items {
 		SmallActionsGate.Take(1, true)
-		defer SmallActionsGate.Return(1)
 		wg.Add(1)
 
 		go func(key string) {
-			defer wg.Done()
+			defer func() {
+				SmallActionsGate.Return(1)
+				wg.Done()
+			}()
 
 			_, err := b.DeleteBlob(&DeleteBlobInput{key})
 			if err != nil {
