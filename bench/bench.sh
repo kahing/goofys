@@ -4,6 +4,7 @@
 : ${FAST:="false"}
 : ${test:=""}
 : ${CACHE:="false"}
+: ${CLEANUP:="true"}
 
 iter=10
 
@@ -54,11 +55,13 @@ PID=$!
 function cleanup {
     if [ $MOUNTED == 1 ]; then
         popd >/dev/null
-        if [ "$TRAVIS" != "false" ]; then
-            rmdir $prefix
-        else
-            rmdir $prefix >& /dev/null || true # riofs doesn't support rmdir
-        fi
+	if [ "$CLEANUP" = "true" ]; then
+            if [ "$TRAVIS" != "false" ]; then
+		rmdir $prefix
+            else
+		rmdir $prefix >& /dev/null || true # riofs doesn't support rmdir
+            fi
+	fi
     fi
 
     if [ "$PID" != "" ]; then
@@ -334,7 +337,9 @@ if [ "$t" = "" -o "$t" = "ls" ]; then
     for i in $(seq 1 $iter); do
         run_test ls_files 2000 2000
     done
-    rm_files 2000 2000
+    if [ "$CLEANUP" = "true" ]; then
+	rm_files 2000 2000
+    fi
 fi
 
 if [ "$t" = "ls_create" ]; then

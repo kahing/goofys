@@ -172,18 +172,28 @@ func (s *GoofysTest) SetUpSuite(t *C) {
 }
 
 func (s *GoofysTest) deleteBucket(t *C) {
-	resp, err := s.cloud.ListBlobs(&ListBlobsInput{})
-	t.Assert(err, IsNil)
+	param := &ListBlobsInput{}
 
-	keys := make([]string, 0)
-	for _, o := range resp.Items {
-		keys = append(keys, *o.Key)
+	for {
+		resp, err := s.cloud.ListBlobs(param)
+		t.Assert(err, IsNil)
+
+		keys := make([]string, 0)
+		for _, o := range resp.Items {
+			keys = append(keys, *o.Key)
+		}
+
+		_, err = s.cloud.DeleteBlobs(&DeleteBlobsInput{Items: keys})
+		t.Assert(err, IsNil)
+
+		if resp.IsTruncated {
+			param.ContinuationToken = resp.NextContinuationToken
+		} else {
+			break
+		}
 	}
 
-	_, err = s.cloud.DeleteBlobs(&DeleteBlobsInput{Items: keys})
-	t.Assert(err, IsNil)
-
-	_, err = s.cloud.RemoveBucket(&RemoveBucketInput{})
+	_, err := s.cloud.RemoveBucket(&RemoveBucketInput{})
 	t.Assert(err, IsNil)
 }
 
@@ -1346,6 +1356,7 @@ func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs .
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	cmd.Env = append(cmd.Env, os.Environ()...)
 	cmd.Env = append(cmd.Env, "FAST=true")
+	cmd.Env = append(cmd.Env, "CLEANUP=false")
 
 	if isTravis() {
 		logger := NewLogger("test")
