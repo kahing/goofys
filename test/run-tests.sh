@@ -65,5 +65,11 @@ if [ "$PROXY_BIN" != "" ]; then
 fi
 
 export CLOUD
-go test -timeout $TIMEOUT -v $(go list ./... | grep -v /vendor/) -check.vv $T
+
+if [ "${TRAVIS:-false}" == "true" ]; then
+   TIMEOUT=45m
+fi
+
+# run test in `go test` local mode so streaming output works
+(cd internal; go test -v -timeout $TIMEOUT -check.vv $T)
 exit $?
