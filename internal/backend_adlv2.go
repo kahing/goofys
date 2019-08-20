@@ -217,6 +217,11 @@ func decodeADLv2Error(body io.Reader) (adlErr adl2.DataLakeStorageError, err err
 func mapADLv2Error(resp *http.Response, err error, rawError bool) error {
 	if resp == nil {
 		if err != nil {
+			if detailedError, ok := err.(autorest.DetailedError); ok {
+				adl2Log.Errorf("%T: %v", detailedError, detailedError)
+			} else {
+				adl2Log.Errorf("unknown error: %v", err)
+			}
 			return syscall.EAGAIN
 		} else {
 			return err
