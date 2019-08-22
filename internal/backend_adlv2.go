@@ -218,7 +218,11 @@ func mapADLv2Error(resp *http.Response, err error, rawError bool) error {
 	if resp == nil {
 		if err != nil {
 			if detailedError, ok := err.(autorest.DetailedError); ok {
-				adl2Log.Errorf("%T: %v", detailedError.Original, detailedError.Original)
+				if urlErr, ok := detailedError.Original.(*url.Error); ok {
+					adl2Log.Errorf("url.Err: %T: %v %v %v", urlErr.Err, urlErr.Err, urlErr.Temporary(), urlErr.Timeout())
+				} else {
+					adl2Log.Errorf("%T: %v", detailedError.Original, detailedError.Original)
+				}
 			} else {
 				adl2Log.Errorf("unknown error: %v", err)
 			}
