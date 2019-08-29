@@ -15,7 +15,7 @@
 	url = https://github.com/jtolds/gls
 [submodule "vendor/github.com/jacobsa/fuse"]
 	path = vendor/github.com/jacobsa/fuse
-	url = https://github.com/jacobsa/fuse
+	url = https://github.com/kahing/fusego
 [submodule "vendor/github.com/Azure/go-autorest"]
 	path = vendor/github.com/Azure/go-autorest
 	url = https://github.com/Azure/go-autorest/
