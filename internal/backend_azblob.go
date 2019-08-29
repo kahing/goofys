@@ -21,6 +21,8 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net"
+	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -36,6 +38,84 @@ import (
 	"github.com/jacobsa/fuse"
 	"github.com/sirupsen/logrus"
 )
+
+const AzuriteEndpoint = "http://127.0.0.1:8080/devstoreaccount1/"
+const AzureDirBlobMetadataKey = "hdi_isfolder"
+const AzureBlobMetaDataHeaderPrefix = "x-ms-meta-"
+
+// Azure Blob Store API does not not treat headers as case insensitive.
+// This is particularly a problem with `AzureDirBlobMetadataKey` header.
+// pipelineWrapper wraps around an implementation of `Pipeline` and
+// changes the Do function to update the input request headers before invoking
+// Do on the wrapping Pipeline onject.
+type pipelineWrapper struct {
+	p pipeline.Pipeline
+}
+
+type requestWrapper struct {
+	pipeline.Request
+}
+
+var pipelineHTTPClient = newDefaultHTTPClient()
+
+// Clone of https://github.com/Azure/azure-pipeline-go/blob/master/pipeline/core.go#L202
+func newDefaultHTTPClient() *http.Client {
+	// We want the Transport to have a large connection pool
+	return &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.DefaultTransport.(*http.Transport).Proxy,
+			// We use Dial instead of DialContext as DialContext has been reported to cause slower performance.
+			Dial /*Context*/ : (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+				DualStack: true,
+			}).Dial, /*Context*/
+			MaxIdleConns:           0, // No limit
+			MaxIdleConnsPerHost:    100,
+			IdleConnTimeout:        90 * time.Second,
+			TLSHandshakeTimeout:    10 * time.Second,
+			ExpectContinueTimeout:  1 * time.Second,
+			DisableKeepAlives:      false,
+			DisableCompression:     false,
+			MaxResponseHeaderBytes: 0,
+			//ResponseHeaderTimeout:  time.Duration{},
+			//ExpectContinueTimeout:  time.Duration{},
+		},
+	}
+}
+
+// Creates a pipeline.Factory object that fixes headers related to azure blob store
+// and sends HTTP requests to Go's default http.Client.
+func newAzBlobHTTPClientFactory() pipeline.Factory {
+	return pipeline.FactoryFunc(
+		func(next pipeline.Policy, po *pipeline.PolicyOptions) pipeline.PolicyFunc {
+			return func(ctx context.Context, request pipeline.Request) (pipeline.Response, error) {
+				// Fix the Azure Blob store metadata headers.
+				// Problem:
+				// - Golang canonicalizes headers and converts them into camel case
+				//   because HTTP headers are supposed to be case insensitive. E.g After
+				//   canonicalization, 'foo-bar' becomes 'Foo-Bar'.
+				// - Azure API treats HTTP headers in case sensitive manner.
+				// Solution: Convert the problematic headers to lower case.
+				for key, value := range request.Header {
+					keyLower := strings.ToLower(key)
+					// We are mofifying the map while iterating on it. So we check for
+					// keyLower != key to avoid potential infinite loop.
+					// See https://golang.org/ref/spec#RangeClause for more info.
+					if keyLower != key && strings.Contains(keyLower, AzureBlobMetaDataHeaderPrefix) {
+						request.Header.Del(key)
+						request.Header[keyLower] = value
+					}
+				}
+				// Send the HTTP request.
+				r, err := pipelineHTTPClient.Do(request.WithContext(ctx))
+				if err != nil {
+					err = pipeline.NewError(err, "HTTP request failed")
+				}
+				return pipeline.NewHTTPResponse(r), err
+			}
+		})
+}
 
 type AZBlob struct {
 	config *AZBlobConfig
@@ -54,9 +134,6 @@ type AZBlob struct {
 	tokenRenewBuffer time.Duration
 	tokenRenewGate   *Ticket
 }
-
-const AzuriteEndpoint = "http://127.0.0.1:8080/devstoreaccount1/"
-const AzureDirBlobMetadataKey = "hdi_isfolder"
 
 var azbLog = GetLogger("azblob")
 
@@ -91,6 +168,7 @@ func NewAZBlob(container string, config *AZBlobConfig) (*AZBlob, error) {
 		RequestLog: azblob.RequestLogOptions{
 			LogWarningIfTryOverThreshold: time.Duration(-1),
 		},
+		HTTPSender: newAzBlobHTTPClientFactory(),
 	}
 
 	p := azblob.NewPipeline(azblob.NewAnonymousCredential(), po)
@@ -723,10 +801,10 @@ func (b *AZBlob) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 		// turn this into an empty blob with "hdi_isfolder" metadata
 		param.Key = param.Key[:len(param.Key)-1]
 		if param.Metadata != nil {
-			param.Metadata[AzureDirBlobMetadataKey] = PString("1")
+			param.Metadata[AzureDirBlobMetadataKey] = PString("true")
 		} else {
 			param.Metadata = map[string]*string{
-				AzureDirBlobMetadataKey: PString("1"),
+				AzureDirBlobMetadataKey: PString("true"),
 			}
 		}
 		return b.PutBlob(param)
