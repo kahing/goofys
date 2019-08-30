@@ -20,6 +20,7 @@ import (
 	"unicode"
 
 	"github.com/jacobsa/fuse"
+	"github.com/shirou/gopsutil/process"
 )
 
 var TIME_MAX = time.Unix(1<<63-62135596801, 999999999)
@@ -161,4 +162,17 @@ func (sem semaphore) V(n int) {
 	for i := 0; i < n; i++ {
 		<-sem
 	}
+}
+
+// GetTgid returns the tgid for the given pid.
+func GetTgid(pid uint32) (tgid *int32, err error) {
+	p, err := process.NewProcess(int32(pid))
+	if err != nil {
+		return nil, err
+	}
+	tgidVal, err := p.Tgid()
+	if err != nil {
+		return nil, err
+	}
+	return &tgidVal, nil
 }

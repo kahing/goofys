@@ -480,7 +480,7 @@ func (parent *Inode) Unlink(name string) (err error) {
 }
 
 func (parent *Inode) Create(
-	name string) (inode *Inode, fh *FileHandle) {
+	name string, metadata fuseops.OpMetadata) (inode *Inode, fh *FileHandle) {
 
 	parent.logFuse("Create", name)
 
@@ -496,7 +496,7 @@ func (parent *Inode) Create(
 		Mtime: now,
 	}
 
-	fh = NewFileHandle(inode)
+	fh = NewFileHandle(inode, metadata)
 	fh.poolHandle = fs.bufferPool
 	fh.dirty = true
 	inode.fileHandles = 1
@@ -833,13 +833,13 @@ func (inode *Inode) ListXattr() ([]string, error) {
 	return xattrs, nil
 }
 
-func (inode *Inode) OpenFile() (fh *FileHandle, err error) {
+func (inode *Inode) OpenFile(metadata fuseops.OpMetadata) (fh *FileHandle, err error) {
 	inode.logFuse("OpenFile")
 
 	inode.mu.Lock()
 	defer inode.mu.Unlock()
 
-	fh = NewFileHandle(inode)
+	fh = NewFileHandle(inode, metadata)
 	inode.fileHandles += 1
 	return
 }

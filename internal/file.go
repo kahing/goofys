@@ -22,6 +22,7 @@ import (
 	"syscall"
 
 	"github.com/jacobsa/fuse"
+	"github.com/jacobsa/fuse/fuseops"
 )
 
 type FileHandle struct {
@@ -53,14 +54,28 @@ type FileHandle struct {
 	existingReadahead int
 	seqReadAmount     uint64
 	numOOORead        uint64 // number of out of order read
+	// User space PID. All threads created by a process will have the same TGID,
+	// but different PIDs[1].
+	// This value can be nil if we fail to get TGID from PID[2].
+	// [1] : https://godoc.org/github.com/shirou/gopsutil/process#Process.Tgid
+	// [2] : https://github.com/shirou/gopsutil#process-class
+	Tgid *int32
 }
 
 const MAX_READAHEAD = uint32(400 * 1024 * 1024)
 const READAHEAD_CHUNK = uint32(20 * 1024 * 1024)
 
-func NewFileHandle(in *Inode) *FileHandle {
-	fh := &FileHandle{inode: in}
-	fh.cloud, fh.key = in.cloud()
+// NewFileHandle returns a new file handle for the given `inode` triggered by fuse
+// operation with the given `opMetadata`
+func NewFileHandle(inode *Inode, opMetadata fuseops.OpMetadata) *FileHandle {
+	tgid, err := GetTgid(opMetadata.Pid)
+	if err != nil {
+		log.Debugf(
+			"Failed to retrieve tgid for the given pid. pid: %v err: %v inode id: %v err: %v",
+			opMetadata.Pid, err, inode.Id, err)
+	}
+	fh := &FileHandle{inode: inode, Tgid: tgid}
+	fh.cloud, fh.key = inode.cloud()
 	return fh
 }
 
