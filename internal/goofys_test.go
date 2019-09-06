@@ -97,6 +97,8 @@ type GoofysTest struct {
 	emulator  bool
 	azurite   bool
 
+	removeBucket []StorageBackend
+
 	env map[string]*string
 }
 
@@ -171,11 +173,11 @@ func (s *GoofysTest) waitForEmulator(t *C) {
 func (s *GoofysTest) SetUpSuite(t *C) {
 }
 
-func (s *GoofysTest) deleteBucket(t *C) {
+func (s *GoofysTest) deleteBucket(t *C, cloud StorageBackend) {
 	param := &ListBlobsInput{}
 
 	for {
-		resp, err := s.cloud.ListBlobs(param)
+		resp, err := cloud.ListBlobs(param)
 		t.Assert(err, IsNil)
 
 		keys := make([]string, 0)
@@ -183,8 +185,10 @@ func (s *GoofysTest) deleteBucket(t *C) {
 			keys = append(keys, *o.Key)
 		}
 
-		_, err = s.cloud.DeleteBlobs(&DeleteBlobsInput{Items: keys})
-		t.Assert(err, IsNil)
+		if len(keys) != 0 {
+			_, err = cloud.DeleteBlobs(&DeleteBlobsInput{Items: keys})
+			t.Assert(err, IsNil)
+		}
 
 		if resp.IsTruncated {
 			param.ContinuationToken = resp.NextContinuationToken
@@ -193,14 +197,15 @@ func (s *GoofysTest) deleteBucket(t *C) {
 		}
 	}
 
-	_, err := s.cloud.RemoveBucket(&RemoveBucketInput{})
+	_, err := cloud.RemoveBucket(&RemoveBucketInput{})
 	t.Assert(err, IsNil)
 }
 
 func (s *GoofysTest) TearDownTest(t *C) {
-	if s.cloud != nil {
-		s.deleteBucket(t)
+	for _, cloud := range s.removeBucket {
+		s.deleteBucket(t, cloud)
 	}
+	s.removeBucket = nil
 }
 
 func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*string) {
@@ -444,6 +449,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		t.Fatal("Unsupported backend")
 	}
 
+	s.removeBucket = append(s.removeBucket, s.cloud)
 	s.setupDefaultEnv(t, false)
 
 	s.fs = NewGoofys(context.Background(), bucket, flags)
@@ -1646,8 +1652,7 @@ func (s *GoofysTest) anonymous(t *C) {
 		t.Skip("only for S3")
 	}
 
-	// delete the original bucket
-	s.deleteBucket(t)
+	s.deleteBucket(t, s.cloud)
 
 	s.setupDefaultEnv(t, true)
 
@@ -2831,6 +2836,8 @@ func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud S
 	if createBucket {
 		_, err = cloud.MakeBucket(&MakeBucketInput{})
 		t.Assert(err, IsNil)
+
+		s.removeBucket = append(s.removeBucket, cloud)
 	}
 
 	return
