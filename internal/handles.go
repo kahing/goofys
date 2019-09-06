@@ -44,10 +44,21 @@ type Inode struct {
 	fs         *Goofys
 	Attributes InodeAttributes
 	KnownSize  *uint64
-	AttrTime   time.Time
+	// It is generally safe to read `AttrTime` without locking because if some other
+	// operation is modifying `AttrTime`, in most cases the reader is okay with working with
+	// stale data. But Time is a struct and modifying it is not atomic. However
+	// in practice (until the year 2157) we should be okay because
+	// - Almost all uses of AttrTime will be about comparisions (AttrTime < x, AttrTime > x)
+	// - Time object will have Time::monotonic bit set (until the year 2157) => the time
+	//   comparision just compares Time::ext field
+	// Ref: https://github.com/golang/go/blob/e42ae65a8507/src/time/time.go#L12:L56
+	AttrTime time.Time
 
 	mu sync.Mutex // everything below is protected by mu
 
+	// We are not very consistent about enforcing locks for `Parent` because, the
+	// parent field very very rarely changes and it is generally fine to operate on
+	// stale parent informaiton
 	Parent *Inode
 
 	dir *DirInodeData
@@ -344,6 +355,10 @@ func (parent *Inode) findChildIdxUnlocked(name string) int {
 		if *parent.dir.Children[i].Name == name {
 			return i
 		}
+	}
+	i = sort.Search(l, parent.findInodeFunc(name, false))
+	if i < l && *parent.dir.Children[i].Name == name {
+		return i
 	}
 	return -1
 }

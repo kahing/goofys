@@ -208,6 +208,14 @@ func (s *GoofysTest) TearDownTest(t *C) {
 	s.removeBucket = nil
 }
 
+func (s *GoofysTest) removeBlob(cloud StorageBackend, t *C, blobPath string) {
+	params := &DeleteBlobInput{
+		Key: blobPath,
+	}
+	_, err := cloud.DeleteBlob(params)
+	t.Assert(err, IsNil)
+}
+
 func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*string) {
 	var wg sync.WaitGroup
 
@@ -631,6 +639,35 @@ func (s *GoofysTest) TestReadDirCacheLookup(t *C) {
 		})
 		t.Assert(err, IsNil)
 	}
+}
+
+func (s *GoofysTest) TestReadDirWithExternalChanges(t *C) {
+	s.fs.flags.TypeCacheTTL = time.Second
+
+	dir1, err := s.LookUpInode(t, "dir1")
+	t.Assert(err, IsNil)
+
+	defaultEntries := []string{
+		"dir1", "dir2", "dir4", "empty_dir",
+		"empty_dir2", "file1", "file2", "zero"}
+	s.assertEntries(t, s.getRoot(t), defaultEntries)
+	// dir1 has file3 and nothing else.
+	s.assertEntries(t, dir1, []string{"file3"})
+
+	// Do the following 'external' changes in s3 without involving goofys.
+	// - Remove file1, add file3.
+	// - Remove dir1/file3. Given that dir1 has just this one file,
+	//   we are effectively removing dir1 as well.
+	s.removeBlob(s.cloud, t, "file1")
+	s.setupBlobs(s.cloud, t, map[string]*string{"file3": nil})
+	s.removeBlob(s.cloud, t, "dir1/file3")
+
+	time.Sleep(s.fs.flags.TypeCacheTTL)
+	// newEntries = `defaultEntries` - dir1 - file1 + file3.
+	newEntries := []string{
+		"dir2", "dir4", "empty_dir", "empty_dir2",
+		"file2", "file3", "zero"}
+	s.assertEntries(t, s.getRoot(t), newEntries)
 }
 
 func (s *GoofysTest) TestReadDir(t *C) {

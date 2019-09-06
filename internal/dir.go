@@ -55,6 +55,9 @@ type DirHandle struct {
 
 	Marker        *string
 	lastFromCloud *string
+	// Time at which we started fetching child entries
+	// from cloud for this handle.
+	refreshStartTime time.Time
 }
 
 func NewDirHandle(inode *Inode) (dh *DirHandle) {
@@ -320,6 +323,11 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 	//    time we need to list from cloud again with continuation
 	//    token
 	for dh.lastFromCloud == nil {
+		if dh.Marker == nil {
+			// Marker, lastFromCloud are nil => We just started
+			// refreshing this directory info from cloud.
+			dh.refreshStartTime = time.Now()
+		}
 		dh.mu.Unlock()
 
 		var prefix string
@@ -413,40 +421,48 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 	}
 
 	parent.mu.Lock()
-	numChildren := fuseops.DirOffset(len(parent.dir.Children))
-	if offset < numChildren {
-		child := parent.dir.Children[offset]
-		parent.mu.Unlock()
-		child.mu.Lock()
-		defer child.mu.Unlock()
+	defer parent.mu.Unlock()
 
-		en := DirHandleEntry{
-			Name:   *child.Name,
-			Inode:  child.Id,
-			Offset: offset + 1,
-		}
-		if child.isDir() {
-			en.Type = fuseutil.DT_Directory
+	// Find the first non-stale child inode with offset >= `offset`.
+	var child *Inode
+	for int(offset) < len(parent.dir.Children) {
+		// Note on locking: See comments at Inode::AttrTime, Inode::Parent.
+		childTmp := parent.dir.Children[offset]
+		if childTmp.AttrTime.Before(dh.refreshStartTime) {
+			// childTmp.AttrTime < dh.refreshStartTime => the child entry was not
+			// updated from cloud by this dir Handle.
+			// So this is a stale entry that should be removed.
+			childTmp.Parent = nil
+			parent.removeChildUnlocked(childTmp)
 		} else {
-			en.Type = fuseutil.DT_File
-		}
-
-		if dh.lastFromCloud != nil && en.Name == *dh.lastFromCloud {
-			dh.lastFromCloud = nil
-		}
-		return &en, nil
-	} else {
-		if offset == numChildren {
-			// we've reached the end
-			parent.dir.DirTime = time.Now()
-			parent.Attributes.Mtime = parent.findChildMaxTime()
-			parent.mu.Unlock()
-			return nil, nil
-		} else {
-			parent.mu.Unlock()
-			return nil, fuse.EINVAL
+			// Found a non-stale child inode.
+			child = childTmp
+			break
 		}
 	}
+
+	if child == nil {
+		// we've reached the end
+		parent.dir.DirTime = time.Now()
+		parent.Attributes.Mtime = parent.findChildMaxTime()
+		return nil, nil
+	}
+
+	en = &DirHandleEntry{
+		Name:   *child.Name,
+		Inode:  child.Id,
+		Offset: fuseops.DirOffset(offset) + 1,
+	}
+	if child.isDir() {
+		en.Type = fuseutil.DT_Directory
+	} else {
+		en.Type = fuseutil.DT_File
+	}
+
+	if dh.lastFromCloud != nil && en.Name == *dh.lastFromCloud {
+		dh.lastFromCloud = nil
+	}
+	return en, nil
 }
 
 func (dh *DirHandle) CloseDir() error {
