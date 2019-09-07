@@ -3047,12 +3047,16 @@ func (s *GoofysTest) TestMountsError(t *C) {
 	} else if _, ok := s.cloud.(*ADLv1); ok {
 		cloud = s.newBackend(t, bucket, true)
 		adlCloud, _ := cloud.(*ADLv1)
+		account := adlCloud.account
 		adlCloud.account = ""
+		defer func() { adlCloud.account = account }()
 	} else if _, ok := s.cloud.(*ADLv2); ok {
 		// ADLv2 currently doesn't detect bucket doesn't exist
 		cloud = s.newBackend(t, bucket, true)
 		adlCloud, _ := cloud.(*ADLv2)
+		account := adlCloud.client.BaseClient.AccountName
 		adlCloud.client.BaseClient.AccountName = ""
+		defer func() { adlCloud.client.BaseClient.AccountName = account }()
 	} else {
 		cloud = s.newBackend(t, bucket, false)
 	}
