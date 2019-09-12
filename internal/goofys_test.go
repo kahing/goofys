@@ -2270,6 +2270,39 @@ func (s *GoofysTest) TestInodeInsert(t *C) {
 	t.Assert(len(root.dir.Children), Equals, 2)
 }
 
+func (s *GoofysTest) TestReadDirSlurpHeuristic(t *C) {
+	if _, ok := s.cloud.(*S3Backend); !ok {
+		t.Skip("only for S3")
+	}
+	s.fs.flags.TypeCacheTTL = 1 * time.Minute
+
+	s.setupBlobs(s.cloud, t, map[string]*string{"dir2isafile": nil})
+
+	root := s.getRoot(t).dir
+	t.Assert(root.seqOpenDirScore, Equals, uint8(0))
+	s.assertEntries(t, s.getRoot(t), []string{
+		"dir1", "dir2", "dir2isafile", "dir4", "empty_dir",
+		"empty_dir2", "file1", "file2", "zero"})
+
+	dir1, err := s.LookUpInode(t, "dir1")
+	t.Assert(err, IsNil)
+	dh1 := dir1.OpenDir()
+	defer dh1.CloseDir()
+	score := root.seqOpenDirScore
+
+	dir2, err := s.LookUpInode(t, "dir2")
+	t.Assert(err, IsNil)
+	dh2 := dir2.OpenDir()
+	defer dh2.CloseDir()
+	t.Assert(root.seqOpenDirScore, Equals, score+1)
+
+	dir3, err := s.LookUpInode(t, "dir4")
+	t.Assert(err, IsNil)
+	dh3 := dir3.OpenDir()
+	defer dh3.CloseDir()
+	t.Assert(root.seqOpenDirScore, Equals, score+2)
+}
+
 func (s *GoofysTest) TestReadDirSlurpSubtree(t *C) {
 	if _, ok := s.cloud.(*S3Backend); !ok {
 		t.Skip("only for S3")
@@ -2702,7 +2735,7 @@ func (s *GoofysTest) TestIssue326(t *C) {
 
 	s.readDirIntoCache(t, root.Id)
 	s.assertEntries(t, root, []string{"dir1", "dir2", "dir4", "empty_dir", "empty_dir2",
-		"folder#1#", "folder@name.something", "file1", "file2", "zero"})
+		"file1", "file2", "folder#1#", "folder@name.something", "zero"})
 }
 
 func (s *GoofysTest) TestSlurpFileAndDir(t *C) {
@@ -2835,6 +2868,39 @@ func (s *GoofysTest) TestAzureDirBlob(t *C) {
 	t.Assert(err, IsNil)
 
 	s.assertEntries(t, in, []string{"dir2", "dir3", "dir3,", "dir345_is_a_file"})
+}
+
+func (s *GoofysTest) TestReadDirLarge(t *C) {
+	root := s.getRoot(t)
+	root.dir.mountPrefix = "empty_dir"
+
+	blobs := make(map[string]*string)
+	expect := make([]string, 0)
+	for i := 0; i < 998; i++ {
+		blobs[fmt.Sprintf("empty_dir/%04vd/%v", i, i)] = nil
+		expect = append(expect, fmt.Sprintf("%04vd", i))
+	}
+	blobs["empty_dir/0998f"] = nil
+	blobs["empty_dir/0999f"] = nil
+	blobs["empty_dir/1000f"] = nil
+	expect = append(expect, "0998f")
+	expect = append(expect, "0999f")
+	expect = append(expect, "1000f")
+
+	for i := 1001; i < 1003; i++ {
+		blobs[fmt.Sprintf("empty_dir/%04vd/%v", i, i)] = nil
+		expect = append(expect, fmt.Sprintf("%04vd", i))
+	}
+
+	s.setupBlobs(s.cloud, t, blobs)
+
+	dh := root.OpenDir()
+	defer dh.CloseDir()
+
+	children := namesOf(s.readDirFully(t, dh))
+	sort.Strings(children)
+
+	t.Assert(children, DeepEquals, expect)
 }
 
 func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud StorageBackend) {

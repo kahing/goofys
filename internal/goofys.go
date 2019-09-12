@@ -307,7 +307,7 @@ func (fs *Goofys) mount(mp *Inode, b *Mount) {
 		name = name[idx+1:]
 
 		mp.mu.Lock()
-		dirInode := mp.findChildUnlockedFull(dirName)
+		dirInode := mp.findChildUnlocked(dirName)
 		if dirInode == nil {
 			fs.mu.Lock()
 
@@ -325,7 +325,7 @@ func (fs *Goofys) mount(mp *Inode, b *Mount) {
 	mp.mu.Lock()
 	defer mp.mu.Unlock()
 
-	prev := mp.findChildUnlockedFull(name)
+	prev := mp.findChildUnlocked(name)
 	if prev == nil {
 		mountInode := NewInode(fs, mp, &name)
 		mountInode.ToDir()
@@ -588,7 +588,7 @@ func (fs *Goofys) LookUpInode(
 	fs.mu.RUnlock()
 
 	parent.mu.Lock()
-	inode = parent.findChildUnlockedFull(op.Name)
+	inode = parent.findChildUnlocked(op.Name)
 	if inode != nil {
 		ok = true
 		inode.Ref()
@@ -639,7 +639,7 @@ func (fs *Goofys) LookUpInode(
 			parent.mu.Lock()
 			// check again if it's there, could have been
 			// added by another lookup or readdir
-			inode = parent.findChildUnlockedFull(op.Name)
+			inode = parent.findChildUnlocked(op.Name)
 			if inode == nil {
 				fs.mu.Lock()
 				inode = newInode
@@ -1103,21 +1103,21 @@ func (fs *Goofys) Rename(
 			// because this is a new file and we haven't
 			// flushed it yet, pretend that's ok because
 			// when we flush we will handle the rename
-			inode := parent.findChildUnlocked(op.OldName, false)
+			inode := parent.findChildUnlocked(op.OldName)
 			if inode != nil && inode.fileHandles != 0 {
 				err = nil
 			}
 		}
 	}
 	if err == nil {
-		inode := parent.findChildUnlockedFull(op.OldName)
+		inode := parent.findChildUnlocked(op.OldName)
 		if inode != nil {
 			inode.mu.Lock()
 			defer inode.mu.Unlock()
 
 			parent.removeChildUnlocked(inode)
 
-			newNode := newParent.findChildUnlocked(op.NewName, inode.isDir())
+			newNode := newParent.findChildUnlocked(op.NewName)
 			if newNode != nil {
 				// this file's been overwritten, it's
 				// been detached but we can't delete
