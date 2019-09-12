@@ -56,6 +56,7 @@ type DirHandle struct {
 
 	Marker        *string
 	lastFromCloud *string
+	done          bool
 	// Time at which we started fetching child entries
 	// from cloud for this handle.
 	refreshStartTime time.Time
@@ -347,7 +348,7 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 	// 3. when we serve the entry we added last, signal that next
 	//    time we need to list from cloud again with continuation
 	//    token
-	for dh.lastFromCloud == nil {
+	for dh.lastFromCloud == nil && !dh.done {
 		if dh.Marker == nil {
 			// Marker, lastFromCloud are nil => We just started
 			// refreshing this directory info from cloud.
@@ -441,6 +442,7 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 			dh.Marker = resp.NextContinuationToken
 		} else {
 			dh.Marker = nil
+			dh.done = true
 			break
 		}
 	}
