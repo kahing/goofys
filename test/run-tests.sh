@@ -7,7 +7,7 @@ set -o nounset
 : ${CLOUD:="s3"}
 : ${PROXY_BIN:=""}
 : ${PROXY_PID:=""}
-: ${TIMEOUT:="20m"}
+: ${TIMEOUT:="10m"}
 
 function cleanup {
     if [ "$PROXY_PID" != "" ]; then
@@ -62,13 +62,12 @@ fi
 if [ "$PROXY_BIN" != "" ]; then
     stdbuf -oL -eL $PROXY_BIN &
     PROXY_PID=$!
+elif [ "$TIMEOUT" == "10m" ]; then
+    # higher timeout for testing to real cloud
+    TIMEOUT=25m
 fi
 
 export CLOUD
-
-if [ "${TRAVIS:-false}" == "true" ]; then
-   TIMEOUT=45m
-fi
 
 # run test in `go test` local mode so streaming output works
 (cd internal; go test -v -timeout $TIMEOUT -check.vv $T)
