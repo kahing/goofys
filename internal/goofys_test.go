@@ -667,6 +667,10 @@ func (s *GoofysTest) TestReadDirWithExternalChanges(t *C) {
 	newEntries := []string{
 		"dir2", "dir4", "empty_dir", "empty_dir2",
 		"file2", "file3", "zero"}
+	if s.cloud.Capabilities().DirBlob {
+		// dir1 is not automatically deleted
+		newEntries = append([]string{"dir1"}, newEntries...)
+	}
 	s.assertEntries(t, s.getRoot(t), newEntries)
 }
 
