@@ -109,7 +109,7 @@ func NewADLv1(bucket string, flags *FlagStorage, config *ADLv1Config) (*ADLv1, e
 				}
 			}
 
-			u, _ := uuid.NewV4()
+			u := uuid.NewV4()
 			r.Header.Add(ADL1_REQUEST_ID, u.String())
 
 			if adls1Log.IsLevelEnabled(logrus.DebugLevel) {
@@ -524,10 +524,7 @@ func (b *ADLv1) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBl
 	// same time.  much of these is not documented anywhere except
 	// in the SDKs:
 	// https://github.com/Azure/azure-data-lake-store-java/blob/f5c270b8cb2ac68536b2cb123d355a874cade34c/src/main/java/com/microsoft/azure/datalake/store/Core.java#L84
-	leaseId, err := uuid.NewV4()
-	if err != nil {
-		return nil, err
-	}
+	leaseId := uuid.NewV4()
 
 	res, err := b.client.Create(context.TODO(), b.account, b.path(param.Key),
 		&ReadSeekerCloser{bytes.NewReader([]byte(""))}, PBool(true), adl.DATA, &leaseId,
