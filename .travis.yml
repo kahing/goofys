@@ -9,8 +9,13 @@ install:
 - make s3proxy.jar
 script: ./test/run-tests.sh
 go:
-  - 1.11.5
-go_import_path: github.com/kahing/goofys
+  - 1.13.x
+  - 1.12.x
+  - 1.11.x
+env:
+  global:
+    - GO111MODULE=on
+    - GOPROXY=https://proxy.golang.org
 matrix:
   include:
     - name: "S3Proxy"
