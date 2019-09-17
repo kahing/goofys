@@ -2462,7 +2462,7 @@ func (s *GoofysTest) TestDirMtimeLs(t *C) {
 
 	attr, _ := root.GetAttributes()
 	m1 := attr.Mtime
-	time.Sleep(time.Second)
+	time.Sleep(3 * time.Second)
 
 	params := &PutBlobInput{
 		Key:  "newfile",
