@@ -1085,6 +1085,10 @@ func (s *GoofysTest) TestBackendListPagination(t *C) {
 	if _, ok := s.cloud.(*ADLv1); ok {
 		t.Skip("ADLv1 doesn't have pagination")
 	}
+	if s.azurite {
+		// https://github.com/Azure/Azurite/issues/262
+		t.Skip("Azurite doesn't support pagination")
+	}
 
 	var itemsPerPage int
 	switch s.cloud.(type) {
