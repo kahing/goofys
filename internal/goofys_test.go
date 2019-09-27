@@ -221,6 +221,7 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 
 	var globalErr error
 	for path, c := range env {
+		SmallActionsGate.Take(1, true)
 		wg.Add(1)
 		go func(path string, content *string) {
 			dir := false
@@ -235,7 +236,10 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 					content = &path
 				}
 			}
-			defer wg.Done()
+			defer func() {
+				SmallActionsGate.Return(1)
+				wg.Done()
+			}()
 
 			params := &PutBlobInput{
 				Key:  path,
@@ -260,8 +264,13 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 	// double check
 	for path, c := range env {
 		wg.Add(1)
+		SmallActionsGate.Take(1, true)
+
 		go func(path string, content *string) {
-			defer wg.Done()
+			defer func() {
+				SmallActionsGate.Return(1)
+				wg.Done()
+			}()
 			params := &HeadBlobInput{Key: path}
 			res, err := cloud.HeadBlob(params)
 			t.Assert(err, IsNil)
@@ -1070,6 +1079,65 @@ func (s *GoofysTest) TestRenameToExisting(t *C) {
 	file2 := root.findChild("file2")
 	t.Assert(file2, NotNil)
 	t.Assert(*file2.Name, Equals, "file2")
+}
+
+func (s *GoofysTest) TestBackendListPagination(t *C) {
+	var itemsPerPage int
+	switch s.cloud.(type) {
+	case *S3Backend, *GCS3:
+		itemsPerPage = 1000
+	case *AZBlob, *ADLv2:
+		itemsPerPage = 5000
+	case *ADLv1:
+		// ADLv1 doesn't support pagination in list so in
+		// theory it should return infinite items, but we
+		// can't test infinite
+		itemsPerPage = 5000
+	}
+
+	root := s.getRoot(t)
+	root.dir.mountPrefix = "this_test/"
+
+	blobs := make(map[string]*string)
+	expect := make([]string, 0)
+	for i := 0; i < itemsPerPage+1; i++ {
+		b := fmt.Sprintf("%08v", i)
+		blobs["this_test/"+b] = nil
+		expect = append(expect, b)
+	}
+
+	switch s.cloud.(type) {
+	case *ADLv1, *ADLv2:
+		// these backends don't support parallel delete so I
+		// am doing this here
+		defer func() {
+			var wg sync.WaitGroup
+
+			for b, _ := range blobs {
+				SmallActionsGate.Take(1, true)
+				wg.Add(1)
+
+				go func(key string) {
+					// ignore the error here,
+					// anything we didn't cleanup
+					// will be handled by teardown
+					_, _ = s.cloud.DeleteBlob(&DeleteBlobInput{key})
+					SmallActionsGate.Return(1)
+					wg.Done()
+				}(b)
+			}
+
+			wg.Wait()
+		}()
+	}
+
+	s.setupBlobs(s.cloud, t, blobs)
+
+	dh := root.OpenDir()
+	defer dh.CloseDir()
+
+	children := namesOf(s.readDirFully(t, dh))
+	t.Assert(children, DeepEquals, expect)
 }
 
 func (s *GoofysTest) TestBackendListPrefix(t *C) {

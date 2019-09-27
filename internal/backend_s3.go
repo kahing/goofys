@@ -416,7 +416,6 @@ func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 	}
 
 	return &ListBlobsOutput{
-		ContinuationToken:     param.ContinuationToken,
 		Prefixes:              prefixes,
 		Items:                 items,
 		NextContinuationToken: resp.NextContinuationToken,

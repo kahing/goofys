@@ -348,10 +348,9 @@ func (b *ADLv1) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 	}
 
 	return &ListBlobsOutput{
-		Prefixes:          prefixes,
-		Items:             items,
-		ContinuationToken: nil,
-		IsTruncated:       false,
+		Prefixes:    prefixes,
+		Items:       items,
+		IsTruncated: false,
 	}, nil
 }
 

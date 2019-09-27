@@ -68,8 +68,6 @@ type BlobPrefixOutput struct {
 }
 
 type ListBlobsOutput struct {
-	ContinuationToken *string
-
 	Prefixes              []BlobPrefixOutput
 	Items                 []BlobItemOutput
 	NextContinuationToken *string

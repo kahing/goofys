@@ -234,7 +234,7 @@ func mapADLv2Error(resp *http.Response, err error, rawError bool) error {
 		if err != nil {
 			if detailedError, ok := err.(autorest.DetailedError); ok {
 				if urlErr, ok := detailedError.Original.(*url.Error); ok {
-					adl2Log.Errorf("url.Err: %T: %v %v %v", urlErr.Err, urlErr.Err, urlErr.Temporary(), urlErr.Timeout())
+					adl2Log.Errorf("url.Err: %T: %v %v %v %v %v", urlErr.Err, urlErr.Err, urlErr.Temporary(), urlErr.Timeout(), urlErr.Op, urlErr.URL)
 				} else {
 					adl2Log.Errorf("%T: %v", detailedError.Original, detailedError.Original)
 				}
@@ -428,11 +428,11 @@ func (b *ADLv2) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 	continuationToken := getHeader(res.Response.Response, "x-ms-continuation")
 
 	return &ListBlobsOutput{
-		Prefixes:          prefixes,
-		Items:             items,
-		ContinuationToken: continuationToken,
-		IsTruncated:       continuationToken != nil,
-		RequestId:         res.Response.Response.Header.Get(ADL2_REQUEST_ID),
+		Prefixes:              prefixes,
+		Items:                 items,
+		NextContinuationToken: continuationToken,
+		IsTruncated:           continuationToken != nil,
+		RequestId:             res.Response.Response.Header.Get(ADL2_REQUEST_ID),
 	}, nil
 }
 

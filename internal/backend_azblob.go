@@ -644,7 +644,6 @@ func (b *AZBlob) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 	}
 
 	return &ListBlobsOutput{
-		ContinuationToken:     param.ContinuationToken,
 		Prefixes:              prefixes,
 		Items:                 items,
 		NextContinuationToken: nextMarker,
