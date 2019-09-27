@@ -39,6 +39,7 @@ import (
 	adl2 "github.com/Azure/azure-sdk-for-go/services/storage/datalake/2018-11-09/storagedatalake"
 	"github.com/Azure/go-autorest/autorest"
 	"github.com/Azure/go-autorest/autorest/azure"
+	"go.opencensus.io/plugin/ochttp"
 )
 
 type ADLv2 struct {
@@ -168,6 +169,20 @@ func NewADLv2(bucket string, flags *FlagStorage, config *ADLv2Config) (*ADLv2, e
 	client.Authorizer = config.Authorizer
 	client.RequestInspector = LogRequest
 	client.ResponseInspector = LogResponse
+	// use the same values we use for s3 backend
+	transport := client.Sender.(*http.Client).Transport
+	switch transport.(type) {
+	case *http.Transport:
+		transport := transport.(*http.Transport)
+		transport.MaxIdleConns = 1000
+		transport.MaxIdleConnsPerHost = 1000
+	case *ochttp.Transport:
+		transport := transport.(*ochttp.Transport).Base.(*http.Transport)
+		transport.MaxIdleConns = 1000
+		transport.MaxIdleConnsPerHost = 1000
+	default:
+		panic(fmt.Sprintf("unknown transport type: %T", transport))
+	}
 
 	b := &ADLv2{
 		flags:  flags,
