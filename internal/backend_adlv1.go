@@ -142,6 +142,7 @@ func NewADLv1(bucket string, flags *FlagStorage, config *ADLv1Config) (*ADLv1, e
 	adlClient.BaseClient.Client.RequestInspector = LogRequest
 	adlClient.BaseClient.Client.ResponseInspector = LogResponse
 	adlClient.BaseClient.AdlsFileSystemDNSSuffix = parts[1]
+	adlClient.BaseClient.Sender.(*http.Client).Transport = GetHTTPTransport()
 
 	b := &ADLv1{
 		flags:   flags,

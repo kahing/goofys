@@ -1082,17 +1082,18 @@ func (s *GoofysTest) TestRenameToExisting(t *C) {
 }
 
 func (s *GoofysTest) TestBackendListPagination(t *C) {
+	if _, ok := s.cloud.(*ADLv1); ok {
+		t.Skip("ADLv1 doesn't have pagination")
+	}
+
 	var itemsPerPage int
 	switch s.cloud.(type) {
 	case *S3Backend, *GCS3:
 		itemsPerPage = 1000
 	case *AZBlob, *ADLv2:
 		itemsPerPage = 5000
-	case *ADLv1:
-		// ADLv1 doesn't support pagination in list so in
-		// theory it should return infinite items, but we
-		// can't test infinite
-		itemsPerPage = 5000
+	default:
+		t.Fatalf("unknown backend: %T", s.cloud)
 	}
 
 	root := s.getRoot(t)

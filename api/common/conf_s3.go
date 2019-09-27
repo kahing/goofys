@@ -18,9 +18,7 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"fmt"
-	"net"
 	"net/http"
-	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/client"
@@ -57,20 +55,6 @@ type S3Config struct {
 	Session     *session.Session
 }
 
-var s3HTTPTransport = http.Transport{
-	Proxy: http.ProxyFromEnvironment,
-	DialContext: (&net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
-		DualStack: true,
-	}).DialContext,
-	MaxIdleConns:          1000,
-	MaxIdleConnsPerHost:   1000,
-	IdleConnTimeout:       90 * time.Second,
-	TLSHandshakeTimeout:   10 * time.Second,
-	ExpectContinueTimeout: 10 * time.Second,
-}
-
 var s3Session *session.Session
 
 func (c *S3Config) Init() *S3Config {
@@ -88,7 +72,7 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 		Region: &c.Region,
 		Logger: GetLogger("s3"),
 	}).WithHTTPClient(&http.Client{
-		Transport: &s3HTTPTransport,
+		Transport: &defaultHTTPTransport,
 		Timeout:   flags.HTTPTimeout,
 	})
 	if flags.DebugS3 {

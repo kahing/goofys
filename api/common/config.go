@@ -18,6 +18,8 @@ package common
 
 import (
 	"mime"
+	"net"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -83,4 +85,22 @@ func (flags *FlagStorage) Cleanup() {
 			log.Errorf("rmdir %v = %v", flags.MountPointCreated, err)
 		}
 	}
+}
+
+var defaultHTTPTransport = http.Transport{
+	Proxy: http.ProxyFromEnvironment,
+	DialContext: (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		DualStack: true,
+	}).DialContext,
+	MaxIdleConns:          1000,
+	MaxIdleConnsPerHost:   1000,
+	IdleConnTimeout:       90 * time.Second,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ExpectContinueTimeout: 10 * time.Second,
+}
+
+func GetHTTPTransport() *http.Transport {
+	return &defaultHTTPTransport
 }

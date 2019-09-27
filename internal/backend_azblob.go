@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -60,27 +59,8 @@ var pipelineHTTPClient = newDefaultHTTPClient()
 
 // Clone of https://github.com/Azure/azure-pipeline-go/blob/master/pipeline/core.go#L202
 func newDefaultHTTPClient() *http.Client {
-	// We want the Transport to have a large connection pool
 	return &http.Client{
-		Transport: &http.Transport{
-			Proxy: http.DefaultTransport.(*http.Transport).Proxy,
-			// We use Dial instead of DialContext as DialContext has been reported to cause slower performance.
-			Dial /*Context*/ : (&net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-				DualStack: true,
-			}).Dial, /*Context*/
-			MaxIdleConns:           0, // No limit
-			MaxIdleConnsPerHost:    100,
-			IdleConnTimeout:        90 * time.Second,
-			TLSHandshakeTimeout:    10 * time.Second,
-			ExpectContinueTimeout:  1 * time.Second,
-			DisableKeepAlives:      false,
-			DisableCompression:     false,
-			MaxResponseHeaderBytes: 0,
-			//ResponseHeaderTimeout:  time.Duration{},
-			//ExpectContinueTimeout:  time.Duration{},
-		},
+		Transport: GetHTTPTransport(),
 	}
 }
 
