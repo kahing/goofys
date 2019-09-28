@@ -324,6 +324,8 @@ func (s *GoofysTest) setupDefaultEnv(t *C, public bool) {
 }
 
 func (s *GoofysTest) SetUpTest(t *C) {
+	log.Infof("Starting at %v", time.Now())
+
 	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
 	uid, gid := MyUserAndGroup()
 	flags := &FlagStorage{

@@ -64,7 +64,7 @@ if [ "$PROXY_BIN" != "" ]; then
     PROXY_PID=$!
 elif [ "$TIMEOUT" == "10m" ]; then
     # higher timeout for testing to real cloud
-    TIMEOUT=25m
+    TIMEOUT=45m
 fi
 
 export CLOUD
