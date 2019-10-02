@@ -135,6 +135,73 @@ func waitFor(t *C, addr string) (err error) {
 	return
 }
 
+func (t *GoofysTest) deleteBlobsParallelly(cloud StorageBackend, blobs []string) error {
+	sem := make(semaphore, 100)
+	sem.P(100)
+	var err error
+	for _, blobOuter := range blobs {
+		sem.V(1)
+		go func(blob string) {
+			defer sem.P(1)
+			_, localerr := cloud.DeleteBlob(&DeleteBlobInput{blob})
+			if localerr != nil && localerr != syscall.ENOENT {
+				err = localerr
+			}
+		}(blobOuter)
+		if err != nil {
+			break
+		}
+	}
+	sem.V(100)
+	return err
+}
+
+// groupByDecresingDepths takes a slice of path strings and returns the paths as
+// groups where each group has the same `depth` - depth(a/b/c)=2, depth(a/b/)=1
+// The groups are returned in decreasing order of depths.
+// - Inp: [] Out: []
+// - Inp: ["a/b1/", "a/b/c1", "a/b2", "a/b/c2"]
+//   Out: [["a/b/c1", "a/b/c2"], ["a/b1/", "a/b2"]]
+// - Inp: ["a/b1/", "z/a/b/c1", "a/b2", "z/a/b/c2"]
+//   Out:	[["z/a/b/c1", "z/a/b/c2"], ["a/b1/", "a/b2"]
+func groupByDecresingDepths(items []string) [][]string {
+	depthToGroup := map[int][]string{}
+	for _, item := range items {
+		depth := len(strings.Split(strings.TrimRight(item, "/"), "/"))
+		if _, ok := depthToGroup[depth]; !ok {
+			depthToGroup[depth] = []string{}
+		}
+		depthToGroup[depth] = append(depthToGroup[depth], item)
+	}
+	decreasingDepths := []int{}
+	for depth := range depthToGroup {
+		decreasingDepths = append(decreasingDepths, depth)
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(decreasingDepths)))
+	ret := [][]string{}
+	for _, depth := range decreasingDepths {
+		group, _ := depthToGroup[depth]
+		ret = append(ret, group)
+	}
+	return ret
+}
+
+func (t *GoofysTest) DeleteADLBlobs(cloud StorageBackend, items []string) error {
+	// If we delete a directory that's not empty, ADL{v1|v2} returns failure. That can
+	// happen if we want to delete both "dir1" and "dir1/file" but delete them
+	// in the wrong order.
+	// So we group the items to delete into multiple groups. All items in a group
+	// will have the same depth - depth(/a/b/c) = 2, depth(/a/b/) = 1.
+	// We then iterate over the groups in desc order of depth and delete them parallelly.
+	for _, group := range groupByDecresingDepths(items) {
+		err := t.deleteBlobsParallelly(cloud, group)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *GoofysTest) selectTestConfig(t *C, flags *FlagStorage) (conf S3Config) {
 	(&conf).Init()
 
@@ -185,28 +252,43 @@ func (s *GoofysTest) SetUpSuite(t *C) {
 func (s *GoofysTest) deleteBucket(cloud StorageBackend) error {
 	param := &ListBlobsInput{}
 
+	// Azure datalake v1,v2 need special handling.
+	adlKeysToRemove := make([]string, 0)
 	for {
 		resp, err := cloud.ListBlobs(param)
 		if err != nil {
 			return err
 		}
 
-		keys := make([]string, 0)
+		keysToRemove := []string{}
 		for _, o := range resp.Items {
-			keys = append(keys, *o.Key)
+			keysToRemove = append(keysToRemove, *o.Key)
 		}
-
-		if len(keys) != 0 {
-			_, err = cloud.DeleteBlobs(&DeleteBlobsInput{Items: keys})
-			if err != nil {
-				return err
+		if len(keysToRemove) != 0 {
+			switch cloud.(type) {
+			case *ADLv1, *ADLv2:
+				// ADLV{1|2} supports directories. => dir can be removed only after the dir is
+				// empty. So we will remove the blobs in reverse depth order via DeleteADLBlobs
+				// after this for loop.
+				adlKeysToRemove = append(adlKeysToRemove, keysToRemove...)
+			default:
+				_, err = cloud.DeleteBlobs(&DeleteBlobsInput{Items: keysToRemove})
+				if err != nil {
+					return err
+				}
 			}
 		}
-
 		if resp.IsTruncated {
 			param.ContinuationToken = resp.NextContinuationToken
 		} else {
 			break
+		}
+	}
+
+	if len(adlKeysToRemove) != 0 {
+		err := s.DeleteADLBlobs(cloud, adlKeysToRemove)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -247,12 +329,14 @@ func (s *GoofysTest) removeBlob(cloud StorageBackend, t *C, blobPath string) {
 }
 
 func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*string) {
-	var wg sync.WaitGroup
+
+	// concurrency = 100
+	throttler := make(semaphore, 100)
+	throttler.P(100)
 
 	var globalErr error
 	for path, c := range env {
-		SmallActionsGate.Take(1, true)
-		wg.Add(1)
+		throttler.V(1)
 		go func(path string, content *string) {
 			dir := false
 			if content == nil {
@@ -266,11 +350,7 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 					content = &path
 				}
 			}
-			defer func() {
-				SmallActionsGate.Return(1)
-				wg.Done()
-			}()
-
+			defer throttler.P(1)
 			params := &PutBlobInput{
 				Key:  path,
 				Body: bytes.NewReader([]byte(*content)),
@@ -288,19 +368,16 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 			t.Assert(err, IsNil)
 		}(path, c)
 	}
-	wg.Wait()
+	throttler.V(100)
+	throttler = make(semaphore, 100)
+	throttler.P(100)
 	t.Assert(globalErr, IsNil)
 
 	// double check
 	for path, c := range env {
-		wg.Add(1)
-		SmallActionsGate.Take(1, true)
-
+		throttler.V(1)
 		go func(path string, content *string) {
-			defer func() {
-				SmallActionsGate.Return(1)
-				wg.Done()
-			}()
+			defer throttler.P(1)
 			params := &HeadBlobInput{Key: path}
 			res, err := cloud.HeadBlob(params)
 			t.Assert(err, IsNil)
@@ -313,7 +390,7 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 			}
 		}(path, c)
 	}
-	wg.Wait()
+	throttler.V(100)
 	t.Assert(globalErr, IsNil)
 }
 
@@ -3588,4 +3665,87 @@ func (s *GoofysTest) TestMount(t *C) {
 	c := make(chan os.Signal, 2)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
+}
+
+// Checks if 2 sorted lists are equal. Returns a helpful error if they differ.
+func checkSortedListsAreEqual(l1, l2 []string) error {
+	i1, i2 := 0, 0
+	onlyl1, onlyl2 := []string{}, []string{}
+	for i1 < len(l1) && i2 < len(l2) {
+		if l1[i1] == l2[i2] {
+			i1++
+			i2++
+		} else if l1[i1] < l2[i2] {
+			onlyl1 = append(onlyl1, fmt.Sprintf("%d:%v", i1, l1[i1]))
+			i1++
+		} else {
+			onlyl2 = append(onlyl2, fmt.Sprintf("%d:%v", i2, l2[i2]))
+			i2++
+		}
+
+	}
+	for ; i1 < len(l1); i1++ {
+		onlyl1 = append(onlyl1, fmt.Sprintf("%d:%v", i1, l1[i1]))
+	}
+	for ; i2 < len(l2); i2++ {
+		onlyl2 = append(onlyl2, fmt.Sprintf("%d:%v", i2, l2[i2]))
+	}
+
+	if len(onlyl1)+len(onlyl2) == 0 {
+		return nil
+	}
+	toString := func(l []string) string {
+		ret := []string{}
+		// The list can contain a lot of elements. Show only ten and say
+		// "and x more".
+		for i := 0; i < len(l) && i < 10; i++ {
+			ret = append(ret, l[i])
+		}
+		if len(ret) < len(l) {
+			ret = append(ret, fmt.Sprintf("and %d more", len(l)-len(ret)))
+		}
+		return strings.Join(ret, ", ")
+	}
+	return fmt.Errorf("only l1: %+v, only l2: %+v",
+		toString(onlyl1), toString(onlyl2))
+}
+
+func (s *GoofysTest) TestReadDirDash(t *C) {
+	if s.azurite {
+		t.Skip("ADLv1 doesn't have pagination")
+	}
+	root := s.getRoot(t)
+	root.dir.mountPrefix = "prefix"
+
+	// SETUP
+	// Add the following blobs
+	// - prefix/2019/1
+	// - prefix/2019-0000 to prefix/2019-4999
+	// - prefix/20190000 to prefix/20194999
+	// Fetching this result will need 3 pages in azure (pagesize 5k) and 11 pages
+	// in amazon (pagesize 1k)
+	// This setup will verify that we paginate and return results correctly before and after
+	// seeing all contents that have a '-' ('-' < '/'). For more context read the comments in
+	// dir.go::listBlobsSafe.
+	blobs := make(map[string]*string)
+	expect := []string{"2019"}
+	blobs["prefix/2019/1"] = nil
+	for i := 0; i < 5000; i++ {
+		name := fmt.Sprintf("2019-%04d", i)
+		expect = append(expect, name)
+		blobs["prefix/"+name] = nil
+	}
+	for i := 0; i < 5000; i++ {
+		name := fmt.Sprintf("2019%04d", i)
+		expect = append(expect, name)
+		blobs["prefix/"+name] = nil
+	}
+	s.setupBlobs(s.cloud, t, blobs)
+
+	// Read the directory and verify its contents.
+	dh := root.OpenDir()
+	defer dh.CloseDir()
+
+	children := namesOf(s.readDirFully(t, dh))
+	t.Assert(checkSortedListsAreEqual(children, expect), IsNil)
 }

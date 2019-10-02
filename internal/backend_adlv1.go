@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -170,6 +169,10 @@ func (b *ADLv1) Bucket() string {
 }
 
 func mapADLv1Error(resp *http.Response, err error, rawError bool) error {
+	// TODO(dotslash/khc): Figure out a way to surface these errors before reducing
+	// them to syscall.E<SOMETHING>. The detailed errors can aid in better debugging
+	// without the need to explicitly enabling debug_s3 flag and trying to reproduce
+	// issues.
 	if resp == nil {
 		if err != nil {
 			return syscall.EAGAIN
@@ -372,31 +375,8 @@ func (b *ADLv1) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error) {
 	return &DeleteBlobOutput{}, nil
 }
 
-func (b *ADLv1) DeleteBlobs(param *DeleteBlobsInput) (ret *DeleteBlobsOutput, err error) {
-	// if we delete a directory that's not empty, ADLv1 returns
-	// 403. That can happen if we want to delete both "dir1" and
-	// "dir1/file" but delete them in the wrong order for example
-	// sort the blobs so the deepest tree are deleted first to
-	// avoid this problem unfortunately because of this dependency
-	// it's difficult to delete in parallel
-	sort.Slice(param.Items, func(i, j int) bool {
-		depth1 := len(strings.Split(strings.TrimRight(param.Items[i], "/"), "/"))
-		depth2 := len(strings.Split(strings.TrimRight(param.Items[j], "/"), "/"))
-		if depth1 != depth2 {
-			return depth2 < depth1
-		} else {
-			return strings.Compare(param.Items[i], param.Items[j]) < 0
-		}
-	})
-
-	for _, i := range param.Items {
-		_, err := b.DeleteBlob(&DeleteBlobInput{i})
-		if err != nil {
-			return nil, err
-		}
-
-	}
-	return &DeleteBlobsOutput{}, nil
+func (b *ADLv1) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error) {
+	return nil, syscall.ENOTSUP
 }
 
 func (b *ADLv1) RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error) {

@@ -25,7 +25,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -219,6 +218,7 @@ func decodeADLv2Error(body io.Reader) (adlErr adl2.DataLakeStorageError, err err
 }
 
 func mapADLv2Error(resp *http.Response, err error, rawError bool) error {
+
 	if resp == nil {
 		if err != nil {
 			if detailedError, ok := err.(autorest.DetailedError); ok {
@@ -439,31 +439,8 @@ func (b *ADLv2) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error) {
 	return &DeleteBlobOutput{}, nil
 }
 
-func (b *ADLv2) DeleteBlobs(param *DeleteBlobsInput) (ret *DeleteBlobsOutput, err error) {
-	// if we delete a directory that's not empty, ADLv2 returns
-	// 409. That can happen if we want to delete both "dir1" and
-	// "dir1/file" but delete them in the wrong order for example.
-	// sort the blobs so the deepest tree are deleted first to
-	// avoid this problem. unfortunately because of this dependency
-	// it's difficult to delete in parallel
-	sort.Slice(param.Items, func(i, j int) bool {
-		depth1 := len(strings.Split(strings.TrimRight(param.Items[i], "/"), "/"))
-		depth2 := len(strings.Split(strings.TrimRight(param.Items[j], "/"), "/"))
-		if depth1 != depth2 {
-			return depth2 < depth1
-		} else {
-			return strings.Compare(param.Items[i], param.Items[j]) < 0
-		}
-	})
-
-	for _, i := range param.Items {
-		_, err := b.DeleteBlob(&DeleteBlobInput{i})
-		if err != nil {
-			return nil, err
-		}
-
-	}
-	return &DeleteBlobsOutput{}, nil
+func (b *ADLv2) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error) {
+	return nil, syscall.ENOTSUP
 }
 
 func (b *ADLv2) RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error) {

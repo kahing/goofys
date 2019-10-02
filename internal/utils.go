@@ -150,6 +150,9 @@ func TryUnmount(mountPoint string) (err error) {
 }
 
 type empty struct{}
+
+// TODO(dotslash/khc): Remove this semaphore in favor of
+// https://godoc.org/golang.org/x/sync/semaphore
 type semaphore chan empty
 
 func (sem semaphore) P(n int) {
