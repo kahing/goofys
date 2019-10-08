@@ -115,6 +115,7 @@ goofys has been tested with the following non-AWS S3 providers:
 * S3Proxy
 * Minio (limited)
 * Wasabi
+* EdgeFS
 
 Additionally, goofys also works with the following non-S3 object stores:
 
