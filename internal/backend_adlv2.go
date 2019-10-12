@@ -16,7 +16,7 @@
 package internal
 
 import (
-	. "github.com/kahing/goofys/api/common"
+	. "goofys/api/common"
 
 	"context"
 	"encoding/base64"

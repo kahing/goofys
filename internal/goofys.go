@@ -15,7 +15,7 @@
 package internal
 
 import (
-	. "github.com/kahing/goofys/api/common"
+	. "goofys/api/common"
 
 	"context"
 	"fmt"
@@ -28,11 +28,9 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
-
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
 	"github.com/jacobsa/fuse/fuseutil"
-
 	"github.com/sirupsen/logrus"
 )
 
