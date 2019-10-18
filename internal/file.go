@@ -219,7 +219,7 @@ func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 		return fh.lastWriteError
 	}
 
-	if offset != fh.nextWriteOffset {
+	if offset < fh.nextWriteOffset {
 		fh.inode.errFuse("WriteFile: only sequential writes supported", fh.nextWriteOffset, offset)
 		fh.lastWriteError = syscall.ENOTSUP
 		return fh.lastWriteError
@@ -228,6 +228,37 @@ func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 	if offset == 0 {
 		fh.poolHandle = fh.inode.fs.bufferPool
 		fh.dirty = true
+	}
+
+	// fill the hole with zero
+	if offset > fh.nextWriteOffset {
+		toSkip := offset - fh.nextWriteOffset
+		n := 10240
+		data := make([]byte, n)
+
+		for {
+			if fh.buf == nil {
+				fh.buf = MBuf{}.Init(fh.poolHandle, fh.partSize(), true)
+			}
+
+			if toSkip < int64(n) {
+				n = int(toSkip)
+			}
+			nCopied, _ := fh.buf.Write(data[:n])
+			toSkip -= int64(nCopied)
+			fh.nextWriteOffset += int64(nCopied)
+
+			if fh.buf.Full() {
+				err = fh.uploadCurrentBuf(!fh.cloud.Capabilities().NoParallelMultipart)
+				if err != nil {
+					return
+				}
+			}
+
+			if toSkip == 0 {
+				break
+			}
+		}
 	}
 
 	for {

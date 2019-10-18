@@ -269,7 +269,7 @@ func azureFindAccount(client azblob.AccountsClient, account string) (*azblob.End
 		return nil, "", err
 	}
 
-	for _, acc := range *accountsRes.Value {
+	for _, acc := range accountsRes.Values() {
 		if *acc.Name == account {
 			// /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/...
 			parts := strings.SplitN(*acc.ID, "/", 6)
