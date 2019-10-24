@@ -15,7 +15,7 @@ matrix:
   include:
     - name: "S3Proxy"
       env: CLOUD=s3
-      script: travis_retry ./test/run-tests.sh
+      script: ./test/run-tests.sh
     - name: "Azurite"
       env: CLOUD=azblob
     - name: "AWS"
