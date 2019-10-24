@@ -1,3 +1,5 @@
+export CGO_ENABLED=0
+
 run-test: s3proxy.jar
 	./test/run-tests.sh
 
