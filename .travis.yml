@@ -7,7 +7,7 @@ before_install:
 install:
 - mkdir /tmp/mnt
 - make s3proxy.jar
-script: ./test/run-tests.sh
+script: travis_retry ./test/run-tests.sh GoofysTest
 go:
   - 1.11.5
 go_import_path: github.com/kahing/goofys
@@ -15,6 +15,7 @@ matrix:
   include:
     - name: "S3Proxy"
       env: CLOUD=s3
+      script: travis_retry ./test/run-tests.sh
     - name: "Azurite"
       env: CLOUD=azblob
     - name: "AWS"
