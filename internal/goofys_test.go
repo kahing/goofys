@@ -927,7 +927,17 @@ func (s *GoofysTest) testWriteFileAt(t *C, fileName string, offset int64, size i
 	t.Assert(resp.Size, Equals, uint64(size+offset))
 
 	fr := &FileHandleReader{s.fs, fh, offset}
-	diff, err := CompareReader(fr, io.LimitReader(&SeqReader{offset}, size))
+	diff, err := CompareReader(fr, io.LimitReader(&SeqReader{offset}, size), 0)
+	t.Assert(err, IsNil)
+	t.Assert(diff, Equals, -1)
+	t.Assert(fr.offset, Equals, size)
+
+	err = fh.FlushFile()
+	t.Assert(err, IsNil)
+
+	// read again with exact 4KB to catch aligned read case
+	fr = &FileHandleReader{s.fs, fh, offset}
+	diff, err = CompareReader(fr, io.LimitReader(&SeqReader{offset}, size), 4096)
 	t.Assert(err, IsNil)
 	t.Assert(diff, Equals, -1)
 	t.Assert(fr.offset, Equals, size)
@@ -936,8 +946,9 @@ func (s *GoofysTest) testWriteFileAt(t *C, fileName string, offset int64, size i
 }
 
 func (s *GoofysTest) TestWriteLargeFile(t *C) {
-	s.testWriteFile(t, "testLargeFile", 21*1024*1024, 128*1024)
-	s.testWriteFile(t, "testLargeFile2", 20*1024*1024, 128*1024)
+	s.testWriteFile(t, "testLargeFile", int64(READAHEAD_CHUNK)+1024*1024, 128*1024)
+	s.testWriteFile(t, "testLargeFile2", int64(READAHEAD_CHUNK), 128*1024)
+	s.testWriteFile(t, "testLargeFile3", int64(READAHEAD_CHUNK)+1, 128*1024)
 }
 
 func (s *GoofysTest) TestWriteReplicatorThrottle(t *C) {
@@ -996,7 +1007,7 @@ func (s *GoofysTest) TestReadRandom(t *C) {
 
 		// read 5MB+1 from that offset
 		nread := int64(5*1024*1024 + 1)
-		CompareReader(io.LimitReader(fr, nread), io.LimitReader(truth, nread))
+		CompareReader(io.LimitReader(fr, nread), io.LimitReader(truth, nread), 0)
 	}
 }
 

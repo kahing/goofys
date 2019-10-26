@@ -17,6 +17,7 @@ package internal
 import (
 	"bytes"
 	"io"
+	"io/ioutil"
 	"sync"
 	"time"
 
@@ -75,9 +76,12 @@ func (r *SlowReader) Close() error {
 	return nil
 }
 
-func CompareReader(r1, r2 io.Reader) (int, error) {
-	var buf1 [1337]byte
-	var buf2 [1337]byte
+func CompareReader(r1, r2 io.Reader, bufSize int) (int, error) {
+	if bufSize == 0 {
+		bufSize = 1337
+	}
+	buf1 := make([]byte, bufSize)
+	buf2 := make([]byte, bufSize)
 
 	for {
 		nread, err := r1.Read(buf1[:])
@@ -89,9 +93,9 @@ func CompareReader(r1, r2 io.Reader) (int, error) {
 			break
 		}
 
-		nread2, err := io.ReadFull(r2, buf2[:nread])
-		if err != nil {
-			return -1, err
+		nread2, err2 := io.ReadFull(r2, buf2[:nread])
+		if err2 != nil && err != err2 {
+			return -1, err2
 		}
 
 		if bytes.Compare(buf1[:], buf2[:]) != 0 {
@@ -113,6 +117,9 @@ func CompareReader(r1, r2 io.Reader) (int, error) {
 	if nread2 == 0 || err == io.ErrUnexpectedEOF {
 		return -1, nil
 	} else {
+		if err == io.EOF {
+			err = nil
+		}
 		return nread2, err
 	}
 }
@@ -136,7 +143,7 @@ func (s *BufferTest) TestMBuf(t *C) {
 	t.Assert(mb.wbuf, Equals, 1)
 	t.Assert(mb.wp, Equals, BUF_SIZE)
 
-	diff, err := CompareReader(mb, io.LimitReader(&SeqReader{}, int64(n)))
+	diff, err := CompareReader(mb, io.LimitReader(&SeqReader{}, int64(n)), 0)
 	t.Assert(err, IsNil)
 	t.Assert(diff, Equals, -1)
 
@@ -159,7 +166,7 @@ func (s *BufferTest) TestBufferWrite(t *C) {
 	t.Assert(nwritten, Equals, int64(n))
 	t.Assert(err, IsNil)
 
-	diff, err := CompareReader(mb, io.LimitReader(&SeqReader{}, int64(n)))
+	diff, err := CompareReader(mb, io.LimitReader(&SeqReader{}, int64(n)), 0)
 	t.Assert(err, IsNil)
 	t.Assert(diff, Equals, -1)
 
@@ -177,7 +184,7 @@ func (s *BufferTest) TestBufferWrite(t *C) {
 	t.Assert(mb.rbuf, Equals, 0)
 	t.Assert(mb.rp, Equals, 0)
 
-	diff, err = CompareReader(mb, io.LimitReader(&SeqReader{}, int64(n)))
+	diff, err = CompareReader(mb, io.LimitReader(&SeqReader{}, int64(n)), 0)
 	t.Assert(err, IsNil)
 	t.Assert(diff, Equals, -1)
 }
@@ -208,7 +215,45 @@ func (s *BufferTest) TestBuffer(t *C) {
 
 	b := Buffer{}.Init(mb, r)
 
-	diff, err := CompareReader(b, io.LimitReader(&SeqReader{}, int64(n)))
+	diff, err := CompareReader(b, io.LimitReader(&SeqReader{}, int64(n)), 0)
+	t.Assert(err, IsNil)
+	t.Assert(diff, Equals, -1)
+	t.Assert(b.buf, IsNil)
+	t.Assert(b.reader, NotNil)
+	t.Assert(h.numBuffers, Equals, uint64(0))
+}
+
+// io.Limitedreader does not return EOF the first time limit is
+// reached, unlike the reader you get from http
+type OneByteReader struct {
+	read bool
+}
+
+func (r *OneByteReader) Read(p []byte) (n int, err error) {
+	err = io.EOF
+	if r.read {
+		return
+	}
+	p[0] = 1
+	n = 1
+	r.read = true
+	return
+}
+
+func (s *BufferTest) TestBufferTiny(t *C) {
+	h := NewBufferPool(1000 * 1024 * 1024)
+
+	n := uint64(1)
+	mb := MBuf{}.Init(h, n, false)
+	t.Assert(len(mb.buffers), Equals, 1)
+
+	r := func() (io.ReadCloser, error) {
+		return ioutil.NopCloser(&OneByteReader{}), nil
+	}
+
+	b := Buffer{}.Init(mb, r)
+
+	diff, err := CompareReader(b, &OneByteReader{}, 0)
 	t.Assert(err, IsNil)
 	t.Assert(diff, Equals, -1)
 	t.Assert(b.buf, IsNil)

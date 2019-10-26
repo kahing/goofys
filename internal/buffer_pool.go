@@ -382,8 +382,8 @@ func (b *Buffer) readLoop(r ReaderProvider) {
 		bufferLog.Debugf("wrote %v into buffer", nread)
 
 		if nread == 0 {
-			b.reader.Close()
 			b.mu.Unlock()
+			b.reader.Close()
 			break
 		}
 
@@ -416,10 +416,6 @@ func (b *Buffer) Read(p []byte) (n int, err error) {
 	for b.reader == nil && b.err == nil {
 		bufferLog.Debugf("waiting for stream")
 		b.cond.Wait()
-		if b.err != nil {
-			err = b.err
-			return
-		}
 	}
 
 	// we could have received the err before Read was called

@@ -334,6 +334,14 @@ func (fh *FileHandle) readFromReadAhead(offset uint64, buf []byte) (bytesRead in
 		nread, err = fh.buffers[0].Read(offset+uint64(bytesRead), buf)
 		bytesRead += nread
 		if err != nil {
+			if err == io.EOF && fh.buffers[0].size != 0 {
+				// in case we hit
+				// https://github.com/kahing/goofys/issues/464
+				// again, this will convert that into
+				// an error
+				fuseLog.Errorf("got EOF when data remains: %v", *fh.inode.FullName())
+				err = io.ErrUnexpectedEOF
+			}
 			return
 		}
 
