@@ -107,15 +107,15 @@ In addition to the items above, the following are supportable but not yet implem
 
 goofys has been tested with the following non-AWS S3 providers:
 
-* Amplidata
+* Amplidata / WD ActiveScale
 * Ceph (ex: Digital Ocean Spaces, DreamObjects, gridscale)
+* EdgeFS
 * EMC Atmos
 * Google Cloud Storage
+* Minio (limited)
 * OpenStack Swift
 * S3Proxy
-* Minio (limited)
 * Wasabi
-* EdgeFS
 
 Additionally, goofys also works with the following non-S3 object stores:
 
