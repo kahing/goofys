@@ -26,6 +26,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"os/user"
 	"runtime"
 	"sort"
@@ -326,7 +327,14 @@ func (s *GoofysTest) setupDefaultEnv(t *C, public bool) {
 func (s *GoofysTest) SetUpTest(t *C) {
 	log.Infof("Starting at %v", time.Now())
 
-	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
+	var bucket string
+	mount := os.Getenv("MOUNT")
+
+	if mount != "false" {
+		bucket = mount
+	} else {
+		bucket = "goofys-test-" + RandStringBytesMaskImprSrc(16)
+	}
 	uid, gid := MyUserAndGroup()
 	flags := &FlagStorage{
 		DirMode:  0700,
@@ -468,8 +476,16 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		t.Fatal("Unsupported backend")
 	}
 
-	s.removeBucket = append(s.removeBucket, s.cloud)
-	s.setupDefaultEnv(t, false)
+	if mount == "false" {
+		s.removeBucket = append(s.removeBucket, s.cloud)
+		s.setupDefaultEnv(t, false)
+	} else {
+		_, err := s.cloud.MakeBucket(&MakeBucketInput{})
+		if err == fuse.EEXIST {
+			err = nil
+		}
+		t.Assert(err, IsNil)
+	}
 
 	s.fs = NewGoofys(context.Background(), bucket, flags)
 	t.Assert(s.fs, NotNil)
@@ -3490,4 +3506,21 @@ func (s *GoofysTest) TestRmImplicitDir(t *C) {
 	t.Assert(files, DeepEquals, []string{
 		"dir1", "dir4", "empty_dir", "empty_dir2", "file1", "file2", "zero",
 	})
+}
+
+func (s *GoofysTest) TestMount(t *C) {
+	if os.Getenv("MOUNT") == "false" {
+		t.Skip("Not mounting")
+	}
+
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	s.mount(t, mountPoint)
+	defer s.umount(t, mountPoint)
+
+	log.Printf("Mounted at %v", mountPoint)
+
+	c := make(chan os.Signal, 2)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	<-c
 }

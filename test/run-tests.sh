@@ -8,6 +8,9 @@ set -o nounset
 : ${PROXY_BIN:=""}
 : ${PROXY_PID:=""}
 : ${TIMEOUT:="10m"}
+: ${MOUNT:="false"}
+
+export MOUNT
 
 function cleanup {
     if [ "$PROXY_PID" != "" ]; then
@@ -18,19 +21,24 @@ function cleanup {
 T=
 if [ $# == 1 ]; then
     T="-check.f $1"
+elif [ "$MOUNT" != "false" ]; then
+    T="-check.f GoofysTest.TestMount$"
 fi
 
 trap cleanup EXIT
 
 if [ $CLOUD == "s3" ]; then
-    rm -Rf /tmp/s3proxy
     mkdir -p /tmp/s3proxy
 
     AWS_PROFILE=${AWS:-}
     if [ "$AWS_PROFILE" == "" ]; then
 	: ${LOG_LEVEL:="warn"}
 	export LOG_LEVEL
-	PROXY_BIN="java -jar s3proxy.jar --properties test/s3proxy.properties"
+	if [ "$MOUNT" != "false" ]; then
+	    PROXY_BIN="java -jar s3proxy.jar --properties test/s3proxy-fs.properties"
+	else
+	    PROXY_BIN="java -jar s3proxy.jar --properties test/s3proxy.properties"
+	fi
     else
 	export AWS
     fi

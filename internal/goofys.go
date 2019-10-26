@@ -529,6 +529,14 @@ func mapAwsError(err error) error {
 	}
 
 	if awsErr, ok := err.(awserr.Error); ok {
+		switch awsErr.Code() {
+		case "BucketRegionError":
+			// don't need to log anything, we should detect region after
+			return err
+		case "BucketAlreadyOwnedByYou":
+			return fuse.EEXIST
+		}
+
 		if reqErr, ok := err.(awserr.RequestFailure); ok {
 			// A service error occurred
 			err = mapHttpError(reqErr.StatusCode())
@@ -539,15 +547,9 @@ func mapAwsError(err error) error {
 				return reqErr
 			}
 		} else {
-			switch awsErr.Code() {
-			case "BucketRegionError":
-				// don't need to log anything, we should detect region after
-				return err
-			default:
-				// Generic AWS Error with Code, Message, and original error (if any)
-				s3Log.Errorf("code=%v msg=%v, err=%v\n", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
-				return awsErr
-			}
+			// Generic AWS Error with Code, Message, and original error (if any)
+			s3Log.Errorf("code=%v msg=%v, err=%v\n", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
+			return awsErr
 		}
 	} else {
 		return err
