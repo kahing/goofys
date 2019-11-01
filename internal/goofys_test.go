@@ -3275,6 +3275,7 @@ func (s *GoofysTest) TestMountsError(t *C) {
 	s.fs.MountAll([]*Mount{
 		&Mount{"dir4/newerror", StorageBackendInitError{
 			fmt.Errorf("foo"),
+			Capabilities{},
 		}, "errprefix1", false},
 		&Mount{"dir4/initerror", &StorageBackendInitWrapper{
 			StorageBackend: cloud,
@@ -3295,6 +3296,12 @@ func (s *GoofysTest) TestMountsError(t *C) {
 
 	_, err = s.LookUpInode(t, "dir4/initerror/not_there")
 	t.Assert(err, Equals, fuse.ENOENT)
+
+	in, err := s.LookUpInode(t, "dir4/initerror")
+	t.Assert(err, IsNil)
+	t.Assert(in, NotNil)
+
+	t.Assert(in.dir.cloud.Capabilities().Name, Equals, cloud.Capabilities().Name)
 }
 
 func (s *GoofysTest) TestMountsMultiLevel(t *C) {

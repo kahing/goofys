@@ -303,7 +303,10 @@ func (s *StorageBackendInitWrapper) Init(key string) error {
 		s.initErr = s.StorageBackend.Init(s.initKey)
 		if s.initErr != nil {
 			log.Errorf("%T Init: %v", s.StorageBackend, s.initErr)
-			s.StorageBackend = StorageBackendInitError{s.initErr}
+			s.StorageBackend = StorageBackendInitError{
+				s.initErr,
+				*s.StorageBackend.Capabilities(),
+			}
 		}
 	})
 	return s.initErr
@@ -394,6 +397,7 @@ func (s *StorageBackendInitWrapper) MakeBucket(param *MakeBucketInput) (*MakeBuc
 
 type StorageBackendInitError struct {
 	error
+	cap Capabilities
 }
 
 func (e StorageBackendInitError) Init(key string) error {
@@ -401,7 +405,7 @@ func (e StorageBackendInitError) Init(key string) error {
 }
 
 func (e StorageBackendInitError) Capabilities() *Capabilities {
-	return &Capabilities{}
+	return &e.cap
 }
 
 func (s StorageBackendInitError) Bucket() string {
