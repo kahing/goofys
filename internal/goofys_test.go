@@ -3263,9 +3263,11 @@ func (s *GoofysTest) TestMountsError(t *C) {
 		// ADLv2 currently doesn't detect bucket doesn't exist
 		cloud = s.newBackend(t, bucket, true)
 		adlCloud, _ := cloud.(*ADLv2)
-		account := adlCloud.client.BaseClient.AccountName
-		adlCloud.client.BaseClient.AccountName = ""
-		defer func() { adlCloud.client.BaseClient.AccountName = account }()
+		auth := adlCloud.client.BaseClient.Authorizer
+		adlCloud.client.BaseClient.Authorizer = nil
+		defer func() {
+			adlCloud.client.BaseClient.Authorizer = auth
+		}()
 	} else {
 		cloud = s.newBackend(t, bucket, false)
 	}
