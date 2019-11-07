@@ -951,6 +951,10 @@ func (s *GoofysTest) TestWriteLargeFile(t *C) {
 	s.testWriteFile(t, "testLargeFile3", int64(READAHEAD_CHUNK)+1, 128*1024)
 }
 
+func (s *GoofysTest) TestWriteReallyLargeFile(t *C) {
+	s.testWriteFile(t, "testLargeFile", 1*1024*1024*1024, 128*1024)
+}
+
 func (s *GoofysTest) TestWriteReplicatorThrottle(t *C) {
 	s.fs.replicators = Ticket{Total: 1}.Init()
 	s.testWriteFile(t, "testLargeFile", 21*1024*1024, 128*1024)

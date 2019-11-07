@@ -180,24 +180,21 @@ func (fh *FileHandle) waitForCreateMPU() (err error) {
 }
 
 func (fh *FileHandle) partSize() uint64 {
-	if _, ok := fh.cloud.(*ADLv1); ok {
-		// ADLv1 fails with 404 if we upload data larger than
-		// 30000000 bytes (28.6MB) (28MB also failed in reality)
-		return 20 * 1024 * 1024
-	}
+	var size uint64
 
 	if fh.lastPartId < 1000 {
-		return 5 * 1024 * 1024
+		size = 5 * 1024 * 1024
 	} else if fh.lastPartId < 2000 {
-		return 25 * 1024 * 1024
+		size = 25 * 1024 * 1024
 	} else {
-		maxPartSize := fh.cloud.Capabilities().MaxMultipartSize
-		tryPartSize := uint64(125 * 1024 * 1024)
-		if maxPartSize != 0 {
-			tryPartSize = MinUInt64(tryPartSize, maxPartSize)
-		}
-		return tryPartSize
+		size = 125 * 1024 * 1024
 	}
+
+	maxPartSize := fh.cloud.Capabilities().MaxMultipartSize
+	if maxPartSize != 0 {
+		size = MinUInt64(maxPartSize, size)
+	}
+	return size
 }
 
 func (fh *FileHandle) uploadCurrentBuf(parallel bool) (err error) {

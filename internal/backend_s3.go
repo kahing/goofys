@@ -62,7 +62,8 @@ func NewS3(bucket string, flags *FlagStorage, config *S3Config) (*S3Backend, err
 		flags:     flags,
 		config:    config,
 		cap: Capabilities{
-			Name: "s3",
+			Name:             "s3",
+			MaxMultipartSize: 5 * 1024 * 1024 * 1024,
 		},
 	}
 

@@ -178,6 +178,9 @@ func NewADLv2(bucket string, flags *FlagStorage, config *ADLv2Config) (*ADLv2, e
 		cap: Capabilities{
 			DirBlob: true,
 			Name:    "adl2",
+			// tested on 2019-11-07, seems to have same
+			// limit as azblob
+			MaxMultipartSize: 100 * 1024 * 1024,
 		},
 	}
 

@@ -154,6 +154,7 @@ func NewADLv1(bucket string, flags *FlagStorage, config *ADLv1Config) (*ADLv1, e
 			NoParallelMultipart: true,
 			DirBlob:             true,
 			Name:                "adl",
+			MaxMultipartSize:    20 * 1024 * 1024,
 		},
 	}
 
