@@ -321,6 +321,8 @@ func (s *GoofysTest) setupEnv(t *C, env map[string]*string, public bool) {
 	if public {
 		if s3, ok := s.cloud.(*S3Backend); ok {
 			s3.config.ACL = "public-read"
+		} else {
+			t.Error("Not S3 backend")
 		}
 	}
 
@@ -1825,7 +1827,9 @@ func (s *GoofysTest) anonymous(t *C) {
 	// On azure this fails because we re-create the bucket with
 	// the same name right away. And well anonymous access is not
 	// implemented yet in our azure backend anyway
-	if _, ok := s.cloud.(*S3Backend); !ok {
+	var s3 *S3Backend
+	var ok bool
+	if s3, ok = s.cloud.(*S3Backend); !ok {
 		t.Skip("only for S3")
 	}
 
@@ -1834,6 +1838,10 @@ func (s *GoofysTest) anonymous(t *C) {
 	})
 	t.Assert(err, IsNil)
 
+	// use a different bucket name to prevent 409 Conflict from
+	// delete bucket above
+	s.fs.bucket = "goofys-test-" + RandStringBytesMaskImprSrc(16)
+	s3.bucket = s.fs.bucket
 	s.setupDefaultEnv(t, true)
 
 	s.fs = NewGoofys(context.Background(), s.fs.bucket, s.fs.flags)
@@ -1842,7 +1850,7 @@ func (s *GoofysTest) anonymous(t *C) {
 	// should have auto-detected by S3 backend
 	cloud := s.getRoot(t).dir.cloud
 	t.Assert(cloud, NotNil)
-	s3, ok := cloud.(*S3Backend)
+	s3, ok = cloud.(*S3Backend)
 	t.Assert(ok, Equals, true)
 
 	s3.awsConfig.Credentials = credentials.AnonymousCredentials
