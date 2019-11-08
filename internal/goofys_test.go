@@ -220,6 +220,7 @@ func (s *GoofysTest) retryWhileErr(e error, f func() error) (err error) {
 		switch err {
 		case e:
 			time.Sleep((time.Duration(i) + 1) * 2 * time.Second)
+			s3Log.Infof("retrying for %v", e)
 		default:
 			return
 		}
