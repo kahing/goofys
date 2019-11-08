@@ -182,12 +182,14 @@ func (s *GoofysTest) waitForEmulator(t *C) {
 func (s *GoofysTest) SetUpSuite(t *C) {
 }
 
-func (s *GoofysTest) deleteBucket(t *C, cloud StorageBackend) {
+func (s *GoofysTest) deleteBucket(cloud StorageBackend) error {
 	param := &ListBlobsInput{}
 
 	for {
 		resp, err := cloud.ListBlobs(param)
-		t.Assert(err, IsNil)
+		if err != nil {
+			return err
+		}
 
 		keys := make([]string, 0)
 		for _, o := range resp.Items {
@@ -196,7 +198,9 @@ func (s *GoofysTest) deleteBucket(t *C, cloud StorageBackend) {
 
 		if len(keys) != 0 {
 			_, err = cloud.DeleteBlobs(&DeleteBlobsInput{Items: keys})
-			t.Assert(err, IsNil)
+			if err != nil {
+				return err
+			}
 		}
 
 		if resp.IsTruncated {
@@ -207,12 +211,28 @@ func (s *GoofysTest) deleteBucket(t *C, cloud StorageBackend) {
 	}
 
 	_, err := cloud.RemoveBucket(&RemoveBucketInput{})
-	t.Assert(err, IsNil)
+	return err
+}
+
+func (s *GoofysTest) retryWhileErr(e error, f func() error) (err error) {
+	for i := 0; i < 10; i++ {
+		err = f()
+		switch err {
+		case e:
+			time.Sleep((time.Duration(i) + 1) * 2 * time.Second)
+		default:
+			return
+		}
+	}
+	return
 }
 
 func (s *GoofysTest) TearDownTest(t *C) {
 	for _, cloud := range s.removeBucket {
-		s.deleteBucket(t, cloud)
+		err := s.retryWhileErr(syscall.ENXIO, func() error {
+			return s.deleteBucket(cloud)
+		})
+		t.Assert(err, IsNil)
 	}
 	s.removeBucket = nil
 }
@@ -1808,7 +1828,10 @@ func (s *GoofysTest) anonymous(t *C) {
 		t.Skip("only for S3")
 	}
 
-	s.deleteBucket(t, s.cloud)
+	err := s.retryWhileErr(syscall.ENXIO, func() error {
+		return s.deleteBucket(s.cloud)
+	})
+	t.Assert(err, IsNil)
 
 	s.setupDefaultEnv(t, true)
 
