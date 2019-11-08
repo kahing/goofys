@@ -140,7 +140,15 @@ func (s *GoofysTest) selectTestConfig(t *C, flags *FlagStorage) (conf S3Config) 
 
 	if hasEnv("AWS") {
 		conf.Region = "us-west-2"
-		conf.Profile = os.Getenv("AWS")
+		profile := os.Getenv("AWS")
+		if profile != "" {
+			if profile != "-" {
+				conf.Profile = profile
+			} else {
+				conf.AccessKey = os.Getenv("AWS_ACCESS_KEY_ID")
+				conf.SecretKey = os.Getenv("AWS_SECRET_ACCESS_KEY")
+			}
+		}
 	} else if hasEnv("GCS") {
 		conf.Region = "us-west1"
 		conf.Profile = os.Getenv("GCS")
