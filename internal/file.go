@@ -270,7 +270,11 @@ func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 }
 
 type S3ReadBuffer struct {
-	s3     StorageBackend
+	s3          StorageBackend
+	startOffset uint64
+	nRetries    uint8
+	mbuf        *MBuf
+
 	offset uint64
 	size   uint32
 	buf    *Buffer
@@ -279,14 +283,21 @@ type S3ReadBuffer struct {
 func (b S3ReadBuffer) Init(fh *FileHandle, offset uint64, size uint32) *S3ReadBuffer {
 	b.s3 = fh.cloud
 	b.offset = offset
+	b.startOffset = offset
 	b.size = size
+	b.nRetries = 3
 
-	mbuf := MBuf{}.Init(fh.poolHandle, uint64(size), false)
-	if mbuf == nil {
+	b.mbuf = MBuf{}.Init(fh.poolHandle, uint64(size), false)
+	if b.mbuf == nil {
 		return nil
 	}
 
-	b.buf = Buffer{}.Init(mbuf, func() (io.ReadCloser, error) {
+	b.initBuffer(fh, offset, size)
+	return &b
+}
+
+func (b *S3ReadBuffer) initBuffer(fh *FileHandle, offset uint64, size uint32) {
+	getFunc := func() (io.ReadCloser, error) {
 		resp, err := b.s3.GetBlob(&GetBlobInput{
 			Key:   fh.key,
 			Start: offset,
@@ -297,9 +308,13 @@ func (b S3ReadBuffer) Init(fh *FileHandle, offset uint64, size uint32) *S3ReadBu
 		}
 
 		return resp.Body, nil
-	})
+	}
 
-	return &b
+	if b.buf == nil {
+		b.buf = Buffer{}.Init(b.mbuf, getFunc)
+	} else {
+		b.buf.ReInit(getFunc)
+	}
 }
 
 func (b *S3ReadBuffer) Read(offset uint64, p []byte) (n int, err error) {
@@ -316,6 +331,17 @@ func (b *S3ReadBuffer) Read(offset uint64, p []byte) (n int, err error) {
 			b.offset += uint64(n)
 			b.size -= uint32(n)
 		}
+		if b.size == 0 && err != nil {
+			// we've read everything, sometimes we may
+			// request for more bytes then there's left in
+			// this chunk so we could get an error back,
+			// ex: http2: response body closed this
+			// doesn't tend to happen because our chunks
+			// are aligned to 4K and also 128K (except for
+			// the last chunk, but seems kernel requests
+			// for a smaller buffer for the last chunk)
+			err = nil
+		}
 
 		return
 	} else {
@@ -328,23 +354,37 @@ func (b *S3ReadBuffer) Read(offset uint64, p []byte) (n int, err error) {
 func (fh *FileHandle) readFromReadAhead(offset uint64, buf []byte) (bytesRead int, err error) {
 	var nread int
 	for len(fh.buffers) != 0 {
-		nread, err = fh.buffers[0].Read(offset+uint64(bytesRead), buf)
+		readAheadBuf := fh.buffers[0]
+
+		nread, err = readAheadBuf.Read(offset+uint64(bytesRead), buf)
 		bytesRead += nread
 		if err != nil {
-			if err == io.EOF && fh.buffers[0].size != 0 {
+			if err == io.EOF && readAheadBuf.size != 0 {
 				// in case we hit
 				// https://github.com/kahing/goofys/issues/464
 				// again, this will convert that into
 				// an error
 				fuseLog.Errorf("got EOF when data remains: %v", *fh.inode.FullName())
 				err = io.ErrUnexpectedEOF
+			} else if err != io.EOF && readAheadBuf.size > 0 {
+				// we hit some other errors when
+				// reading from this part. If we can
+				// retry, do that
+				if readAheadBuf.nRetries > 0 {
+					readAheadBuf.nRetries -= 1
+					readAheadBuf.initBuffer(fh, readAheadBuf.offset, readAheadBuf.size)
+					// we unset error and return,
+					// so upper layer will retry
+					// this read
+					err = nil
+				}
 			}
 			return
 		}
 
-		if fh.buffers[0].size == 0 {
+		if readAheadBuf.size == 0 {
 			// we've exhausted the first buffer
-			fh.buffers[0].buf.Close()
+			readAheadBuf.buf.Close()
 			fh.buffers = fh.buffers[1:]
 		}
 

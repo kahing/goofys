@@ -952,7 +952,7 @@ func (s *GoofysTest) TestWriteLargeFile(t *C) {
 }
 
 func (s *GoofysTest) TestWriteReallyLargeFile(t *C) {
-	s.testWriteFile(t, "testLargeFile", 1*1024*1024*1024, 128*1024)
+	s.testWriteFile(t, "testLargeFile", 1*1024*1024*1024+1, 128*1024)
 }
 
 func (s *GoofysTest) TestWriteReplicatorThrottle(t *C) {

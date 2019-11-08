@@ -318,6 +318,13 @@ func (mb *MBuf) WriteFrom(r io.Reader) (n int, err error) {
 	return
 }
 
+func (mb *MBuf) Reset() {
+	mb.rbuf = 0
+	mb.wbuf = 0
+	mb.rp = 0
+	mb.wp = 0
+}
+
 func (mb *MBuf) Close() error {
 	mb.Free()
 	return nil
@@ -382,8 +389,8 @@ func (b *Buffer) readLoop(r ReaderProvider) {
 		bufferLog.Debugf("wrote %v into buffer", nread)
 
 		if nread == 0 {
-			b.mu.Unlock()
 			b.reader.Close()
+			b.mu.Unlock()
 			break
 		}
 
@@ -446,6 +453,25 @@ func (b *Buffer) Read(p []byte) (n int, err error) {
 	}
 
 	return
+}
+
+func (b *Buffer) ReInit(r ReaderProvider) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.reader != nil {
+		b.reader.Close()
+		b.reader = nil
+	}
+
+	if b.buf != nil {
+		b.buf.Reset()
+	}
+
+	b.err = nil
+	go func() {
+		b.readLoop(r)
+	}()
 }
 
 func (b *Buffer) Close() (err error) {
