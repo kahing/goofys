@@ -18,7 +18,7 @@ import (
 	. "github.com/kahing/goofys/api/common"
 	. "gopkg.in/check.v1"
 
-	"github.com/jacobsa/fuse"
+	"syscall"
 )
 
 type AwsTest struct {
@@ -48,6 +48,6 @@ func (s *AwsTest) TestBucket404(t *C) {
 	s.s3.bucket = RandStringBytesMaskImprSrc(64)
 
 	err, isAws := s.s3.detectBucketLocationByHEAD()
-	t.Assert(err, Equals, fuse.ENOENT)
+	t.Assert(err, Equals, syscall.ENXIO)
 	t.Assert(isAws, Equals, true)
 }

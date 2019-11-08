@@ -3259,7 +3259,9 @@ func (s *GoofysTest) TestMountsError(t *C) {
 	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
 	var cloud StorageBackend
 	if s3, ok := s.cloud.(*S3Backend); ok {
-		// S3Backend currently doesn't detect bucket doesn't exist
+		// S3Backend can't detect bucket doesn't exist because
+		// HEAD an object always return 404 NotFound (instead
+		// of NoSuchBucket)
 		flags := *s3.flags
 		config := *s3.config
 		flags.Endpoint = "0.0.0.0:0"

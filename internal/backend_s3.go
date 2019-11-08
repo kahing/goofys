@@ -191,7 +191,7 @@ func (s *S3Backend) detectBucketLocationByHEAD() (err error, isAws bool) {
 	case 403:
 		err = syscall.EACCES
 	case 404:
-		err = fuse.ENOENT
+		err = syscall.ENXIO
 	case 405:
 		err = syscall.ENOTSUP
 	default:
@@ -215,7 +215,6 @@ func (s *S3Backend) detectBucketLocationByHEAD() (err error, isAws bool) {
 func (s *S3Backend) testBucket(key string) (err error) {
 	_, err = s.HeadBlob(&HeadBlobInput{Key: key})
 	if err != nil {
-		err = mapAwsError(err)
 		if err == fuse.ENOENT {
 			err = nil
 		}
@@ -246,7 +245,7 @@ func (s *S3Backend) Init(key string) error {
 			// or we can use anonymous access, or both
 			s.newS3()
 			s.aws = isAws
-		} else if err == fuse.ENOENT {
+		} else if err == syscall.ENXIO {
 			return fmt.Errorf("bucket %v does not exist", s.bucket)
 		} else {
 			// this is NOT AWS, we expect the request to fail with 403 if this is not
@@ -258,7 +257,7 @@ func (s *S3Backend) Init(key string) error {
 	}
 
 	// try again with the credential to make sure
-	err = mapAwsError(s.testBucket(key))
+	err = s.testBucket(key)
 	if err != nil {
 		if !isAws {
 			// EMC returns 403 because it doesn't support v4 signing
@@ -269,7 +268,7 @@ func (s *S3Backend) Init(key string) error {
 				if err != nil {
 					return err
 				}
-				err = mapAwsError(s.testBucket(key))
+				err = s.testBucket(key)
 			}
 		}
 

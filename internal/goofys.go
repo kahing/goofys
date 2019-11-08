@@ -533,6 +533,8 @@ func mapAwsError(err error) error {
 		case "BucketRegionError":
 			// don't need to log anything, we should detect region after
 			return err
+		case "NoSuchBucket":
+			return syscall.ENXIO
 		case "BucketAlreadyOwnedByYou":
 			return fuse.EEXIST
 		}
@@ -543,7 +545,9 @@ func mapAwsError(err error) error {
 			if err != nil {
 				return err
 			} else {
-				s3Log.Errorf("code=%v %v msg=%v request=%v\n", reqErr.Message(), reqErr.StatusCode(), awsErr.Code(), reqErr.RequestID())
+				s3Log.Errorf("http=%v %v s3=%v request=%v\n",
+					reqErr.StatusCode(), reqErr.Message(),
+					awsErr.Code(), reqErr.RequestID())
 				return reqErr
 			}
 		} else {
