@@ -37,7 +37,7 @@ if [ $CLOUD == "s3" ]; then
 	if [ "$MOUNT" != "false" ]; then
 	    PROXY_BIN="java -jar s3proxy.jar --properties test/s3proxy-fs.properties"
 	else
-	    PROXY_BIN="java -jar s3proxy.jar --properties test/s3proxy.properties"
+	    PROXY_BIN="java -Xmx4g -jar s3proxy.jar --properties test/s3proxy.properties"
 	fi
     else
 	export AWS
