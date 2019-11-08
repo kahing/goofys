@@ -154,7 +154,11 @@ func NewADLv1(bucket string, flags *FlagStorage, config *ADLv1Config) (*ADLv1, e
 			NoParallelMultipart: true,
 			DirBlob:             true,
 			Name:                "adl",
-			MaxMultipartSize:    20 * 1024 * 1024,
+			// ADLv1 fails with 404 if we upload data
+			// larger than 30000000 bytes (28.6MB) (28MB
+			// also failed in at one point, but as of
+			// 2019-11-07 seems to work)
+			MaxMultipartSize: 20 * 1024 * 1024,
 		},
 	}
 
