@@ -1220,10 +1220,10 @@ func (s *GoofysTest) TestBackendListPagination(t *C) {
 	}
 
 	var itemsPerPage int
-	switch s.cloud.Capabilities().Name {
-	case "s3", "gcs":
+	switch s.cloud.Delegate().(type) {
+	case *S3Backend, *GCS3:
 		itemsPerPage = 1000
-	case "azblob", "adlv2":
+	case *AZBlob, *ADLv2:
 		itemsPerPage = 5000
 	default:
 		t.Fatalf("unknown backend: %T", s.cloud)
