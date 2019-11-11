@@ -206,7 +206,11 @@ func (s *GoofysTest) selectTestConfig(t *C, flags *FlagStorage) (conf S3Config) 
 	(&conf).Init()
 
 	if hasEnv("AWS") {
-		conf.Region = "us-west-2"
+		if isTravis() {
+			conf.Region = "us-east-1"
+		} else {
+			conf.Region = "us-west-2"
+		}
 		profile := os.Getenv("AWS")
 		if profile != "" {
 			if profile != "-" {
