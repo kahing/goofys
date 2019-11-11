@@ -190,6 +190,10 @@ func (b *ADLv2) Bucket() string {
 	return b.bucket
 }
 
+func (b *ADLv2) Delegate() interface{} {
+	return b
+}
+
 func (b *ADLv2) Init(key string) (err error) {
 	_, err = b.HeadBlob(&HeadBlobInput{Key: key})
 	if err == fuse.ENOENT {

@@ -196,6 +196,10 @@ func NewAZBlob(container string, config *AZBlobConfig) (*AZBlob, error) {
 	return b, nil
 }
 
+func (b *AZBlob) Delegate() interface{} {
+	return b
+}
+
 func (b *AZBlob) Capabilities() *Capabilities {
 	return &b.cap
 }

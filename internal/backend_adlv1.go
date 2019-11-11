@@ -168,6 +168,10 @@ func (b *ADLv1) Bucket() string {
 	return b.bucket
 }
 
+func (b *ADLv1) Delegate() interface{} {
+	return b
+}
+
 func mapADLv1Error(resp *http.Response, err error, rawError bool) error {
 	// TODO(dotslash/khc): Figure out a way to surface these errors before reducing
 	// them to syscall.E<SOMETHING>. The detailed errors can aid in better debugging

@@ -237,6 +237,11 @@ type StorageBackend interface {
 	MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error)
 	RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput, error)
 	MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error)
+	Delegate() interface{}
+}
+
+type Delegator interface {
+	Delegate() interface{}
 }
 
 var SmallActionsGate = Ticket{Total: 100}.Init()
@@ -401,6 +406,10 @@ type StorageBackendInitError struct {
 }
 
 func (e StorageBackendInitError) Init(key string) error {
+	return e
+}
+
+func (e StorageBackendInitError) Delegate() interface{} {
 	return e
 }
 

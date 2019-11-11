@@ -296,25 +296,9 @@ func (s *GoofysTest) deleteBucket(cloud StorageBackend) error {
 	return err
 }
 
-func (s *GoofysTest) retryWhileErr(e error, f func() error) (err error) {
-	for i := 0; i < 10; i++ {
-		err = f()
-		switch err {
-		case e:
-			time.Sleep((time.Duration(i) + 1) * 2 * time.Second)
-			s3Log.Infof("retrying for %v", e)
-		default:
-			return
-		}
-	}
-	return
-}
-
 func (s *GoofysTest) TearDownTest(t *C) {
 	for _, cloud := range s.removeBucket {
-		err := s.retryWhileErr(syscall.ENXIO, func() error {
-			return s.deleteBucket(cloud)
-		})
+		err := s.deleteBucket(cloud)
 		t.Assert(err, IsNil)
 	}
 	s.removeBucket = nil
@@ -396,7 +380,7 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 
 func (s *GoofysTest) setupEnv(t *C, env map[string]*string, public bool) {
 	if public {
-		if s3, ok := s.cloud.(*S3Backend); ok {
+		if s3, ok := s.cloud.Delegate().(*S3Backend); ok {
 			s3.config.ACL = "public-read"
 		} else {
 			t.Error("Not S3 backend")
@@ -465,6 +449,9 @@ func (s *GoofysTest) SetUpTest(t *C) {
 
 		s.cloud = s3
 		s3.aws = hasEnv("AWS")
+		if s3.aws {
+			s.cloud = &S3BucketEventualConsistency{s3}
+		}
 
 		if !hasEnv("MINIO") {
 			s3.Handlers.Sign.Clear()
@@ -1233,10 +1220,10 @@ func (s *GoofysTest) TestBackendListPagination(t *C) {
 	}
 
 	var itemsPerPage int
-	switch s.cloud.(type) {
-	case *S3Backend, *GCS3:
+	switch s.cloud.Capabilities().Name {
+	case "s3", "gcs":
 		itemsPerPage = 1000
-	case *AZBlob, *ADLv2:
+	case "azblob", "adlv2":
 		itemsPerPage = 5000
 	default:
 		t.Fatalf("unknown backend: %T", s.cloud)
@@ -1470,7 +1457,7 @@ func (s *GoofysTest) TestRename(t *C) {
 	err = root.Rename(from, root, to)
 	t.Assert(err, Equals, fuse.ENOENT)
 
-	if s3, ok := s.cloud.(*S3Backend); ok {
+	if s3, ok := s.cloud.Delegate().(*S3Backend); ok {
 		if !hasEnv("GCS") {
 			// not really rename but can be used by rename
 			from, to = s.fs.bucket+"/file2", "new_file"
@@ -1906,13 +1893,11 @@ func (s *GoofysTest) anonymous(t *C) {
 	// implemented yet in our azure backend anyway
 	var s3 *S3Backend
 	var ok bool
-	if s3, ok = s.cloud.(*S3Backend); !ok {
+	if s3, ok = s.cloud.Delegate().(*S3Backend); !ok {
 		t.Skip("only for S3")
 	}
 
-	err := s.retryWhileErr(syscall.ENXIO, func() error {
-		return s.deleteBucket(s.cloud)
-	})
+	err := s.deleteBucket(s.cloud)
 	t.Assert(err, IsNil)
 
 	// use a different bucket name to prevent 409 Conflict from
@@ -1927,7 +1912,7 @@ func (s *GoofysTest) anonymous(t *C) {
 	// should have auto-detected by S3 backend
 	cloud := s.getRoot(t).dir.cloud
 	t.Assert(cloud, NotNil)
-	s3, ok = cloud.(*S3Backend)
+	s3, ok = cloud.Delegate().(*S3Backend)
 	t.Assert(ok, Equals, true)
 
 	s3.awsConfig.Credentials = credentials.AnonymousCredentials
@@ -2083,7 +2068,7 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 		t.Skip("ADLv1 doesn't support metadata")
 	}
 
-	_, checkETag := s.cloud.(*S3Backend)
+	_, checkETag := s.cloud.Delegate().(*S3Backend)
 
 	file1, err := s.LookUpInode(t, "file1")
 	t.Assert(err, IsNil)
@@ -2167,7 +2152,7 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 	// s3proxy doesn't support storage class yet
 	if hasEnv("AWS") {
 		cloud := s.getRoot(t).dir.cloud
-		s3, ok := cloud.(*S3Backend)
+		s3, ok := cloud.Delegate().(*S3Backend)
 		t.Assert(ok, Equals, true)
 		s3.config.StorageClass = "STANDARD_IA"
 
@@ -2493,7 +2478,7 @@ func (s *GoofysTest) TestInodeInsert(t *C) {
 }
 
 func (s *GoofysTest) TestReadDirSlurpHeuristic(t *C) {
-	if _, ok := s.cloud.(*S3Backend); !ok {
+	if _, ok := s.cloud.Delegate().(*S3Backend); !ok {
 		t.Skip("only for S3")
 	}
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
@@ -2526,7 +2511,7 @@ func (s *GoofysTest) TestReadDirSlurpHeuristic(t *C) {
 }
 
 func (s *GoofysTest) TestReadDirSlurpSubtree(t *C) {
-	if _, ok := s.cloud.(*S3Backend); !ok {
+	if _, ok := s.cloud.Delegate().(*S3Backend); !ok {
 		t.Skip("only for S3")
 	}
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
@@ -2723,7 +2708,7 @@ func (s *GoofysTest) TestRenameOverwrite(t *C) {
 func (s *GoofysTest) TestRead403(t *C) {
 	// anonymous only works in S3 for now
 	cloud := s.getRoot(t).dir.cloud
-	s3, ok := cloud.(*S3Backend)
+	s3, ok := cloud.Delegate().(*S3Backend)
 	if !ok {
 		t.Skip("only for S3")
 	}
@@ -2961,7 +2946,7 @@ func (s *GoofysTest) TestIssue326(t *C) {
 }
 
 func (s *GoofysTest) TestSlurpFileAndDir(t *C) {
-	if _, ok := s.cloud.(*S3Backend); !ok {
+	if _, ok := s.cloud.Delegate().(*S3Backend); !ok {
 		t.Skip("only for S3")
 	}
 	prefix := "TestSlurpFileAndDir/"
@@ -3127,7 +3112,7 @@ func (s *GoofysTest) TestReadDirLarge(t *C) {
 
 func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud StorageBackend) {
 	var err error
-	switch s.cloud.(type) {
+	switch s.cloud.Delegate().(type) {
 	case *S3Backend:
 		config, _ := s.fs.flags.Backend.(*S3Config)
 		cloud, err = NewS3(bucket, s.fs.flags, config)
@@ -3365,7 +3350,7 @@ func (s *GoofysTest) TestMountsNewMounts(t *C) {
 func (s *GoofysTest) TestMountsError(t *C) {
 	bucket := "goofys-test-" + RandStringBytesMaskImprSrc(16)
 	var cloud StorageBackend
-	if s3, ok := s.cloud.(*S3Backend); ok {
+	if s3, ok := s.cloud.Delegate().(*S3Backend); ok {
 		// S3Backend can't detect bucket doesn't exist because
 		// HEAD an object always return 404 NotFound (instead
 		// of NoSuchBucket)

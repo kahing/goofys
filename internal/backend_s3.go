@@ -962,3 +962,7 @@ func (s *S3Backend) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error
 	}
 	return &MakeBucketOutput{}, nil
 }
+
+func (s *S3Backend) Delegate() interface{} {
+	return s
+}
