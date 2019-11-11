@@ -3749,3 +3749,39 @@ func (s *GoofysTest) TestReadDirDash(t *C) {
 	children := namesOf(s.readDirFully(t, dh))
 	t.Assert(checkSortedListsAreEqual(children, expect), IsNil)
 }
+
+func (s *GoofysTest) TestIssue474(t *C) {
+	s.fs.flags.TypeCacheTTL = 1 * time.Second
+	s.fs.flags.Cheap = true
+
+	p := "this_test/"
+	root := s.getRoot(t)
+	root.dir.mountPrefix = "this_test/"
+	root.dir.seqOpenDirScore = 2
+
+	blobs := make(map[string]*string)
+
+	in := []string{
+		"1/a/b",
+		"2/c/d",
+	}
+
+	for _, s := range in {
+		blobs[p+s] = nil
+	}
+
+	s.setupBlobs(s.cloud, t, blobs)
+
+	dir1, err := s.LookUpInode(t, "1")
+	t.Assert(err, IsNil)
+	// this would list 1/ and slurp in 2/c/d at the same time
+	s.assertEntries(t, dir1, []string{"a"})
+
+	// 2/ will expire and require re-listing. ensure that we don't
+	// remove any children as stale as we update
+	time.Sleep(time.Second)
+
+	dir2, err := s.LookUpInode(t, "2")
+	t.Assert(err, IsNil)
+	s.assertEntries(t, dir2, []string{"c"})
+}

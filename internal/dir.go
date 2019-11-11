@@ -225,7 +225,7 @@ func (dh *DirHandle) listObjectsSlurp(prefix string) (resp *ListBlobsOutput, err
 		StartAfter: marker,
 	}
 
-	resp, err = listBlobsSafe(cloud, params)
+	resp, err = cloud.ListBlobs(params)
 	if err != nil {
 		s3Log.Errorf("ListObjects %v = %v", params, err)
 		return
@@ -478,7 +478,12 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 			}
 
 			if inode := parent.findChildUnlocked(dirName); inode != nil {
-				inode.AttrTime = time.Now()
+				now := time.Now()
+				// don't want to update time if this
+				// inode is setup to never expire
+				if inode.AttrTime.Before(now) {
+					inode.AttrTime = now
+				}
 			} else {
 				inode := NewInode(fs, parent, &dirName)
 				inode.ToDir()
@@ -1202,6 +1207,10 @@ func (parent *Inode) insertSubTree(path string, obj *BlobItemOutput, dirs map[*I
 			} else if !inode.isDir() {
 				inode.ToDir()
 				fs.addDotAndDotDot(inode)
+			}
+			now := time.Now()
+			if inode.AttrTime.Before(now) {
+				inode.AttrTime = now
 			}
 
 			// mark this dir but don't seal anything else
