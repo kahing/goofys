@@ -122,6 +122,7 @@ func (s *S3BucketEventualConsistency) PutBlob(param *PutBlobInput) (*PutBlobOutp
 		res, err := s.S3Backend.PutBlob(param)
 		switch err {
 		case syscall.ENXIO:
+			param.Body.Seek(0, 0)
 			time.Sleep((time.Duration(i) + 1) * 2 * time.Second)
 			s3Log.Infof("waiting for bucket")
 		default:
