@@ -361,25 +361,29 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 	throttler.P(100)
 	t.Assert(globalErr, IsNil)
 
-	// double check
-	for path, c := range env {
-		throttler.V(1)
-		go func(path string, content *string) {
-			defer throttler.P(1)
-			params := &HeadBlobInput{Key: path}
-			res, err := cloud.HeadBlob(params)
-			t.Assert(err, IsNil)
-			if content != nil {
-				t.Assert(res.Size, Equals, uint64(len(*content)))
-			} else if strings.HasSuffix(path, "/") || path == "zero" {
-				t.Assert(res.Size, Equals, uint64(0))
-			} else {
-				t.Assert(res.Size, Equals, uint64(len(path)))
-			}
-		}(path, c)
+	// double check, except on AWS S3, because there we sometimes
+	// hit 404 NoSuchBucket and there's no way to distinguish that
+	// from 404 KeyNotFound
+	if !s.emulator && hasEnv("AWS") {
+		for path, c := range env {
+			throttler.V(1)
+			go func(path string, content *string) {
+				defer throttler.P(1)
+				params := &HeadBlobInput{Key: path}
+				res, err := cloud.HeadBlob(params)
+				t.Assert(err, IsNil)
+				if content != nil {
+					t.Assert(res.Size, Equals, uint64(len(*content)))
+				} else if strings.HasSuffix(path, "/") || path == "zero" {
+					t.Assert(res.Size, Equals, uint64(0))
+				} else {
+					t.Assert(res.Size, Equals, uint64(len(path)))
+				}
+			}(path, c)
+		}
+		throttler.V(100)
+		t.Assert(globalErr, IsNil)
 	}
-	throttler.V(100)
-	t.Assert(globalErr, IsNil)
 }
 
 func (s *GoofysTest) setupEnv(t *C, env map[string]*string, public bool) {
