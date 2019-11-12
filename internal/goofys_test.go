@@ -364,7 +364,7 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 	// double check, except on AWS S3, because there we sometimes
 	// hit 404 NoSuchBucket and there's no way to distinguish that
 	// from 404 KeyNotFound
-	if !s.emulator && hasEnv("AWS") {
+	if !hasEnv("AWS") {
 		for path, c := range env {
 			throttler.V(1)
 			go func(path string, content *string) {
