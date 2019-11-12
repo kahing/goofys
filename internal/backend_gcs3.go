@@ -52,6 +52,10 @@ func NewGCS3(bucket string, flags *FlagStorage, config *S3Config) (*GCS3, error)
 	return s, nil
 }
 
+func (s *GCS3) Delegate() interface{} {
+	return s
+}
+
 func (s *GCS3) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error) {
 	// GCS does not have multi-delete
 	var wg sync.WaitGroup

@@ -3123,17 +3123,21 @@ func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud S
 	switch s.cloud.Delegate().(type) {
 	case *S3Backend:
 		config, _ := s.fs.flags.Backend.(*S3Config)
-		cloud, err = NewS3(bucket, s.fs.flags, config)
+		s3, err := NewS3(bucket, s.fs.flags, config)
 		t.Assert(err, IsNil)
 
-		if s3, ok := cloud.(*S3Backend); ok {
-			s3.aws = hasEnv("AWS")
+		s3.aws = hasEnv("AWS")
 
-			if !hasEnv("MINIO") {
-				s3.Handlers.Sign.Clear()
-				s3.Handlers.Sign.PushBack(SignV2)
-				s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
-			}
+		if !hasEnv("MINIO") {
+			s3.Handlers.Sign.Clear()
+			s3.Handlers.Sign.PushBack(SignV2)
+			s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
+		}
+
+		if s3.aws {
+			cloud = &S3BucketEventualConsistency{s3}
+		} else {
+			cloud = s3
 		}
 	case *GCS3:
 		config, _ := s.fs.flags.Backend.(*S3Config)
