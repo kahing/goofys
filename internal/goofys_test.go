@@ -395,7 +395,7 @@ func (s *GoofysTest) setupEnv(t *C, env map[string]*string, public bool) {
 	t.Assert(err, IsNil)
 
 	if !s.emulator {
-		time.Sleep(time.Second)
+		//time.Sleep(time.Second)
 	}
 
 	s.setupBlobs(s.cloud, t, env)
