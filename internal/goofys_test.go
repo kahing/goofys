@@ -3365,14 +3365,15 @@ func (s *GoofysTest) TestMountsError(t *C) {
 		cloud, err = NewS3(bucket, &flags, &config)
 		t.Assert(err, IsNil)
 	} else if _, ok := s.cloud.(*ADLv1); ok {
-		cloud = s.newBackend(t, bucket, true)
-		adlCloud, _ := cloud.(*ADLv1)
-		account := adlCloud.account
-		adlCloud.account = ""
-		defer func() { adlCloud.account = account }()
+		config, _ := s.fs.flags.Backend.(*ADLv1Config)
+		config.Authorizer = nil
+
+		var err error
+		cloud, err = NewADLv1(bucket, s.fs.flags, config)
+		t.Assert(err, IsNil)
 	} else if _, ok := s.cloud.(*ADLv2); ok {
 		// ADLv2 currently doesn't detect bucket doesn't exist
-		cloud = s.newBackend(t, bucket, true)
+		cloud = s.newBackend(t, bucket, false)
 		adlCloud, _ := cloud.(*ADLv2)
 		auth := adlCloud.client.BaseClient.Authorizer
 		adlCloud.client.BaseClient.Authorizer = nil
