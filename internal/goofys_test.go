@@ -2579,17 +2579,18 @@ func (s *GoofysTest) TestReadDirLookUp(t *C) {
 	for i := 0; i < 10; i++ {
 		wg.Add(2)
 		go func() {
+			defer wg.Done()
 			s.readDirIntoCache(t, fuseops.RootInodeID)
-			wg.Done()
 		}()
 		go func() {
+			defer wg.Done()
+
 			lookup := fuseops.LookUpInodeOp{
 				Parent: fuseops.RootInodeID,
 				Name:   "file1",
 			}
 			err := s.fs.LookUpInode(nil, &lookup)
 			t.Assert(err, IsNil)
-			wg.Done()
 		}()
 	}
 	wg.Wait()
