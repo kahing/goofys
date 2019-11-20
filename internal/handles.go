@@ -327,7 +327,7 @@ func (inode *Inode) getXattrMap(name string, userOnly bool) (
 
 	if strings.HasPrefix(name, "s3.") {
 		if userOnly {
-			return nil, "", syscall.EACCES
+			return nil, "", syscall.EPERM
 		}
 
 		newName = name[3:]

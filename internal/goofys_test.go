@@ -2350,6 +2350,9 @@ func (s *GoofysTest) TestXAttrSet(t *C) {
 
 	t.Assert(value2, DeepEquals, value)
 	t.Assert(string(value2), DeepEquals, "world")
+
+	err = in.SetXattr("s3.bar", []byte("hello"), xattr.CREATE)
+	t.Assert(err, Equals, syscall.EPERM)
 }
 
 func (s *GoofysTest) TestCreateRenameBeforeCloseFuse(t *C) {
