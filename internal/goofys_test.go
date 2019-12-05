@@ -437,10 +437,11 @@ func (s *GoofysTest) SetUpTest(t *C) {
 	}
 	uid, gid := MyUserAndGroup()
 	flags := &FlagStorage{
-		DirMode:  0700,
-		FileMode: 0700,
-		Uid:      uint32(uid),
-		Gid:      uint32(gid),
+		DirMode:     0700,
+		FileMode:    0700,
+		Uid:         uint32(uid),
+		Gid:         uint32(gid),
+		HTTPTimeout: 30 * time.Second,
 	}
 
 	cloud := os.Getenv("CLOUD")
@@ -1183,7 +1184,16 @@ func (s *GoofysTest) TestRenamePreserveMetadata(t *C) {
 }
 
 func (s *GoofysTest) TestRenameLarge(t *C) {
-	s.testWriteFile(t, "large_file", 21*1024*1024, 128*1024)
+	fileSize := int64(2 * 1024 * 1024 * 1024)
+	// AWS S3 can timeout when renaming large file
+	if _, ok := s.cloud.(*S3Backend); ok && s.emulator {
+		// S3proxy runs out of memory on truly large files. We
+		// want to use a large file to test timeout issues
+		// which wouldn't happen on s3proxy anyway
+		fileSize = 21 * 1024 * 1024
+	}
+
+	s.testWriteFile(t, "large_file", fileSize, 128*1024)
 
 	root := s.getRoot(t)
 

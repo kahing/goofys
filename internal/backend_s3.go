@@ -696,6 +696,12 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 	}
 
 	req, _ := s.CopyObjectRequest(params)
+	// make a shallow copy of the client so we can change the
+	// timeout only for this request but still re-use the
+	// connection pool
+	c := *(req.Config.HTTPClient)
+	req.Config.HTTPClient = &c
+	req.Config.HTTPClient.Timeout = 15 * time.Minute
 	err := req.Send()
 	if err != nil {
 		s3Log.Errorf("CopyObject %v = %v", params, err)
