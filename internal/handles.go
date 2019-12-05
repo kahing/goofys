@@ -378,7 +378,7 @@ func (inode *Inode) updateXattr() (err error) {
 }
 
 func (inode *Inode) SetXattr(name string, value []byte, flags uint32) error {
-	inode.logFuse("RemoveXattr", name)
+	inode.logFuse("SetXattr", name)
 
 	inode.mu.Lock()
 	defer inode.mu.Unlock()
