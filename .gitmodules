@@ -37,9 +37,6 @@
 [submodule "vendor/github.com/shirou/gopsutil"]
 	path = vendor/github.com/shirou/gopsutil
 	url = https://github.com/shirou/gopsutil/
-[submodule "vendor/github.com/kahing/go-xattr"]
-	path = vendor/github.com/kahing/go-xattr
-	url = https://github.com/kahing/go-xattr
 [submodule "vendor/github.com/kardianos/osext"]
 	path = vendor/github.com/kardianos/osext
 	url = https://github.com/kardianos/osext
