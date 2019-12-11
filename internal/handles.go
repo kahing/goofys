@@ -122,6 +122,7 @@ func (inode *Inode) SetFromBlobItem(item *BlobItemOutput) {
 	}
 }
 
+// LOCKS_REQUIRED(inode.mu)
 func (inode *Inode) cloud() (cloud StorageBackend, path string) {
 	var prefix string
 	var dir *Inode
@@ -326,12 +327,15 @@ func (inode *Inode) fillXattr() (err error) {
 func (inode *Inode) getXattrMap(name string, userOnly bool) (
 	meta map[string][]byte, newName string, err error) {
 
-	if strings.HasPrefix(name, "s3.") {
+	cloud, _ := inode.cloud()
+	xattrPrefix := cloud.Capabilities().Name + "."
+
+	if strings.HasPrefix(name, xattrPrefix) {
 		if userOnly {
 			return nil, "", syscall.EPERM
 		}
 
-		newName = name[3:]
+		newName = name[len(xattrPrefix):]
 		meta = inode.s3Metadata
 	} else if strings.HasPrefix(name, "user.") {
 		err = inode.fillXattr()
@@ -343,7 +347,7 @@ func (inode *Inode) getXattrMap(name string, userOnly bool) (
 		meta = inode.userMetadata
 	} else {
 		if userOnly {
-			return nil, "", syscall.EACCES
+			return nil, "", syscall.EPERM
 		} else {
 			return nil, "", unix.ENODATA
 		}
@@ -459,8 +463,11 @@ func (inode *Inode) ListXattr() ([]string, error) {
 		return nil, err
 	}
 
+	cloud, _ := inode.cloud()
+	cloudXattrPrefix := cloud.Capabilities().Name + "."
+
 	for k, _ := range inode.s3Metadata {
-		xattrs = append(xattrs, "s3."+k)
+		xattrs = append(xattrs, cloudXattrPrefix+k)
 	}
 
 	for k, _ := range inode.userMetadata {

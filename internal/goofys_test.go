@@ -1953,7 +1953,11 @@ func (s *GoofysTest) anonymous(t *C) {
 
 func (s *GoofysTest) disableS3() {
 	time.Sleep(1 * time.Second) // wait for any background goroutines to finish
-	s.fs.inodes[fuseops.RootInodeID].dir.cloud = nil
+	dir := s.fs.inodes[fuseops.RootInodeID].dir
+	dir.cloud = StorageBackendInitError{
+		fmt.Errorf("cloud disabled"),
+		*dir.cloud.Capabilities(),
+	}
 }
 
 func (s *GoofysTest) TestWriteAnonymous(t *C) {
@@ -2101,14 +2105,20 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 	}
 
 	_, checkETag := s.cloud.Delegate().(*S3Backend)
+	xattrPrefix := s.cloud.Capabilities().Name + "."
 
 	file1, err := s.LookUpInode(t, "file1")
 	t.Assert(err, IsNil)
 
 	names, err := file1.ListXattr()
 	t.Assert(err, IsNil)
-	sort.Strings(names)
-	t.Assert(names, DeepEquals, []string{"s3.etag", "s3.storage-class", "user.name"})
+	expectedXattrs := []string{
+		xattrPrefix + "etag",
+		xattrPrefix + "storage-class",
+		"user.name",
+	}
+	sort.Strings(expectedXattrs)
+	t.Assert(names, DeepEquals, expectedXattrs)
 
 	_, err = file1.GetXattr("user.foobar")
 	t.Assert(err, Equals, unix.ENODATA)
@@ -2127,9 +2137,15 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 	dir1, err := s.LookUpInode(t, "dir1")
 	t.Assert(err, IsNil)
 
-	names, err = dir1.ListXattr()
-	t.Assert(err, IsNil)
-	t.Assert(len(names), Equals, 0)
+	if !s.cloud.Capabilities().DirBlob {
+		// implicit dir blobs don't have s3.etag at all
+		names, err = dir1.ListXattr()
+		t.Assert(err, IsNil)
+		t.Assert(len(names), Equals, 0, Commentf("names: %v", names))
+
+		value, err = dir1.GetXattr(xattrPrefix + "etag")
+		t.Assert(err, Equals, syscall.ENODATA)
+	}
 
 	// list dir1 to populate file3 in cache, then get file3's xattr
 	lookup := fuseops.LookUpInodeOp{
@@ -2162,7 +2178,7 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 	names, err = emptyDir2.ListXattr()
 	t.Assert(err, IsNil)
 	sort.Strings(names)
-	t.Assert(names, DeepEquals, []string{"s3.etag", "s3.storage-class", "user.name"})
+	t.Assert(names, DeepEquals, expectedXattrs)
 
 	emptyDir, err := s.LookUpInode(t, "empty_dir")
 	t.Assert(err, IsNil)
@@ -2172,16 +2188,6 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 		t.Assert(err, IsNil)
 		// dir blobs are empty
 		t.Assert(string(value), Equals, "\"d41d8cd98f00b204e9800998ecf8427e\"")
-	}
-
-	if !s.cloud.Capabilities().DirBlob {
-		// implicit dir blobs don't have s3.etag at all
-		names, err = dir1.ListXattr()
-		t.Assert(err, IsNil)
-		t.Assert(names, HasLen, 0)
-
-		value, err = dir1.GetXattr("s3.etag")
-		t.Assert(err, Equals, syscall.ENODATA)
 	}
 
 	// s3proxy doesn't support storage class yet
@@ -2278,6 +2284,8 @@ func (s *GoofysTest) TestXAttrGetCached(t *C) {
 		t.Skip("ADLv1 doesn't support metadata")
 	}
 
+	xattrPrefix := s.cloud.Capabilities().Name + "."
+
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 	s.readDirIntoCache(t, fuseops.RootInodeID)
@@ -2287,7 +2295,7 @@ func (s *GoofysTest) TestXAttrGetCached(t *C) {
 	t.Assert(err, IsNil)
 	t.Assert(in.userMetadata, IsNil)
 
-	_, err = in.GetXattr("s3.etag")
+	_, err = in.GetXattr(xattrPrefix + "etag")
 	t.Assert(err, IsNil)
 }
 
@@ -2332,13 +2340,24 @@ func (s *GoofysTest) TestXAttrFuse(t *C) {
 	}
 
 	_, checkETag := s.cloud.Delegate().(*S3Backend)
+	xattrPrefix := s.cloud.Capabilities().Name + "."
 
 	//fuseLog.Level = logrus.DebugLevel
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 	s.mount(t, mountPoint)
 	defer s.umount(t, mountPoint)
 
-	expectedXattrs := "s3.etag\x00s3.storage-class\x00user.name\x00"
+	expectedXattrs := []string{
+		xattrPrefix + "etag",
+		xattrPrefix + "storage-class",
+		"user.name",
+	}
+	sort.Strings(expectedXattrs)
+
+	var expectedXattrsStr string
+	for _, x := range expectedXattrs {
+		expectedXattrsStr += x + "\x00"
+	}
 	var buf [1024]byte
 
 	// error if size is too small (but not zero)
@@ -2348,12 +2367,12 @@ func (s *GoofysTest) TestXAttrFuse(t *C) {
 	// 0 len buffer means interogate the size of buffer
 	nbytes, err := unix.Listxattr(mountPoint+"/file1", nil)
 	t.Assert(err, Equals, nil)
-	t.Assert(nbytes, Equals, len(expectedXattrs))
+	t.Assert(nbytes, Equals, len(expectedXattrsStr))
 
 	nbytes, err = unix.Listxattr(mountPoint+"/file1", buf[:nbytes])
 	t.Assert(err, IsNil)
-	t.Assert(nbytes, Equals, len(expectedXattrs))
-	t.Assert(string(buf[:nbytes]), Equals, expectedXattrs)
+	t.Assert(nbytes, Equals, len(expectedXattrsStr))
+	t.Assert(string(buf[:nbytes]), Equals, expectedXattrsStr)
 
 	_, err = unix.Getxattr(mountPoint+"/file1", "user.name", buf[:1])
 	t.Assert(err, Equals, unix.ERANGE)
@@ -2367,14 +2386,16 @@ func (s *GoofysTest) TestXAttrFuse(t *C) {
 	t.Assert(nbytes, Equals, 9)
 	t.Assert(string(buf[:nbytes]), Equals, "file1+/#\x00")
 
-	// dir1 has no xattrs
-	nbytes, err = unix.Listxattr(mountPoint+"/dir1", nil)
-	t.Assert(err, IsNil)
-	t.Assert(nbytes, Equals, 0)
+	if !s.cloud.Capabilities().DirBlob {
+		// dir1 has no xattrs
+		nbytes, err = unix.Listxattr(mountPoint+"/dir1", nil)
+		t.Assert(err, IsNil)
+		t.Assert(nbytes, Equals, 0)
 
-	nbytes, err = unix.Listxattr(mountPoint+"/dir1", buf[:1])
-	t.Assert(err, IsNil)
-	t.Assert(nbytes, Equals, 0)
+		nbytes, err = unix.Listxattr(mountPoint+"/dir1", buf[:1])
+		t.Assert(err, IsNil)
+		t.Assert(nbytes, Equals, 0)
+	}
 
 	if checkETag {
 		_, err = unix.Getxattr(mountPoint+"/file1", "s3.etag", buf[:1])
