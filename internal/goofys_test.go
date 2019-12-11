@@ -48,7 +48,7 @@ import (
 	"github.com/Azure/go-autorest/autorest/azure"
 	azureauth "github.com/Azure/go-autorest/autorest/azure/auth"
 
-	"github.com/kahing/go-xattr"
+	"golang.org/x/sys/unix"
 
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
@@ -1620,6 +1620,10 @@ func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs .
 		defer s.umount(t, mountPoint)
 	}
 
+	// if command starts with ./ or ../ then we are executing a
+	// relative path and cannot do chdir
+	chdir := cmdArgs[0][0] != '.'
+
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	cmd.Env = append(cmd.Env, os.Environ()...)
 	cmd.Env = append(cmd.Env, "FAST=true")
@@ -1633,6 +1637,16 @@ func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs .
 
 		cmd.Stdout = w
 		cmd.Stderr = w
+	}
+
+	if chdir {
+		oldCwd, err := os.Getwd()
+		t.Assert(err, IsNil)
+
+		err = os.Chdir(mountPoint)
+		t.Assert(err, IsNil)
+
+		defer os.Chdir(oldCwd)
 	}
 
 	err := cmd.Run()
@@ -2097,8 +2111,7 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 	t.Assert(names, DeepEquals, []string{"s3.etag", "s3.storage-class", "user.name"})
 
 	_, err = file1.GetXattr("user.foobar")
-	// xattr.IsNotExist seems broken on recent version of macOS
-	t.Assert(err, Equals, syscall.ENODATA)
+	t.Assert(err, Equals, unix.ENODATA)
 
 	if checkETag {
 		value, err := file1.GetXattr("s3.etag")
@@ -2113,6 +2126,10 @@ func (s *GoofysTest) TestXAttrGet(t *C) {
 
 	dir1, err := s.LookUpInode(t, "dir1")
 	t.Assert(err, IsNil)
+
+	names, err = dir1.ListXattr()
+	t.Assert(err, IsNil)
+	t.Assert(len(names), Equals, 0)
 
 	// list dir1 to populate file3 in cache, then get file3's xattr
 	lookup := fuseops.LookUpInodeOp{
@@ -2309,6 +2326,56 @@ func (s *GoofysTest) TestXAttrRemove(t *C) {
 	t.Assert(err, Equals, syscall.ENODATA)
 }
 
+func (s *GoofysTest) TestXAttrFuse(t *C) {
+	if _, ok := s.cloud.(*ADLv1); ok {
+		t.Skip("ADLv1 doesn't support metadata")
+	}
+
+	//fuseLog.Level = logrus.DebugLevel
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+	s.mount(t, mountPoint)
+	defer s.umount(t, mountPoint)
+
+	expectedXattrs := "s3.etag\x00s3.storage-class\x00user.name\x00"
+	var buf [1024]byte
+
+	// error if size is too small (but not zero)
+	_, err := unix.Listxattr(mountPoint+"/file1", buf[:1])
+	t.Assert(err, Equals, unix.ERANGE)
+
+	// 0 len buffer means interogate the size of buffer
+	nbytes, err := unix.Listxattr(mountPoint+"/file1", nil)
+	t.Assert(err, Equals, nil)
+	t.Assert(nbytes, Equals, len(expectedXattrs))
+
+	nbytes, err = unix.Listxattr(mountPoint+"/file1", buf[:nbytes])
+	t.Assert(err, IsNil)
+	t.Assert(nbytes, Equals, len(expectedXattrs))
+	t.Assert(string(buf[:nbytes]), Equals, expectedXattrs)
+
+	// dir1 has no xattrs
+	nbytes, err = unix.Listxattr(mountPoint+"/dir1", nil)
+	t.Assert(err, IsNil)
+	t.Assert(nbytes, Equals, 0)
+
+	nbytes, err = unix.Listxattr(mountPoint+"/dir1", buf[:1])
+	t.Assert(err, IsNil)
+	t.Assert(nbytes, Equals, 0)
+
+	_, err = unix.Getxattr(mountPoint+"/file1", "s3.etag", buf[:1])
+	t.Assert(err, Equals, unix.ERANGE)
+
+	nbytes, err = unix.Getxattr(mountPoint+"/file1", "s3.etag", nil)
+	t.Assert(err, IsNil)
+	// 32 bytes md5 plus quotes
+	t.Assert(nbytes, Equals, 34)
+
+	nbytes, err = unix.Getxattr(mountPoint+"/file1", "s3.etag", buf[:nbytes])
+	t.Assert(err, IsNil)
+	t.Assert(nbytes, Equals, 34)
+	t.Assert(string(buf[:nbytes]), Equals, "\"826e8142e6baabe8af779f5f490cf5f5\"")
+}
+
 func (s *GoofysTest) TestXAttrSet(t *C) {
 	if _, ok := s.cloud.(*ADLv1); ok {
 		t.Skip("ADLv1 doesn't support metadata")
@@ -2317,13 +2384,13 @@ func (s *GoofysTest) TestXAttrSet(t *C) {
 	in, err := s.LookUpInode(t, "file1")
 	t.Assert(err, IsNil)
 
-	err = in.SetXattr("user.bar", []byte("hello"), xattr.REPLACE)
+	err = in.SetXattr("user.bar", []byte("hello"), unix.XATTR_REPLACE)
 	t.Assert(err, Equals, syscall.ENODATA)
 
-	err = in.SetXattr("user.bar", []byte("hello"), xattr.CREATE)
+	err = in.SetXattr("user.bar", []byte("hello"), unix.XATTR_CREATE)
 	t.Assert(err, IsNil)
 
-	err = in.SetXattr("user.bar", []byte("hello"), xattr.CREATE)
+	err = in.SetXattr("user.bar", []byte("hello"), unix.XATTR_CREATE)
 	t.Assert(err, Equals, syscall.EEXIST)
 
 	in, err = s.LookUpInode(t, "file1")
@@ -2335,7 +2402,7 @@ func (s *GoofysTest) TestXAttrSet(t *C) {
 
 	value = []byte("file1+%/#\x00")
 
-	err = in.SetXattr("user.bar", value, xattr.REPLACE)
+	err = in.SetXattr("user.bar", value, unix.XATTR_REPLACE)
 	t.Assert(err, IsNil)
 
 	in, err = s.LookUpInode(t, "file1")
@@ -2361,8 +2428,16 @@ func (s *GoofysTest) TestXAttrSet(t *C) {
 	t.Assert(value2, DeepEquals, value)
 	t.Assert(string(value2), DeepEquals, "world")
 
-	err = in.SetXattr("s3.bar", []byte("hello"), xattr.CREATE)
+	err = in.SetXattr("s3.bar", []byte("hello"), unix.XATTR_CREATE)
 	t.Assert(err, Equals, syscall.EPERM)
+}
+
+func (s *GoofysTest) TestPythonCopyTree(t *C) {
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	s.runFuseTest(t, mountPoint, true, "python", "-c",
+		"import shutil; shutil.copytree('dir2', 'dir5')",
+		mountPoint)
 }
 
 func (s *GoofysTest) TestCreateRenameBeforeCloseFuse(t *C) {

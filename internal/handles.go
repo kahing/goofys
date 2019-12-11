@@ -28,6 +28,7 @@ import (
 
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
+	"golang.org/x/sys/unix"
 
 	"github.com/sirupsen/logrus"
 )
@@ -344,12 +345,12 @@ func (inode *Inode) getXattrMap(name string, userOnly bool) (
 		if userOnly {
 			return nil, "", syscall.EACCES
 		} else {
-			return nil, "", syscall.ENODATA
+			return nil, "", unix.ENODATA
 		}
 	}
 
 	if meta == nil {
-		return nil, "", syscall.ENODATA
+		return nil, "", unix.ENODATA
 	}
 
 	return
@@ -390,11 +391,11 @@ func (inode *Inode) SetXattr(name string, value []byte, flags uint32) error {
 
 	if flags != 0x0 {
 		_, ok := meta[name]
-		if flags == 0x1 {
+		if flags == unix.XATTR_CREATE {
 			if ok {
 				return syscall.EEXIST
 			}
-		} else if flags == 0x2 {
+		} else if flags == unix.XATTR_REPLACE {
 			if !ok {
 				return syscall.ENODATA
 			}

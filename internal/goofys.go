@@ -443,12 +443,14 @@ func (fs *Goofys) GetXattr(ctx context.Context,
 
 	op.BytesRead = len(value)
 
-	if len(op.Dst) < op.BytesRead {
-		return syscall.ERANGE
-	} else {
+	if len(op.Dst) != 0 {
+		if len(op.Dst) < op.BytesRead {
+			return syscall.ERANGE
+		}
+
 		copy(op.Dst, value)
-		return
 	}
+	return
 }
 
 func (fs *Goofys) ListXattr(ctx context.Context,
@@ -474,7 +476,7 @@ func (fs *Goofys) ListXattr(ctx context.Context,
 		op.BytesRead += nlen
 	}
 
-	if ncopied < op.BytesRead {
+	if len(op.Dst) != 0 && ncopied < op.BytesRead {
 		err = syscall.ERANGE
 	}
 
