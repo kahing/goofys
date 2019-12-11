@@ -2331,6 +2331,8 @@ func (s *GoofysTest) TestXAttrFuse(t *C) {
 		t.Skip("ADLv1 doesn't support metadata")
 	}
 
+	_, checkETag := s.cloud.Delegate().(*S3Backend)
+
 	//fuseLog.Level = logrus.DebugLevel
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 	s.mount(t, mountPoint)
@@ -2353,6 +2355,18 @@ func (s *GoofysTest) TestXAttrFuse(t *C) {
 	t.Assert(nbytes, Equals, len(expectedXattrs))
 	t.Assert(string(buf[:nbytes]), Equals, expectedXattrs)
 
+	_, err = unix.Getxattr(mountPoint+"/file1", "user.name", buf[:1])
+	t.Assert(err, Equals, unix.ERANGE)
+
+	nbytes, err = unix.Getxattr(mountPoint+"/file1", "user.name", nil)
+	t.Assert(err, IsNil)
+	t.Assert(nbytes, Equals, 9)
+
+	nbytes, err = unix.Getxattr(mountPoint+"/file1", "user.name", buf[:nbytes])
+	t.Assert(err, IsNil)
+	t.Assert(nbytes, Equals, 9)
+	t.Assert(string(buf[:nbytes]), Equals, "file1+/#\x00")
+
 	// dir1 has no xattrs
 	nbytes, err = unix.Listxattr(mountPoint+"/dir1", nil)
 	t.Assert(err, IsNil)
@@ -2362,18 +2376,21 @@ func (s *GoofysTest) TestXAttrFuse(t *C) {
 	t.Assert(err, IsNil)
 	t.Assert(nbytes, Equals, 0)
 
-	_, err = unix.Getxattr(mountPoint+"/file1", "s3.etag", buf[:1])
-	t.Assert(err, Equals, unix.ERANGE)
+	if checkETag {
+		_, err = unix.Getxattr(mountPoint+"/file1", "s3.etag", buf[:1])
+		t.Assert(err, Equals, unix.ERANGE)
 
-	nbytes, err = unix.Getxattr(mountPoint+"/file1", "s3.etag", nil)
-	t.Assert(err, IsNil)
-	// 32 bytes md5 plus quotes
-	t.Assert(nbytes, Equals, 34)
+		nbytes, err = unix.Getxattr(mountPoint+"/file1", "s3.etag", nil)
+		t.Assert(err, IsNil)
+		// 32 bytes md5 plus quotes
+		t.Assert(nbytes, Equals, 34)
 
-	nbytes, err = unix.Getxattr(mountPoint+"/file1", "s3.etag", buf[:nbytes])
-	t.Assert(err, IsNil)
-	t.Assert(nbytes, Equals, 34)
-	t.Assert(string(buf[:nbytes]), Equals, "\"826e8142e6baabe8af779f5f490cf5f5\"")
+		nbytes, err = unix.Getxattr(mountPoint+"/file1", "s3.etag", buf[:nbytes])
+		t.Assert(err, IsNil)
+		t.Assert(nbytes, Equals, 34)
+		t.Assert(string(buf[:nbytes]), Equals,
+			"\"826e8142e6baabe8af779f5f490cf5f5\"")
+	}
 }
 
 func (s *GoofysTest) TestXAttrSet(t *C) {
