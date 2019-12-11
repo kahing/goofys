@@ -52,6 +52,10 @@ func (fs FusePanicLogger) SetInodeAttributes(ctx context.Context, op *fuseops.Se
 	defer LogPanic(&err)
 	return fs.Fs.SetInodeAttributes(ctx, op)
 }
+func (fs FusePanicLogger) Fallocate(ctx context.Context, op *fuseops.FallocateOp) (err error) {
+	defer LogPanic(&err)
+	return fs.Fs.Fallocate(ctx, op)
+}
 func (fs FusePanicLogger) ForgetInode(ctx context.Context, op *fuseops.ForgetInodeOp) (err error) {
 	defer LogPanic(&err)
 	return fs.Fs.ForgetInode(ctx, op)
