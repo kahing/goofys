@@ -24,6 +24,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -603,7 +604,7 @@ func (fs *Goofys) LookUpInode(
 
 		if expired(inode.AttrTime, fs.flags.StatCacheTTL) {
 			ok = false
-			if inode.fileHandles != 0 {
+			if atomic.LoadInt32(&inode.fileHandles) != 0 {
 				// we have an open file handle, object
 				// in S3 may not represent the true
 				// state of the file anyway, so just
@@ -1112,7 +1113,7 @@ func (fs *Goofys) Rename(
 			// flushed it yet, pretend that's ok because
 			// when we flush we will handle the rename
 			inode := parent.findChildUnlocked(op.OldName)
-			if inode != nil && inode.fileHandles != 0 {
+			if inode != nil && atomic.LoadInt32(&inode.fileHandles) != 0 {
 				err = nil
 			}
 		}

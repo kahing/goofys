@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -549,12 +550,16 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 	parent.mu.Lock()
 	defer parent.mu.Unlock()
 
-	// Find the first non-stale child inode with offset >= `offset`.
+	// Find the first non-stale child inode with offset >=
+	// `offset`. A stale inode is one that existed before the
+	// first ListBlobs for this dir handle, but is not being
+	// written to (ie: not a new file)
 	var child *Inode
 	for int(offset) < len(parent.dir.Children) {
 		// Note on locking: See comments at Inode::AttrTime, Inode::Parent.
 		childTmp := parent.dir.Children[offset]
-		if childTmp.AttrTime.Before(dh.refreshStartTime) {
+		if atomic.LoadInt32(&childTmp.fileHandles) == 0 &&
+			childTmp.AttrTime.Before(dh.refreshStartTime) {
 			// childTmp.AttrTime < dh.refreshStartTime => the child entry was not
 			// updated from cloud by this dir Handle.
 			// So this is a stale entry that should be removed.

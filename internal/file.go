@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/jacobsa/fuse"
@@ -576,11 +577,9 @@ func (fh *FileHandle) Release() {
 	fh.inode.mu.Lock()
 	defer fh.inode.mu.Unlock()
 
-	if fh.inode.fileHandles == 0 {
+	if atomic.AddInt32(&fh.inode.fileHandles, -1) == -1 {
 		panic(fh.inode.fileHandles)
 	}
-
-	fh.inode.fileHandles -= 1
 }
 
 func (fh *FileHandle) readFromStream(offset int64, buf []byte) (bytesRead int, err error) {

@@ -3875,6 +3875,29 @@ func (s *GoofysTest) TestReadDirDash(t *C) {
 	t.Assert(checkSortedListsAreEqual(children, expect), IsNil)
 }
 
+func (s *GoofysTest) TestWriteListFlush(t *C) {
+	root := s.getRoot(t)
+	root.dir.mountPrefix = "this_test/"
+
+	dir, err := root.MkDir("dir")
+	t.Assert(err, IsNil)
+	s.fs.insertInode(root, dir)
+
+	in, fh := dir.Create("file1", fuseops.OpMetadata{})
+	t.Assert(in, NotNil)
+	t.Assert(fh, NotNil)
+	s.fs.insertInode(dir, in)
+
+	s.assertEntries(t, dir, []string{"file1"})
+
+	// in should still be valid
+	t.Assert(in.Parent, NotNil)
+	t.Assert(in.Parent, Equals, dir)
+	fh.FlushFile()
+
+	s.assertEntries(t, dir, []string{"file1"})
+}
+
 func (s *GoofysTest) TestIssue474(t *C) {
 	s.fs.flags.TypeCacheTTL = 1 * time.Second
 	s.fs.flags.Cheap = true

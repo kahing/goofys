@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -66,7 +67,7 @@ type Inode struct {
 	Invalid     bool
 	ImplicitDir bool
 
-	fileHandles uint32
+	fileHandles int32
 
 	userMetadata map[string][]byte
 	s3Metadata   map[string][]byte
@@ -486,6 +487,7 @@ func (inode *Inode) OpenFile(metadata fuseops.OpMetadata) (fh *FileHandle, err e
 	defer inode.mu.Unlock()
 
 	fh = NewFileHandle(inode, metadata)
-	inode.fileHandles += 1
+
+	atomic.AddInt32(&inode.fileHandles, 1)
 	return
 }
