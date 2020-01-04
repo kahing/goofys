@@ -115,3 +115,6 @@
 [submodule "vendor/github.com/kr/text"]
 	path = vendor/github.com/kr/text
 	url = https://github.com/kr/text.git
+[submodule "vendor/github.com/emirpasic/gods"]
+	path = vendor/github.com/emirpasic/gods
+	url = https://github.com/emirpasic/gods.git

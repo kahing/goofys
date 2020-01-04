@@ -939,7 +939,10 @@ func (s *GoofysTest) TestCreateFiles(t *C) {
 }
 
 func (s *GoofysTest) TestUnlink(t *C) {
+	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 	fileName := "file1"
+
+	s.readDirIntoCache(t, s.getRoot(t).Id)
 
 	err := s.getRoot(t).Unlink(fileName)
 	t.Assert(err, IsNil)
@@ -947,6 +950,10 @@ func (s *GoofysTest) TestUnlink(t *C) {
 	// make sure that it's gone from s3
 	_, err = s.cloud.GetBlob(&GetBlobInput{Key: fileName})
 	t.Assert(mapAwsError(err), Equals, fuse.ENOENT)
+
+	s.assertEntries(t, s.getRoot(t), []string{
+		"dir1", "dir2", "dir4", "empty_dir",
+		"empty_dir2", "file2", "zero"})
 }
 
 type FileHandleReader struct {

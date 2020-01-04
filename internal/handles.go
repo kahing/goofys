@@ -30,6 +30,7 @@ import (
 	"github.com/jacobsa/fuse/fuseops"
 	"golang.org/x/sys/unix"
 
+	"github.com/emirpasic/gods/lists/doublylinkedlist"
 	"github.com/sirupsen/logrus"
 )
 
@@ -230,6 +231,9 @@ func (inode *Inode) ToDir() {
 		}
 		inode.dir = &DirInodeData{}
 		inode.KnownSize = &inode.fs.rootAttrs.Size
+		inode.dir.children = doublylinkedlist.New()
+		inode.dir.lastOpenDir = inode.dir.children.Iterator()
+		inode.dir.nameToChild = make(map[string]doublylinkedlist.Iterator)
 	}
 }
 

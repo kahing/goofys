@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/emirpasic/gods/lists/doublylinkedlist"
 
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
@@ -34,12 +35,13 @@ type DirInodeData struct {
 	mountPrefix string
 
 	// these 2 refer to readdir of the Children
-	lastOpenDir     *DirInodeData
-	lastOpenDirIdx  int
+	lastOpenDir     doublylinkedlist.Iterator `type:"*Inode"`
 	seqOpenDirScore uint8
 	DirTime         time.Time
 
-	Children []*Inode
+	nameToChild map[string]doublylinkedlist.Iterator
+	children    *doublylinkedlist.List `type:"*Inode"`
+	Children    []*Inode
 }
 
 type DirHandleEntry struct {
@@ -94,6 +96,8 @@ type DirHandle struct {
 
 	mu sync.Mutex // everything below is protected by mu
 
+	iter *doublylinkedlist.Iterator `type:"*Inode"`
+
 	Marker        *string
 	lastFromCloud *string
 	done          bool
@@ -102,8 +106,16 @@ type DirHandle struct {
 	refreshStartTime time.Time
 }
 
+// LOCKS_EXCLUDED(inode.mu)
 func NewDirHandle(inode *Inode) (dh *DirHandle) {
+	inode.mu.Lock()
+	defer inode.mu.Unlock()
+
 	dh = &DirHandle{inode: inode}
+	if !expired(inode.dir.DirTime, inode.fs.flags.TypeCacheTTL) {
+		iter := inode.dir.children.Iterator()
+		dh.iter = &iter
+	}
 	return
 }
 
@@ -122,39 +134,32 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 		parent.mu.Lock()
 		defer parent.mu.Unlock()
 
-		numChildren := len(parent.dir.Children)
-		dirIdx := -1
+		parentDir := parent.dir
 		seqMode := false
 		firstDir := false
 
-		if parent.dir.lastOpenDir == nil {
+		if parentDir.lastOpenDir.Index() == -1 {
 			// check if we are opening the first child
 			// (after . and ..)  cap the search to 1000
 			// peers to bound the time. If the next dir is
 			// more than 1000 away, slurping isn't going
 			// to be helpful anyway
-			for i := 2; i < MinInt(numChildren, 1000); i++ {
-				c := parent.dir.Children[i]
-				if c.isDir() {
-					if *c.Name == *inode.Name {
-						dirIdx = i
-						seqMode = true
-						firstDir = true
-					}
-					break
+			firstDir = true
+			parentDir.lastOpenDir = parentDir.children.Iterator()
+
+			// skip over . and ..
+			parentDir.lastOpenDir.Next()
+			parentDir.lastOpenDir.Next()
+		}
+
+		// check if we are reading the next one as expected
+		for i := 0; i < 1000 && parentDir.lastOpenDir.Next(); i++ {
+			c := parentDir.lastOpenDir.Value().(*Inode)
+			if c.isDir() {
+				if *c.Name == *inode.Name {
+					seqMode = true
 				}
-			}
-		} else {
-			// check if we are reading the next one as expected
-			for i := parent.dir.lastOpenDirIdx + 1; i < MinInt(numChildren, 1000); i++ {
-				c := parent.dir.Children[i]
-				if c.isDir() {
-					if *c.Name == *inode.Name {
-						dirIdx = i
-						seqMode = true
-					}
-					break
-				}
+				break
 			}
 		}
 
@@ -165,33 +170,48 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 			if parent.dir.seqOpenDirScore == 2 {
 				fuseLog.Debugf("%v in readdir mode", *parent.FullName())
 			}
-			parent.dir.lastOpenDir = dir
-			parent.dir.lastOpenDirIdx = dirIdx
 			if firstDir {
 				// 1) if I open a/, root's score = 1
 				// (a is the first dir), so make a/'s
 				// count at 1 too this allows us to
 				// propagate down the score for
 				// depth-first search case
-				wasSeqMode := dir.seqOpenDirScore >= 2
-				dir.seqOpenDirScore = parent.dir.seqOpenDirScore
-				if !wasSeqMode && dir.seqOpenDirScore >= 2 {
+				wasSeqMode := parentDir.seqOpenDirScore >= 2
+				parentDir.seqOpenDirScore = parent.dir.seqOpenDirScore
+				if !wasSeqMode && parentDir.seqOpenDirScore >= 2 {
 					fuseLog.Debugf("%v in readdir mode", *inode.FullName())
 				}
 			}
 		} else {
-			parent.dir.seqOpenDirScore = 0
-			if dirIdx == -1 {
-				dirIdx = parent.findChildIdxUnlocked(*inode.Name)
-			}
-			if dirIdx != -1 {
-				parent.dir.lastOpenDir = dir
-				parent.dir.lastOpenDirIdx = dirIdx
-			}
+			parentDir.seqOpenDirScore = 0
+			parentDir.lastOpenDir.Begin()
 		}
 	}
 
 	dh = NewDirHandle(inode)
+	return
+}
+
+func (dh *DirHandle) readDirFromCache(offset fuseops.DirOffset) (en *DirHandleEntry, ok bool) {
+	if dh.iter == nil {
+		ok = false
+	} else if int(offset) == dh.iter.Index()+1 {
+		ok = true
+
+		if dh.iter.Next() {
+			child := dh.iter.Value().(*Inode)
+			en = &DirHandleEntry{
+				Name:   *child.Name,
+				Inode:  child.Id,
+				Offset: offset + 1,
+			}
+			if child.isDir() {
+				en.Type = fuseutil.DT_Directory
+			} else {
+				en.Type = fuseutil.DT_File
+			}
+		}
+	}
 	return
 }
 
@@ -422,7 +442,7 @@ func listBlobsSafe(cloud StorageBackend, param *ListBlobsInput) (*ListBlobsOutpu
 // LOCKS_EXCLUDED(dh.inode.mu)
 // LOCKS_EXCLUDED(dh.inode.fs)
 func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err error) {
-	en, ok := dh.inode.readDirFromCache(offset)
+	en, ok := dh.readDirFromCache(offset)
 	if ok {
 		return
 	}
@@ -753,6 +773,10 @@ func (parent *Inode) findInodeFunc(name string) func(i int) bool {
 }
 
 func (parent *Inode) findChildUnlocked(name string) (inode *Inode) {
+	if i, ok := parent.dir.nameToChild[name]; ok {
+		return i.Value().(*Inode)
+	}
+
 	l := len(parent.dir.Children)
 	if l == 0 {
 		return
@@ -767,19 +791,12 @@ func (parent *Inode) findChildUnlocked(name string) (inode *Inode) {
 	return
 }
 
-func (parent *Inode) findChildIdxUnlocked(name string) int {
-	l := len(parent.dir.Children)
-	if l == 0 {
-		return -1
-	}
-	i := sort.Search(l, parent.findInodeFunc(name))
-	if i < l && *parent.dir.Children[i].Name == name {
-		return i
-	}
-	return -1
-}
-
 func (parent *Inode) removeChildUnlocked(inode *Inode) {
+	if i, ok := parent.dir.nameToChild[*inode.Name]; ok {
+		i.Remove()
+		delete(parent.dir.nameToChild, *inode.Name)
+	}
+
 	l := len(parent.dir.Children)
 	if l == 0 {
 		return
@@ -817,6 +834,11 @@ func (parent *Inode) insertChild(inode *Inode) {
 }
 
 func (parent *Inode) insertChildUnlocked(inode *Inode) {
+	parent.dir.children.Append(inode)
+	iter := parent.dir.children.Iterator()
+	iter.Last()
+	parent.dir.nameToChild[*inode.Name] = iter
+
 	l := len(parent.dir.Children)
 	if l == 0 {
 		parent.dir.Children = []*Inode{inode}
