@@ -162,6 +162,11 @@ func ParseBucketSpec(bucket string) (spec BucketSpec, err error) {
 }
 
 func NewGoofys(ctx context.Context, bucket string, flags *FlagStorage) *Goofys {
+	return newGoofys(ctx, bucket, flags, NewBackend)
+}
+
+func newGoofys(ctx context.Context, bucket string, flags *FlagStorage,
+	newBackend func(string, *FlagStorage) (StorageBackend, error)) *Goofys {
 	// Set up the basic struct.
 	fs := &Goofys{
 		bucket: bucket,
@@ -186,12 +191,12 @@ func NewGoofys(ctx context.Context, bucket string, flags *FlagStorage) *Goofys {
 		s3Log.Level = logrus.DebugLevel
 	}
 
-	cloud, err := NewBackend(bucket, flags)
+	cloud, err := newBackend(bucket, flags)
 	if err != nil {
 		log.Errorf("Unable to setup backend: %v", err)
 		return nil
 	}
-	_, fs.gcs = cloud.(*GCS3)
+	_, fs.gcs = cloud.Delegate().(*GCS3)
 
 	randomObjectName := prefix + (RandStringBytesMaskImprSrc(32))
 	err = cloud.Init(randomObjectName)

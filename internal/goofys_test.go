@@ -593,7 +593,19 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		t.Assert(err, IsNil)
 	}
 
-	s.fs = NewGoofys(context.Background(), bucket, flags)
+	if hasEnv("AWS") {
+		s.fs = newGoofys(context.Background(), bucket, flags,
+			func(bucket string, flags *FlagStorage) (StorageBackend, error) {
+				cloud, err := NewBackend(bucket, flags)
+				if err != nil {
+					return nil, err
+				}
+
+				return &S3BucketEventualConsistency{cloud.(*S3Backend)}, nil
+			})
+	} else {
+		s.fs = NewGoofys(context.Background(), bucket, flags)
+	}
 	t.Assert(s.fs, NotNil)
 
 	s.ctx = context.Background()
