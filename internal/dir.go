@@ -113,7 +113,7 @@ func (inode *Inode) OpenDir() (dh *DirHandle) {
 
 	parent := inode.Parent
 	cloud, _ := inode.cloud()
-	_, isS3 := cloud.(*S3Backend)
+	_, isS3 := cloud.Delegate().(*S3Backend)
 	dir := inode.dir
 	if dir == nil {
 		panic(fmt.Sprintf("%v is not a directory", inode.FullName()))
