@@ -28,6 +28,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"os/user"
+	"reflect"
 	"runtime"
 	"sort"
 	"strconv"
@@ -3896,6 +3897,58 @@ func (s *GoofysTest) TestWriteListFlush(t *C) {
 	fh.FlushFile()
 
 	s.assertEntries(t, dir, []string{"file1"})
+}
+
+type includes struct{}
+
+func (c includes) Info() *CheckerInfo {
+	return &CheckerInfo{Name: "includes", Params: []string{"obtained", "expected"}}
+}
+
+func (c includes) Check(params []interface{}, names []string) (res bool, error string) {
+	arr := reflect.ValueOf(params[0])
+	switch arr.Kind() {
+	case reflect.Array, reflect.Slice, reflect.String:
+	default:
+		panic(fmt.Sprintf("%v is not an array", names[0]))
+	}
+
+	for i := 0; i < arr.Len(); i++ {
+		v := arr.Index(i).Interface()
+		res, error = DeepEquals.Check([]interface{}{v, params[1]}, names)
+		if res {
+			return
+		} else {
+			error = ""
+		}
+
+		res = false
+	}
+	return
+}
+
+func (s *GoofysTest) TestWriteUnlinkFlush(t *C) {
+	root := s.getRoot(t)
+
+	dir, err := root.MkDir("dir")
+	t.Assert(err, IsNil)
+	s.fs.insertInode(root, dir)
+
+	in, fh := dir.Create("deleted", fuseops.OpMetadata{})
+	t.Assert(in, NotNil)
+	t.Assert(fh, NotNil)
+	s.fs.insertInode(dir, in)
+
+	err = dir.Unlink("deleted")
+	t.Assert(err, IsNil)
+
+	s.disableS3()
+	err = fh.FlushFile()
+	t.Assert(err, IsNil)
+
+	dh := dir.OpenDir()
+	defer dh.CloseDir()
+	t.Assert(namesOf(s.readDirFully(t, dh)), Not(includes{}), "deleted")
 }
 
 func (s *GoofysTest) TestIssue474(t *C) {

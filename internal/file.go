@@ -682,6 +682,17 @@ func (fh *FileHandle) FlushFile() (err error) {
 		return
 	}
 
+	if fh.inode.Parent == nil {
+		// the file is deleted
+		if fh.mpuId != nil {
+			go func() {
+				_, _ = fh.cloud.MultipartBlobAbort(fh.mpuId)
+				fh.mpuId = nil
+			}()
+		}
+		return
+	}
+
 	fs := fh.inode.fs
 
 	// abort mpu on error
