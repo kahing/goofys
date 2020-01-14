@@ -365,12 +365,20 @@ func (s *S3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	if err != nil {
 		return nil, mapAwsError(err)
 	}
+	
+	var tmpSize unit64
+	if resp.ContentLength == nil {
+		tmpSize = 4096
+	} else {
+		tmpSize = uint64(*resp.ContentLength)
+	}
+
 	return &HeadBlobOutput{
 		BlobItemOutput: BlobItemOutput{
 			Key:          &param.Key,
 			ETag:         resp.ETag,
 			LastModified: resp.LastModified,
-			Size:         uint64(*resp.ContentLength),
+			Size:         tmpSize,
 			StorageClass: resp.StorageClass,
 		},
 		ContentType: resp.ContentType,
