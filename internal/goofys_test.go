@@ -3998,3 +3998,28 @@ func (s *GoofysTest) TestIssue474(t *C) {
 	t.Assert(err, IsNil)
 	s.assertEntries(t, dir2, []string{"c"})
 }
+
+func (s *GoofysTest) TestReadExternalChangesFuse(t *C) {
+	s.fs.flags.StatCacheTTL = 1 * time.Second
+
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	s.mount(t, mountPoint)
+	defer s.umount(t, mountPoint)
+
+	buf, err := ioutil.ReadFile(mountPoint + "/file1")
+	t.Assert(err, IsNil)
+	t.Assert(string(buf), Equals, "file1")
+
+	_, err = s.cloud.PutBlob(&PutBlobInput{
+		Key:  "file1",
+		Body: bytes.NewReader([]byte("newfile")),
+	})
+	t.Assert(err, IsNil)
+
+	time.Sleep(1 * time.Second)
+
+	buf, err = ioutil.ReadFile(mountPoint + "/file1")
+	t.Assert(err, IsNil)
+	t.Assert(string(buf), Equals, "newfile")
+}
