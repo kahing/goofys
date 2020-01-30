@@ -4015,7 +4015,7 @@ func (s *GoofysTest) TestReadExternalChangesFuse(t *C) {
 	_, err = s.cloud.PutBlob(&PutBlobInput{
 		Key:  "file1",
 		Body: bytes.NewReader([]byte(update)),
-		Size: PUInt64(len(update)),
+		Size: PUInt64(uint64(len(update))),
 	})
 	t.Assert(err, IsNil)
 
