@@ -4029,7 +4029,10 @@ func (s *GoofysTest) TestReadExternalChangesFuse(t *C) {
 	t.Assert(string(buf), Equals, update)
 
 	// the next read shouldn't talk to cloud
-	s.getRoot(t).dir.cloud = nil
+	root := s.getRoot(t)
+	root.dir.cloud = &StorageBackendInitError{
+		syscall.ENONET, *root.dir.cloud.Capabilities(),
+	}
 
 	buf, err = ioutil.ReadFile(filePath)
 	t.Assert(err, IsNil)
