@@ -662,13 +662,36 @@ func (fs *Goofys) LookUpInode(
 			}
 			parent.mu.Unlock()
 		} else {
+			inode.mu.Lock()
+
 			if newInode != nil {
+				// if only size changed, kernel seems to
+				// automatically drop cache
+				if inode.Attributes != newInode.Attributes {
+					inode.invalidateCache = true
+				} else if inode.knownETag != nil &&
+					newInode.knownETag != nil &&
+					*inode.knownETag != *newInode.knownETag {
+					// if this is a new file (ie:
+					// inode.knownETag is nil),
+					// then prefer to read our own
+					// write then reading updated
+					// data
+					inode.invalidateCache = true
+				}
+
 				if newInode.Attributes.Mtime.IsZero() {
+					// this can happen if it's an
+					// implicit dir, use the last
+					// known value
 					newInode.Attributes.Mtime = inode.Attributes.Mtime
 				}
 				inode.Attributes = newInode.Attributes
+				inode.knownETag = newInode.knownETag
 			}
 			inode.AttrTime = time.Now()
+
+			inode.mu.Unlock()
 		}
 	}
 
@@ -858,15 +881,32 @@ func (fs *Goofys) OpenFile(
 	}
 
 	fs.mu.Lock()
-	defer fs.mu.Unlock()
 
 	handleID := fs.nextHandleID
 	fs.nextHandleID++
 
 	fs.fileHandles[handleID] = fh
+	fs.mu.Unlock()
 
 	op.Handle = handleID
-	op.KeepPageCache = true
+
+	in.mu.Lock()
+	defer in.mu.Unlock()
+
+	// this flag appears to tell the kernel if this open should
+	// use the page cache or not. If it's false and this is a
+	// write, then a separate open (that had op.KeepPageCache =
+	// true) will not read from our write, which suggests that
+	// this also controls if subsequent operations populates the
+	// cache
+	//
+	// but if this is a read, and KeepPageCache = false, and next
+	// open sets KeepPageCache = false, then it can read from cache.
+	//
+	// see tests TestReadNewFileWithExternalChangesFuse and
+	// TestReadMyOwnWriteWithExternalChangesFuse
+	op.KeepPageCache = !in.invalidateCache
+	in.invalidateCache = false
 
 	return
 }

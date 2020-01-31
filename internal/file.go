@@ -229,6 +229,11 @@ func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 	defer fh.mu.Unlock()
 
 	if fh.lastWriteError != nil {
+		fh.inode.mu.Lock()
+		// our write failed, next time we open we should not
+		// use page cache so we will read from cloud again
+		fh.inode.invalidateCache = true
+		fh.inode.mu.Unlock()
 		return fh.lastWriteError
 	}
 
@@ -241,6 +246,13 @@ func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 	if offset == 0 {
 		fh.poolHandle = fh.inode.fs.bufferPool
 		fh.dirty = true
+		fh.inode.mu.Lock()
+		// we are updating this file, always prefer to read
+		// back our own write. XXX this doesn't actually work,
+		// see the notes in Goofys.OpenFile about
+		// KeepPageCache
+		fh.inode.knownETag = nil
+		fh.inode.mu.Unlock()
 	}
 
 	for {

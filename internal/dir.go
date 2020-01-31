@@ -1354,16 +1354,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 			inode = NewInode(parent.fs, parent, &name)
 			if !resp.IsDirBlob {
 				// XXX/TODO if both object and object/ exists, return dir
-				inode.Attributes = InodeAttributes{
-					Size:  resp.Size,
-					Mtime: *resp.LastModified,
-				}
-
-				// don't want to point to the attribute because that
-				// can get updated
-				size := inode.Attributes.Size
-				inode.KnownSize = &size
-
+				inode.SetFromBlobItem(&resp.BlobItemOutput)
 			} else {
 				inode.ToDir()
 				if resp.LastModified != nil {

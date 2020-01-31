@@ -72,6 +72,13 @@ type Inode struct {
 	userMetadata map[string][]byte
 	s3Metadata   map[string][]byte
 
+	// last known etag from the cloud
+	knownETag *string
+	// tell the next open to invalidate page cache because the
+	// file is changed. This is set when LookUp notices something
+	// about this file is changed
+	invalidateCache bool
+
 	// the refcnt is an exception, it's protected by the global lock
 	// Goofys.mu
 	refcnt uint64
@@ -99,15 +106,21 @@ func (inode *Inode) SetFromBlobItem(item *BlobItemOutput) {
 	defer inode.mu.Unlock()
 
 	inode.Attributes.Size = item.Size
+	// don't want to point to the attribute because that
+	// can get updated
 	size := item.Size
 	inode.KnownSize = &size
 	if item.LastModified != nil {
+		if inode.Attributes.Mtime != *item.LastModified {
+			inode.invalidateCache = true
+		}
 		inode.Attributes.Mtime = *item.LastModified
 	} else {
 		inode.Attributes.Mtime = inode.fs.rootAttrs.Mtime
 	}
 	if item.ETag != nil {
 		inode.s3Metadata["etag"] = []byte(*item.ETag)
+		inode.knownETag = item.ETag
 	} else {
 		delete(inode.s3Metadata, "etag")
 	}

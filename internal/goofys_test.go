@@ -4007,13 +4007,16 @@ func (s *GoofysTest) TestReadExternalChangesFuse(t *C) {
 	s.mount(t, mountPoint)
 	defer s.umount(t, mountPoint)
 
-	buf, err := ioutil.ReadFile(mountPoint + "/file1")
-	t.Assert(err, IsNil)
-	t.Assert(string(buf), Equals, "file1")
+	file := "file1"
+	filePath := mountPoint + "/file1"
 
-	update := "newfile"
+	buf, err := ioutil.ReadFile(filePath)
+	t.Assert(err, IsNil)
+	t.Assert(string(buf), Equals, file)
+
+	update := "file2"
 	_, err = s.cloud.PutBlob(&PutBlobInput{
-		Key:  "file1",
+		Key:  file,
 		Body: bytes.NewReader([]byte(update)),
 		Size: PUInt64(uint64(len(update))),
 	})
@@ -4021,7 +4024,90 @@ func (s *GoofysTest) TestReadExternalChangesFuse(t *C) {
 
 	time.Sleep(1 * time.Second)
 
-	buf, err = ioutil.ReadFile(mountPoint + "/file1")
+	buf, err = ioutil.ReadFile(filePath)
 	t.Assert(err, IsNil)
 	t.Assert(string(buf), Equals, update)
+
+	// the next read shouldn't talk to cloud
+	s.getRoot(t).dir.cloud = nil
+
+	buf, err = ioutil.ReadFile(filePath)
+	t.Assert(err, IsNil)
+	t.Assert(string(buf), Equals, update)
+}
+
+func (s *GoofysTest) TestReadMyOwnWriteWithExternalChangesFuse(t *C) {
+	s.fs.flags.StatCacheTTL = 1 * time.Second
+
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	s.mount(t, mountPoint)
+	defer s.umount(t, mountPoint)
+
+	file := "file1"
+	filePath := mountPoint + "/file1"
+
+	buf, err := ioutil.ReadFile(filePath)
+	t.Assert(err, IsNil)
+	t.Assert(string(buf), Equals, file)
+
+	update := "file2"
+	_, err = s.cloud.PutBlob(&PutBlobInput{
+		Key:  file,
+		Body: bytes.NewReader([]byte(update)),
+		Size: PUInt64(uint64(len(update))),
+	})
+	t.Assert(err, IsNil)
+
+	time.Sleep(1 * time.Second)
+
+	fh, err := os.Create(filePath)
+	t.Assert(err, IsNil)
+
+	_, err = fh.WriteString("file3")
+	t.Assert(err, IsNil)
+	// we can't flush yet because if we did, we would be reading
+	// the new copy from cloud and that's not the point of this
+	// test
+	defer fh.Close()
+
+	buf, err = ioutil.ReadFile(filePath)
+	t.Assert(err, IsNil)
+	// disabled: we can't actually read back our own update
+	_ = buf
+	//t.Assert(string(buf), Equals, "file3")
+}
+
+func (s *GoofysTest) TestReadNewFileWithExternalChangesFuse(t *C) {
+	s.fs.flags.StatCacheTTL = 1 * time.Second
+
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+
+	s.mount(t, mountPoint)
+	defer s.umount(t, mountPoint)
+
+	filePath := mountPoint + "/filex"
+
+	fh, err := os.Create(filePath)
+	t.Assert(err, IsNil)
+
+	// update := "file2"
+	// _, err = s.cloud.PutBlob(&PutBlobInput{
+	// 	Key:  file,
+	// 	Body: bytes.NewReader([]byte(update)),
+	// 	Size: PUInt64(uint64(len(update))),
+	// })
+	// t.Assert(err, IsNil)
+
+	_, err = fh.WriteString("filex")
+	t.Assert(err, IsNil)
+	// we can't flush yet because if we did, we would be reading
+	// the new copy from cloud and that's not the point of this
+	// test
+	defer fh.Close()
+
+	// disabled: we can't actually read back our own update
+	//buf, err := ioutil.ReadFile(filePath)
+	//t.Assert(err, IsNil)
+	//t.Assert(string(buf), Equals, "filex")
 }
