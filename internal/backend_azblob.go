@@ -561,6 +561,13 @@ func (b *AZBlob) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		}
 	}
 
+	if len(blobItems) == 1 && len(blobItems[0].Name) <= len(options.Prefix) && strings.HasSuffix(options.Prefix, "/") {
+		// There is only 1 result and that one result does not have the desired prefix. This can
+		// happen if we ask for ListBlobs under /some/path/ and the result is List(/some/path). This
+		// means the prefix we are listing is a blob => So return empty response to indicate that
+		// this prefix should not be treated a directory by goofys.
+		return &ListBlobsOutput{}, nil
+	}
 	var sortItems bool
 
 	for idx, _ := range blobItems {

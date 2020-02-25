@@ -257,8 +257,8 @@ func (s *GoofysTest) SetUpSuite(t *C) {
 func (s *GoofysTest) deleteBucket(cloud StorageBackend) error {
 	param := &ListBlobsInput{}
 
-	// Azure datalake v1,v2 need special handling.
-	adlKeysToRemove := make([]string, 0)
+	// Azure need special handling.
+	azureKeysToRemove := make([]string, 0)
 	for {
 		resp, err := cloud.ListBlobs(param)
 		if err != nil {
@@ -271,11 +271,11 @@ func (s *GoofysTest) deleteBucket(cloud StorageBackend) error {
 		}
 		if len(keysToRemove) != 0 {
 			switch cloud.(type) {
-			case *ADLv1, *ADLv2:
-				// ADLV{1|2} supports directories. => dir can be removed only after the dir is
-				// empty. So we will remove the blobs in reverse depth order via DeleteADLBlobs
-				// after this for loop.
-				adlKeysToRemove = append(adlKeysToRemove, keysToRemove...)
+			case *ADLv1, *ADLv2, *AZBlob:
+				// ADLV{1|2} and AZBlob (sometimes) supports directories. => dir can be removed only
+				// after the dir is empty. So we will remove the blobs in reverse depth order via
+				// DeleteADLBlobs after this for loop.
+				azureKeysToRemove = append(azureKeysToRemove, keysToRemove...)
 			default:
 				_, err = cloud.DeleteBlobs(&DeleteBlobsInput{Items: keysToRemove})
 				if err != nil {
@@ -290,8 +290,8 @@ func (s *GoofysTest) deleteBucket(cloud StorageBackend) error {
 		}
 	}
 
-	if len(adlKeysToRemove) != 0 {
-		err := s.DeleteADLBlobs(cloud, adlKeysToRemove)
+	if len(azureKeysToRemove) != 0 {
+		err := s.DeleteADLBlobs(cloud, azureKeysToRemove)
 		if err != nil {
 			return err
 		}
@@ -1349,6 +1349,13 @@ func (s *GoofysTest) TestBackendListPrefix(t *C) {
 	t.Assert(len(res.Prefixes), Equals, 0)
 	t.Assert(len(res.Items), Equals, 0)
 
+	// ListBlobs:
+	// - Case1: If the prefix foo/ is not added explicitly, then ListBlobs foo/ might or might not return foo/.
+	//   In the test setup dir2 is not expliticly created.
+	// - Case2: Else, ListBlobs foo/ must return foo/
+	//   In the test setup dir2/dir3 is expliticly created.
+
+	// ListBlobs:Case1
 	res, err = s.cloud.ListBlobs(&ListBlobsInput{
 		Prefix:    PString("dir2/"),
 		Delimiter: PString("/"),
@@ -1356,13 +1363,15 @@ func (s *GoofysTest) TestBackendListPrefix(t *C) {
 	t.Assert(err, IsNil)
 	t.Assert(len(res.Prefixes), Equals, 1)
 	t.Assert(*res.Prefixes[0].Prefix, Equals, "dir2/dir3/")
-	if s.cloud.Capabilities().DirBlob {
-		t.Assert(len(res.Items), Equals, 1)
+	if len(res.Items) == 1 {
+		// azblob(with hierarchial ns on), adlv1, adlv2.
 		t.Assert(*res.Items[0].Key, Equals, "dir2/")
 	} else {
+		// s3, azblob(with hierarchial ns off)
 		t.Assert(len(res.Items), Equals, 0)
 	}
 
+	// ListBlobs:Case2
 	res, err = s.cloud.ListBlobs(&ListBlobsInput{
 		Prefix:    PString("dir2/dir3/"),
 		Delimiter: PString("/"),
@@ -1373,14 +1382,23 @@ func (s *GoofysTest) TestBackendListPrefix(t *C) {
 	t.Assert(*res.Items[0].Key, Equals, "dir2/dir3/")
 	t.Assert(*res.Items[1].Key, Equals, "dir2/dir3/file4")
 
+	// ListBlobs:Case1
 	res, err = s.cloud.ListBlobs(&ListBlobsInput{
 		Prefix: PString("dir2/"),
 	})
 	t.Assert(err, IsNil)
 	t.Assert(len(res.Prefixes), Equals, 0)
-	t.Assert(len(res.Items), Equals, 2)
-	t.Assert(*res.Items[0].Key, Equals, "dir2/dir3/")
-	t.Assert(*res.Items[1].Key, Equals, "dir2/dir3/file4")
+	if len(res.Items) == 3 {
+		// azblob(with hierarchial ns on), adlv1, adlv2.
+		t.Assert(*res.Items[0].Key, Equals, "dir2/")
+		t.Assert(*res.Items[1].Key, Equals, "dir2/dir3/")
+		t.Assert(*res.Items[2].Key, Equals, "dir2/dir3/file4")
+	} else {
+		// s3, azblob(with hierarchial ns off)
+		t.Assert(len(res.Items), Equals, 2)
+		t.Assert(*res.Items[0].Key, Equals, "dir2/dir3/")
+		t.Assert(*res.Items[1].Key, Equals, "dir2/dir3/file4")
+	}
 
 	res, err = s.cloud.ListBlobs(&ListBlobsInput{
 		Prefix: PString("dir2/dir3/file4"),
