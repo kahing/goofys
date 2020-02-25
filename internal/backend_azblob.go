@@ -566,6 +566,8 @@ func (b *AZBlob) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		// happen if we ask for ListBlobs under /some/path/ and the result is List(/some/path). This
 		// means the prefix we are listing is a blob => So return empty response to indicate that
 		// this prefix should not be treated a directory by goofys.
+		// NOTE: This undesired behaviour happens only on azblob when hierarchial namespaces are
+		// enabled.
 		return &ListBlobsOutput{}, nil
 	}
 	var sortItems bool
