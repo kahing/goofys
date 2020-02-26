@@ -810,7 +810,8 @@ func (b *AZBlob) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 	}
 
 	return &PutBlobOutput{
-		ETag: PString(string(resp.ETag())),
+		ETag:         PString(string(resp.ETag())),
+		LastModified: PTime(resp.LastModified()),
 	}, nil
 }
 
@@ -876,7 +877,8 @@ func (b *AZBlob) MultipartBlobCommit(param *MultipartBlobCommitInput) (*Multipar
 	}
 
 	return &MultipartBlobCommitOutput{
-		ETag: PString(string(resp.ETag())),
+		ETag:         PString(string(resp.ETag())),
+		LastModified: PTime(resp.LastModified()),
 	}, nil
 }
 

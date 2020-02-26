@@ -39,6 +39,10 @@ type InodeAttributes struct {
 	Mtime time.Time
 }
 
+func (i InodeAttributes) Equal(other InodeAttributes) bool {
+	return i.Size == other.Size && i.Mtime.Equal(other.Mtime)
+}
+
 type Inode struct {
 	Id         fuseops.InodeID
 	Name       *string
@@ -111,9 +115,6 @@ func (inode *Inode) SetFromBlobItem(item *BlobItemOutput) {
 	size := item.Size
 	inode.KnownSize = &size
 	if item.LastModified != nil {
-		if inode.Attributes.Mtime != *item.LastModified {
-			inode.invalidateCache = true
-		}
 		inode.Attributes.Mtime = *item.LastModified
 	} else {
 		inode.Attributes.Mtime = inode.fs.rootAttrs.Mtime

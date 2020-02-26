@@ -667,7 +667,8 @@ func (fs *Goofys) LookUpInode(
 			if newInode != nil {
 				// if only size changed, kernel seems to
 				// automatically drop cache
-				if inode.Attributes != newInode.Attributes {
+				if !inode.Attributes.Equal(newInode.Attributes) {
+					inode.logFuse("invalidate cache because attributes changed", inode.Attributes, newInode.Attributes)
 					inode.invalidateCache = true
 				} else if inode.knownETag != nil &&
 					newInode.knownETag != nil &&
@@ -677,6 +678,7 @@ func (fs *Goofys) LookUpInode(
 					// then prefer to read our own
 					// write then reading updated
 					// data
+					inode.logFuse("invalidate cache because etag changed", *inode.knownETag, *newInode.knownETag)
 					inode.invalidateCache = true
 				}
 
@@ -894,18 +896,20 @@ func (fs *Goofys) OpenFile(
 	defer in.mu.Unlock()
 
 	// this flag appears to tell the kernel if this open should
-	// use the page cache or not. If it's false and this is a
-	// write, then a separate open (that had op.KeepPageCache =
-	// true) will not read from our write, which suggests that
-	// this also controls if subsequent operations populates the
-	// cache
+	// use the page cache or not. "use" here means:
 	//
-	// but if this is a read, and KeepPageCache = false, and next
-	// open sets KeepPageCache = false, then it can read from cache.
+	// read will read from cache
+	// write will populate cache
+	//
+	// because we have one flag to control both behaviors, if an
+	// object is updated out-of-band and we need to invalidate
+	// cache, and we write to this object locally, subsequent read
+	// will not read from cache
 	//
 	// see tests TestReadNewFileWithExternalChangesFuse and
-	// TestReadMyOwnWriteWithExternalChangesFuse
+	// TestReadMyOwnWrite*Fuse
 	op.KeepPageCache = !in.invalidateCache
+	fh.keepPageCache = op.KeepPageCache
 	in.invalidateCache = false
 
 	return

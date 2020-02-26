@@ -142,6 +142,7 @@ type PutBlobInput struct {
 
 type PutBlobOutput struct {
 	ETag         *string
+	LastModified *time.Time
 	StorageClass *string
 
 	RequestId string
@@ -181,7 +182,10 @@ type MultipartBlobAddOutput struct {
 }
 
 type MultipartBlobCommitOutput struct {
-	ETag      *string
+	ETag         *string
+	LastModified *time.Time
+	StorageClass *string
+
 	RequestId string
 }
 
