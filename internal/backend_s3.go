@@ -972,19 +972,30 @@ func (s *S3Backend) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error
 		owner.SetKey("Owner")
 		owner.SetValue(s.config.BucketOwner)
 
-		_, err = s.PutBucketTagging(&s3.PutBucketTaggingInput{
+		param := s3.PutBucketTaggingInput{
 			Bucket: &s.bucket,
 			Tagging: &s3.Tagging{
 				TagSet: []*s3.Tag{&owner},
 			},
-		})
-		if err != nil {
-			s3Log.Errorf("Failed to tag bucket %v: %v", s.bucket, err)
-			return nil, err
+		}
+
+		for i := 0; i < 10; i++ {
+			_, err = s.PutBucketTagging(&param)
+			err = mapAwsError((err))
+			switch err {
+			case nil:
+				break
+			case syscall.ENXIO:
+				s3Log.Infof("waiting for bucket")
+				time.Sleep((time.Duration(i) + 1) * 2 * time.Second)
+			default:
+				s3Log.Errorf("Failed to tag bucket %v: %v", s.bucket, err)
+				return nil, err
+			}
 		}
 	}
 
-	return &MakeBucketOutput{}, nil
+	return &MakeBucketOutput{}, err
 }
 
 func (s *S3Backend) Delegate() interface{} {
