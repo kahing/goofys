@@ -966,6 +966,24 @@ func (s *S3Backend) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error
 	if err != nil {
 		return nil, mapAwsError(err)
 	}
+
+	if s.config.BucketOwner != "" {
+		var owner s3.Tag
+		owner.SetKey("Owner")
+		owner.SetValue(s.config.BucketOwner)
+
+		_, err = s.PutBucketTagging(&s3.PutBucketTaggingInput{
+			Bucket: &s.bucket,
+			Tagging: &s3.Tagging{
+				TagSet: []*s3.Tag{&owner},
+			},
+		})
+		if err != nil {
+			s3Log.Errorf("Failed to tag bucket %v: %v", s.bucket, err)
+			return nil, err
+		}
+	}
+
 	return &MakeBucketOutput{}, nil
 }
 

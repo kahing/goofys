@@ -53,6 +53,8 @@ type S3Config struct {
 
 	Credentials *credentials.Credentials
 	Session     *session.Session
+
+	BucketOwner string
 }
 
 var s3Session *session.Session

@@ -221,6 +221,11 @@ func (s *GoofysTest) selectTestConfig(t *C, flags *FlagStorage) (conf S3Config) 
 				conf.SecretKey = os.Getenv("AWS_SECRET_ACCESS_KEY")
 			}
 		}
+
+		conf.BucketOwner = os.Getenv("BUCKET_OWNER")
+		if conf.BucketOwner == "" {
+			panic("BUCKET_OWNER is required on AWS")
+		}
 	} else if hasEnv("GCS") {
 		conf.Region = "us-west1"
 		conf.Profile = os.Getenv("GCS")
@@ -463,7 +468,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 			s.cloud = &S3BucketEventualConsistency{s3}
 		}
 
-		if !hasEnv("MINIO") {
+		if !hasEnv("MINIO") && s.emulator {
 			s3.Handlers.Sign.Clear()
 			s3.Handlers.Sign.PushBack(SignV2)
 			s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
