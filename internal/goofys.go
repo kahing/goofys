@@ -35,6 +35,7 @@ import (
 	"github.com/jacobsa/fuse/fuseutil"
 
 	"github.com/sirupsen/logrus"
+	"net/http"
 )
 
 // goofys is a Filey System written in Go. All the backend data is
@@ -522,6 +523,8 @@ func mapHttpError(status int) error {
 		return fuse.ENOENT
 	case 405:
 		return syscall.ENOTSUP
+	case http.StatusConflict:
+		return syscall.EINTR
 	case 429:
 		return syscall.EAGAIN
 	case 500:

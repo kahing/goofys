@@ -1000,7 +1000,7 @@ func (s *S3Backend) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error
 			switch err {
 			case nil:
 				break
-			case syscall.ENXIO:
+			case syscall.ENXIO, syscall.EINTR:
 				s3Log.Infof("waiting for bucket")
 				time.Sleep((time.Duration(i) + 1) * 2 * time.Second)
 			default:

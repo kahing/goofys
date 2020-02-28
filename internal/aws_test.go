@@ -56,6 +56,9 @@ func (s *AwsTest) TestBucket404(t *C) {
 
 type S3BucketEventualConsistency struct {
 	*S3Backend
+	// a list of blobs ever put by this backend, we speculatively
+	// retry on these blobs to workaround eventual consistency
+	blobs map[string]bool
 }
 
 func (s *S3BucketEventualConsistency) Init(key string) (err error) {
@@ -73,6 +76,29 @@ func (s *S3BucketEventualConsistency) Init(key string) (err error) {
 	}
 
 	return
+}
+
+func (s *S3BucketEventualConsistency) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
+	var err error
+	var res *HeadBlobOutput
+
+	for i := 0; i < 10; i++ {
+		res, err = s.S3Backend.HeadBlob(param)
+		switch err {
+		case syscall.ENXIO:
+			s3Log.Infof("waiting for bucket")
+			time.Sleep((time.Duration(i) + 1) * 2 * time.Second)
+		case syscall.ENOENT:
+			if _, ok := s.blobs[param.Key]; ok {
+				s3Log.Infof("waiting for blob: %v", param.Key)
+				time.Sleep((time.Duration(i) + 1) * 20 * time.Millisecond)
+			}
+		default:
+			return res, err
+		}
+	}
+
+	return res, err
 }
 
 func (s *S3BucketEventualConsistency) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
@@ -136,6 +162,8 @@ func (s *S3BucketEventualConsistency) CopyBlob(param *CopyBlobInput) (*CopyBlobO
 }
 
 func (s *S3BucketEventualConsistency) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
+	s.blobs[param.Key] = true
+
 	for i := 0; i < 10; i++ {
 		res, err := s.S3Backend.PutBlob(param)
 		switch err {
