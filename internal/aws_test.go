@@ -19,6 +19,7 @@ import (
 	. "gopkg.in/check.v1"
 
 	"fmt"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -58,7 +59,16 @@ type S3BucketEventualConsistency struct {
 	*S3Backend
 	// a list of blobs ever put by this backend, we speculatively
 	// retry on these blobs to workaround eventual consistency
+	mu    sync.RWMutex
 	blobs map[string]bool
+}
+
+func NewS3BucketEventualConsistency(s *S3Backend) *S3BucketEventualConsistency {
+	return &S3BucketEventualConsistency{
+		s,
+		sync.RWMutex{},
+		make(map[string]bool),
+	}
 }
 
 func (s *S3BucketEventualConsistency) Init(key string) (err error) {
@@ -89,7 +99,11 @@ func (s *S3BucketEventualConsistency) HeadBlob(param *HeadBlobInput) (*HeadBlobO
 			s3Log.Infof("waiting for bucket")
 			time.Sleep((time.Duration(i) + 1) * 2 * time.Second)
 		case syscall.ENOENT:
-			if _, ok := s.blobs[param.Key]; ok {
+			s.mu.RLock()
+			_, ok := s.blobs[param.Key]
+			s.mu.RUnlock()
+
+			if ok {
 				s3Log.Infof("waiting for blob: %v", param.Key)
 				time.Sleep((time.Duration(i) + 1) * 20 * time.Millisecond)
 			}
@@ -162,7 +176,9 @@ func (s *S3BucketEventualConsistency) CopyBlob(param *CopyBlobInput) (*CopyBlobO
 }
 
 func (s *S3BucketEventualConsistency) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
+	s.mu.Lock()
 	s.blobs[param.Key] = true
+	s.mu.Unlock()
 
 	for i := 0; i < 10; i++ {
 		res, err := s.S3Backend.PutBlob(param)

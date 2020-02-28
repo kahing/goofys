@@ -465,7 +465,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		s.cloud = s3
 		s3.aws = hasEnv("AWS")
 		if s3.aws {
-			s.cloud = &S3BucketEventualConsistency{s3, make(map[string]bool)}
+			s.cloud = NewS3BucketEventualConsistency(s3)
 		}
 
 		if s.emulator {
@@ -606,10 +606,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 					return nil, err
 				}
 
-				return &S3BucketEventualConsistency{
-					cloud.(*S3Backend),
-					make(map[string]bool),
-				}, nil
+				return NewS3BucketEventualConsistency(cloud.(*S3Backend)), nil
 			})
 	} else {
 		s.fs = NewGoofys(context.Background(), bucket, flags)
@@ -3299,7 +3296,7 @@ func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud S
 		}
 
 		if s3.aws {
-			cloud = &S3BucketEventualConsistency{s3, make(map[string]bool)}
+			cloud = NewS3BucketEventualConsistency(s3)
 		} else {
 			cloud = s3
 		}
