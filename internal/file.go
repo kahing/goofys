@@ -21,6 +21,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/jacobsa/fuse"
 	"github.com/jacobsa/fuse/fuseops"
@@ -61,6 +62,8 @@ type FileHandle struct {
 	// [1] : https://godoc.org/github.com/shirou/gopsutil/process#Process.Tgid
 	// [2] : https://github.com/shirou/gopsutil#process-class
 	Tgid *int32
+
+	keepPageCache bool // the same value we returned to OpenFile
 }
 
 const MAX_READAHEAD = uint32(400 * 1024 * 1024)
@@ -247,11 +250,15 @@ func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 		fh.poolHandle = fh.inode.fs.bufferPool
 		fh.dirty = true
 		fh.inode.mu.Lock()
-		// we are updating this file, always prefer to read
-		// back our own write. XXX this doesn't actually work,
-		// see the notes in Goofys.OpenFile about
-		// KeepPageCache
+		// we are updating this file, set knownETag to nil so
+		// on next lookup we won't think it's changed, to
+		// always prefer to read back our own write. We set
+		// this back to the ETag at flush time
+		//
+		// XXX this doesn't actually work, see the notes in
+		// Goofys.OpenFile about KeepPageCache
 		fh.inode.knownETag = nil
+		fh.inode.invalidateCache = false
 		fh.inode.mu.Unlock()
 	}
 
@@ -278,6 +285,7 @@ func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 	}
 
 	fh.inode.Attributes.Size = uint64(fh.nextWriteOffset)
+	fh.inode.Attributes.Mtime = time.Now()
 
 	return
 }
@@ -658,17 +666,34 @@ func (fh *FileHandle) flushSmallFile() (err error) {
 	if err != nil {
 		fh.lastWriteError = err
 	} else {
-		inode := fh.inode
-		inode.mu.Lock()
-		defer inode.mu.Unlock()
-		if resp.ETag != nil {
-			inode.s3Metadata["etag"] = []byte(*resp.ETag)
-		}
-		if resp.StorageClass != nil {
-			inode.s3Metadata["storage-class"] = []byte(*resp.StorageClass)
-		}
+		fh.updateFromFlush(resp.ETag, resp.LastModified, resp.StorageClass)
 	}
 	return
+}
+
+// LOCKS_EXCLUDED(fh.inode.mu)
+func (fh *FileHandle) updateFromFlush(etag *string, lastModified *time.Time, storageClass *string) {
+	inode := fh.inode
+	inode.mu.Lock()
+	defer inode.mu.Unlock()
+
+	if etag != nil {
+		inode.s3Metadata["etag"] = []byte(*etag)
+	}
+	if storageClass != nil {
+		inode.s3Metadata["storage-class"] = []byte(*storageClass)
+	}
+	if fh.keepPageCache {
+		// if this write didn't update page cache, don't try
+		// to update these values so on next lookup, we would
+		// invalidate the cache. We want to do that because
+		// our cache could have been populated by subsequent
+		// reads
+		if lastModified != nil {
+			inode.Attributes.Mtime = *lastModified
+		}
+		inode.knownETag = etag
+	}
 }
 
 func (fh *FileHandle) resetToKnownSize() {
@@ -758,10 +783,12 @@ func (fh *FileHandle) FlushFile() (err error) {
 		fh.buf = nil
 	}
 
-	_, err = fh.cloud.MultipartBlobCommit(fh.mpuId)
+	resp, err := fh.cloud.MultipartBlobCommit(fh.mpuId)
 	if err != nil {
 		return
 	}
+
+	fh.updateFromFlush(resp.ETag, resp.LastModified, resp.StorageClass)
 
 	fh.mpuId = nil
 

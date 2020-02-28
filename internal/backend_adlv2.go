@@ -608,7 +608,8 @@ func (b *ADLv2) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 			return nil, err
 		}
 		return &PutBlobOutput{
-			ETag: getHeader(res.Response, "ETag"),
+			ETag:         getHeader(res.Response, "ETag"),
+			LastModified: parseADLv2Time(res.Response.Header.Get("Last-Modified")),
 		}, nil
 	} else {
 		if param.Size == nil {
@@ -646,7 +647,8 @@ func (b *ADLv2) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 		}
 
 		return &PutBlobOutput{
-			ETag: getHeader(flush.Response, "ETag"),
+			ETag:         getHeader(flush.Response, "ETag"),
+			LastModified: parseADLv2Time(flush.Response.Header.Get("Last-Modified")),
 		}, nil
 	}
 }
@@ -794,8 +796,9 @@ func (b *ADLv2) MultipartBlobCommit(param *MultipartBlobCommitInput) (*Multipart
 	}
 
 	return &MultipartBlobCommitOutput{
-		ETag:      nil,
-		RequestId: flush.Response.Header.Get(ADL2_REQUEST_ID),
+		LastModified: parseADLv2Time(flush.Response.Header.Get("Last-Modified")),
+		ETag:         getHeader(flush.Response, "ETag"),
+		RequestId:    flush.Response.Header.Get(ADL2_REQUEST_ID),
 	}, nil
 }
 

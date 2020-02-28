@@ -757,6 +757,19 @@ func (s *S3Backend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 	}, nil
 }
 
+func getDate(resp *http.Response) *time.Time {
+	date := resp.Header.Get("Date")
+	if date != "" {
+		t, err := http.ParseTime(date)
+		if err == nil {
+			return &t
+		}
+		s3Log.Warnf("invalidate date for %v: %v",
+			resp.Request.URL.Path, date)
+	}
+	return nil
+}
+
 func (s *S3Backend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 	storageClass := s.config.StorageClass
 	if param.Size != nil && *param.Size < 128*1024 && storageClass == "STANDARD_IA" {
@@ -795,6 +808,7 @@ func (s *S3Backend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 
 	return &PutBlobOutput{
 		ETag:         resp.ETag,
+		LastModified: getDate(req.HTTPResponse),
 		StorageClass: &storageClass,
 		RequestId:    s.getRequestId(req),
 	}, nil
@@ -898,8 +912,9 @@ func (s *S3Backend) MultipartBlobCommit(param *MultipartBlobCommitInput) (*Multi
 	s3Log.Debug(resp)
 
 	return &MultipartBlobCommitOutput{
-		ETag:      resp.ETag,
-		RequestId: s.getRequestId(req),
+		ETag:         resp.ETag,
+		LastModified: getDate(req.HTTPResponse),
+		RequestId:    s.getRequestId(req),
 	}, nil
 }
 

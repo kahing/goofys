@@ -1589,9 +1589,7 @@ func (s *GoofysTest) mount(t *C, mountPoint string) {
 		ErrorLogger:             GetStdLogger(NewLogger("fuse"), logrus.ErrorLevel),
 		DisableWritebackCaching: true,
 	}
-	if fuseLog.Level == logrus.DebugLevel {
-		mountCfg.DebugLogger = GetStdLogger(fuseLog, logrus.DebugLevel)
-	}
+	mountCfg.DebugLogger = GetStdLogger(fuseLog, logrus.DebugLevel)
 
 	_, err = fuse.Mount(mountPoint, server, mountCfg)
 	t.Assert(err, IsNil)
@@ -4054,7 +4052,7 @@ func (s *GoofysTest) TestReadExternalChangesFuse(t *C) {
 	// the next read shouldn't talk to cloud
 	root := s.getRoot(t)
 	root.dir.cloud = &StorageBackendInitError{
-		syscall.ENOENT, *root.dir.cloud.Capabilities(),
+		syscall.EINVAL, *root.dir.cloud.Capabilities(),
 	}
 
 	buf, err = ioutil.ReadFile(filePath)
@@ -4062,7 +4060,15 @@ func (s *GoofysTest) TestReadExternalChangesFuse(t *C) {
 	t.Assert(string(buf), Equals, update)
 }
 
-func (s *GoofysTest) TestReadMyOwnWriteWithExternalChangesFuse(t *C) {
+func (s *GoofysTest) TestReadMyOwnWriteFuse(t *C) {
+	s.testReadMyOwnWriteFuse(t, false)
+}
+
+func (s *GoofysTest) TestReadMyOwnWriteExternalChangesFuse(t *C) {
+	s.testReadMyOwnWriteFuse(t, true)
+}
+
+func (s *GoofysTest) testReadMyOwnWriteFuse(t *C, externalUpdate bool) {
 	s.fs.flags.StatCacheTTL = 1 * time.Second
 
 	mountPoint := "/tmp/mnt" + s.fs.bucket
@@ -4077,15 +4083,17 @@ func (s *GoofysTest) TestReadMyOwnWriteWithExternalChangesFuse(t *C) {
 	t.Assert(err, IsNil)
 	t.Assert(string(buf), Equals, file)
 
-	update := "file2"
-	_, err = s.cloud.PutBlob(&PutBlobInput{
-		Key:  file,
-		Body: bytes.NewReader([]byte(update)),
-		Size: PUInt64(uint64(len(update))),
-	})
-	t.Assert(err, IsNil)
+	if externalUpdate {
+		update := "file2"
+		_, err = s.cloud.PutBlob(&PutBlobInput{
+			Key:  file,
+			Body: bytes.NewReader([]byte(update)),
+			Size: PUInt64(uint64(len(update))),
+		})
+		t.Assert(err, IsNil)
 
-	time.Sleep(1 * time.Second)
+		time.Sleep(s.fs.flags.StatCacheTTL)
+	}
 
 	fh, err := os.Create(filePath)
 	t.Assert(err, IsNil)
@@ -4095,17 +4103,58 @@ func (s *GoofysTest) TestReadMyOwnWriteWithExternalChangesFuse(t *C) {
 	// we can't flush yet because if we did, we would be reading
 	// the new copy from cloud and that's not the point of this
 	// test
-	defer fh.Close()
+	defer func() {
+		// want fh to be late-binding because we re-use the variable
+		fh.Close()
+	}()
 
 	buf, err = ioutil.ReadFile(filePath)
 	t.Assert(err, IsNil)
-	// disabled: we can't actually read back our own update
-	_ = buf
-	//t.Assert(string(buf), Equals, "file3")
+	if externalUpdate {
+		// if there was an external update, we had set
+		// KeepPageCache to false on os.Create above, which
+		// causes our write to not be in cache, and read here
+		// will go to cloud
+		t.Assert(string(buf), Equals, "file2")
+	} else {
+		t.Assert(string(buf), Equals, "file3")
+	}
+
+	err = fh.Close()
+	t.Assert(err, IsNil)
+
+	time.Sleep(s.fs.flags.StatCacheTTL)
+
+	root := s.getRoot(t)
+	cloud := &TestBackend{root.dir.cloud, nil}
+	root.dir.cloud = cloud
+
+	fh, err = os.Open(filePath)
+	t.Assert(err, IsNil)
+
+	if !externalUpdate {
+		// we flushed and ttl expired, next lookup should
+		// realize nothing is changed and NOT invalidate the
+		// cache. Except ADLv1 because PUT there doesn't
+		// return the mtime, so the open above will think the
+		// file is updated and not re-use cache
+		if _, adlv1 := s.cloud.(*ADLv1); !adlv1 {
+			cloud.err = fuse.EINVAL
+		}
+	} else {
+		// if there was externalUpdate, we wrote our own
+		// update with KeepPageCache=false, so we should read
+		// from the cloud her
+	}
+
+	buf, err = ioutil.ReadAll(fh)
+	t.Assert(err, IsNil)
+	t.Assert(string(buf), Equals, "file3")
 }
 
-func (s *GoofysTest) TestReadNewFileWithExternalChangesFuse(t *C) {
+func (s *GoofysTest) TestReadMyOwnNewFileFuse(t *C) {
 	s.fs.flags.StatCacheTTL = 1 * time.Second
+	s.fs.flags.TypeCacheTTL = 1 * time.Second
 
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
@@ -4114,16 +4163,13 @@ func (s *GoofysTest) TestReadNewFileWithExternalChangesFuse(t *C) {
 
 	filePath := mountPoint + "/filex"
 
+	// jacobsa/fuse doesn't support setting OpenKeepCache on
+	// CreateFile but even after manually setting in in
+	// fuse/conversions.go, we still receive read ops instead of
+	// being handled by kernel
+
 	fh, err := os.Create(filePath)
 	t.Assert(err, IsNil)
-
-	// update := "file2"
-	// _, err = s.cloud.PutBlob(&PutBlobInput{
-	// 	Key:  file,
-	// 	Body: bytes.NewReader([]byte(update)),
-	// 	Size: PUInt64(uint64(len(update))),
-	// })
-	// t.Assert(err, IsNil)
 
 	_, err = fh.WriteString("filex")
 	t.Assert(err, IsNil)
