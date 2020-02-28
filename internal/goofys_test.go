@@ -468,7 +468,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 			s.cloud = &S3BucketEventualConsistency{s3}
 		}
 
-		if !hasEnv("MINIO") && s.emulator {
+		if s.emulator {
 			s3.Handlers.Sign.Clear()
 			s3.Handlers.Sign.PushBack(SignV2)
 			s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
@@ -3291,7 +3291,7 @@ func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud S
 
 		s3.aws = hasEnv("AWS")
 
-		if !hasEnv("MINIO") {
+		if s.emulator {
 			s3.Handlers.Sign.Clear()
 			s3.Handlers.Sign.PushBack(SignV2)
 			s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
