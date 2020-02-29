@@ -288,9 +288,29 @@ func mapADLv2Error(resp *http.Response, err error, rawError bool) error {
 				return syscall.EINVAL
 			}
 		}
-	} else {
-		return err
+	} else if resp.StatusCode == http.StatusOK && err != nil {
+		// trying to capture this error:
+		// autorest.DetailedError{Original:(*errors.errorString)(0xc0003eb3f0),
+		// PackageType:"storagedatalake.adl2PathClient",
+		// Method:"List", StatusCode:200, Message:"Failure
+		// responding to request", ServiceError:[]uint8(nil),
+		// Response:(*http.Response)(0xc0016517a0)}
+		// ("storagedatalake.adl2PathClient#List: Failure
+		// responding to request: StatusCode=200 -- Original
+		// Error: Error occurred reading http.Response#Body -
+		// Error = 'read tcp
+		// 10.20.255.49:34194->52.239.155.98:443: read:
+		// connection reset by peer'")
+		if detailedErr, ok := err.(autorest.DetailedError); ok {
+			if detailedErr.Method == "List" &&
+				strings.Contains(detailedErr.Error(),
+					"read: connection reset by peer") {
+				return syscall.ECONNRESET
+			}
+		}
 	}
+
+	return err
 }
 
 func getHeader(resp *http.Response, key string) *string {
@@ -341,6 +361,42 @@ func (b *ADLv2) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	return &res.HeadBlobOutput, nil
 }
 
+// autorest handles retry based on request errors but doesn't retry on
+// reading body. List is idempotent anyway so we can retry it here
+func (b *ADLv2) listBlobs(param *ListBlobsInput, maxResults *int32) (adl2PathList, error) {
+	var err error
+	var res adl2PathList
+
+	// autorest's DefaultMaxRetry is 3 which seems wrong. Also
+	// read errors are transient and should probably be retried more
+	for attempt := 0; attempt < 30; attempt++ {
+		res, err = b.client.List(context.TODO(), param.Delimiter == nil, b.bucket,
+			nilStr(param.Prefix), nilStr(param.ContinuationToken), maxResults,
+			nil, "", nil, "")
+		err = mapADLv2Error(res.Response.Response, err, false)
+		if err == nil {
+			break
+		} else if err != syscall.ECONNRESET {
+			return res, err
+		} else {
+			// autorest's DefaultRetryDuration is 30s but
+			// that's for failed requests. Read errors is
+			// probably more transient and should be
+			// retried faster
+			if !autorest.DelayForBackoffWithCap(
+				30*time.Millisecond,
+				0,
+				attempt,
+				res.Response.Response.Request.Context().Done()) {
+				return res, err
+			}
+		}
+
+	}
+
+	return res, err
+}
+
 func (b *ADLv2) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 	if param.Delimiter != nil && *param.Delimiter != "/" {
 		return nil, fuse.EINVAL
@@ -351,11 +407,8 @@ func (b *ADLv2) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		maxResults = PInt32(int32(*param.MaxKeys))
 	}
 
-	res, err := b.client.List(context.TODO(), param.Delimiter == nil, b.bucket,
-		nilStr(param.Prefix), nilStr(param.ContinuationToken), maxResults,
-		nil, "", nil, "")
+	res, err := b.listBlobs(param, maxResults)
 	if err != nil {
-		err = mapADLv2Error(res.Response.Response, err, false)
 		if err == fuse.ENOENT {
 			return &ListBlobsOutput{
 				RequestId: res.Response.Response.Header.Get(ADL2_REQUEST_ID),
