@@ -221,6 +221,32 @@ func decodeADLv2Error(body io.Reader) (adlErr adl2.DataLakeStorageError, err err
 	return
 }
 
+func adlv2ErrLogHeaders(errCode string, resp *http.Response) {
+	switch errCode {
+	case "MissingRequiredHeader", "UnsupportedHeader":
+		var s strings.Builder
+		for k, _ := range resp.Request.Header {
+			s.WriteString(k)
+			s.WriteString(" ")
+		}
+		adl2Log.Errorf("%v, sent: %v", errCode, s.String())
+	case "InvalidHeaderValue":
+		var s strings.Builder
+		for k, v := range resp.Request.Header {
+			if k != "Authorization" {
+				s.WriteString(k)
+				s.WriteString(":")
+				s.WriteString(v[0])
+				s.WriteString(" ")
+			}
+		}
+		adl2Log.Errorf("%v, sent: %v", errCode, s.String())
+	case "InvalidSourceUri":
+		adl2Log.Errorf("SourceUri: %v",
+			resp.Request.Header.Get("X-Ms-Rename-Source"))
+	}
+}
+
 func mapADLv2Error(resp *http.Response, err error, rawError bool) error {
 
 	if resp == nil {
@@ -258,20 +284,7 @@ func mapADLv2Error(resp *http.Response, err error, rawError bool) error {
 				}
 				adlErr, err := decodeADLv2Error(resp.Body)
 				if err == nil {
-					switch *adlErr.Error.Code {
-					case "MissingRequiredHeader", "UnsupportedHeader":
-						var s strings.Builder
-						for k, _ := range resp.Request.Header {
-							s.WriteString(k)
-							s.WriteString(" ")
-						}
-						adl2Log.Errorf("%v, sent: %v",
-							*adlErr.Error.Code,
-							s.String())
-					case "InvalidSourceUri":
-						adl2Log.Errorf("SourceUri: %v",
-							resp.Request.Header.Get("X-Ms-Rename-Source"))
-					}
+					adlv2ErrLogHeaders(*adlErr.Error.Code, resp)
 				}
 			case http.StatusPreconditionFailed:
 				return syscall.EAGAIN
