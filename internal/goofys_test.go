@@ -58,10 +58,13 @@ import (
 	"github.com/sirupsen/logrus"
 
 	. "gopkg.in/check.v1"
+	"runtime/debug"
 )
 
 // so I don't get complains about unused imports
 var ignored = logrus.DebugLevel
+
+const PerTestTimeout = 5 * time.Second
 
 func currentUid() uint32 {
 	user, err := user.Current()
@@ -102,6 +105,8 @@ type GoofysTest struct {
 	removeBucket []StorageBackend
 
 	env map[string]*string
+
+	timeout chan int
 }
 
 func Test(t *testing.T) {
@@ -307,6 +312,8 @@ func (s *GoofysTest) deleteBucket(cloud StorageBackend) error {
 }
 
 func (s *GoofysTest) TearDownTest(t *C) {
+	close(s.timeout)
+
 	for _, cloud := range s.removeBucket {
 		err := s.deleteBucket(cloud)
 		t.Assert(err, IsNil)
@@ -430,8 +437,26 @@ func (s *GoofysTest) setupDefaultEnv(t *C, public bool) {
 	s.setupEnv(t, s.env, public)
 }
 
+func (s *GoofysTest) setUpTestTimeout(t *C) {
+	s.timeout = make(chan int)
+	debug.SetTraceback("all")
+
+	go func() {
+		select {
+		case _, ok := <-s.timeout:
+			if !ok {
+				return
+			}
+		case <-time.After(PerTestTimeout):
+			panic(fmt.Sprintf("timeout %v reached", PerTestTimeout))
+		}
+	}()
+}
+
 func (s *GoofysTest) SetUpTest(t *C) {
 	log.Infof("Starting at %v", time.Now())
+
+	s.setUpTestTimeout(t)
 
 	var bucket string
 	mount := os.Getenv("MOUNT")
@@ -702,6 +727,8 @@ func (s *GoofysTest) TestLookUpInode(t *C) {
 }
 
 func (s *GoofysTest) TestPanicWrapper(t *C) {
+	debug.SetTraceback("single")
+
 	fs := FusePanicLogger{s.fs}
 	err := fs.GetInodeAttributes(nil, &fuseops.GetInodeAttributesOp{
 		Inode: 1234,
