@@ -151,15 +151,6 @@ func (fh *FileHandle) mpuPart(buf *MBuf, part uint32, total int64) {
 		fh.mpuWG.Done()
 	}()
 
-	// maybe wait for CreateMultipartUpload
-	if fh.mpuId == nil {
-		fh.mpuWG.Wait()
-		// initMPU might have errored
-		if fh.mpuId == nil {
-			return
-		}
-	}
-
 	err := fh.mpuPartNoSpawn(buf, part, total, false)
 	if err != nil {
 		if fh.lastWriteError == nil {
@@ -169,18 +160,20 @@ func (fh *FileHandle) mpuPart(buf *MBuf, part uint32, total int64) {
 }
 
 func (fh *FileHandle) waitForCreateMPU() (err error) {
-	if fh.mpuId == nil {
+	for {
+		if fh.mpuId != nil || err != nil {
+			return
+		}
+
 		fh.mu.Unlock()
 		fh.initWrite()
 		fh.mpuWG.Wait() // wait for initMPU
 		fh.mu.Lock()
 
 		if fh.lastWriteError != nil {
-			return fh.lastWriteError
+			err = fh.lastWriteError
 		}
 	}
-
-	return
 }
 
 func (fh *FileHandle) partSize() uint64 {
