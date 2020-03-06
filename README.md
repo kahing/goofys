@@ -116,6 +116,7 @@ goofys has been tested with the following non-AWS S3 providers:
 * OpenStack Swift
 * S3Proxy
 * Wasabi
+* Scaleway
 
 Additionally, goofys also works with the following non-S3 object stores:
 
