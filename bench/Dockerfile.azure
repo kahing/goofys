@@ -4,7 +4,7 @@ RUN apt-get update && \
     apt-get -y install --no-install-recommends git fuse \
             # blobfuse dependencies \
 	    pkg-config libfuse-dev cmake libcurl4-gnutls-dev libgnutls28-dev uuid-dev \
-	    libgcrypt20-dev gcc g++ \
+	    libgcrypt20-dev libboost-all-dev gcc g++ \
             # for running goofys benchmark \
             curl python-setuptools python-pip gnuplot-nox imagemagick \
             # finally, clean up to make image smaller \
@@ -22,7 +22,7 @@ RUN curl -O https://storage.googleapis.com/golang/go${GOVER}.linux-amd64.tar.gz 
 
 ARG MAKEFLAGS=-j8
 RUN git clone --depth 1 https://github.com/Azure/azure-storage-fuse.git && \
-    cd azure-storage-fuse && ./build.sh > /dev/null && make -C build install && \
+    cd azure-storage-fuse && bash ./build.sh > /dev/null && make -C build install && \
     cd .. && rm -Rf azure-storage-fuse
 
 RUN curl -L -O https://github.com/kahing/catfs/releases/download/v0.8.0/catfs && \
