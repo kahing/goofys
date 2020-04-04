@@ -388,14 +388,21 @@ func AzureBlobConfig(endpoint string, location string, storageType string) (conf
 				key = *(*keysRes.Keys)[0].Value
 			}
 		} else {
-			return
+			if key == "" {
+				return
+			} else {
+				// we have the credential already, we
+				// can't look up the endpoint but we
+				// can guess that
+				err = nil
+			}
 		}
 	}
 
 	if endpoint == "" {
 		endpoint = "https://" + account + "." + storageType + "." +
 			azure.PublicCloud.StorageEndpointSuffix
-		azbLog.Debugf("Unable to detect endpoint for account %v, using %v",
+		azbLog.Infof("Unable to detect endpoint for account %v, using %v",
 			account, endpoint)
 	}
 
