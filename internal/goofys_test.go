@@ -64,7 +64,7 @@ import (
 // so I don't get complains about unused imports
 var ignored = logrus.DebugLevel
 
-const PerTestTimeout = 8 * time.Minute
+const PerTestTimeout = 10 * time.Minute
 
 func currentUid() uint32 {
 	user, err := user.Current()
