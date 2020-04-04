@@ -440,6 +440,7 @@ func (s *GoofysTest) setupDefaultEnv(t *C, public bool) {
 func (s *GoofysTest) setUpTestTimeout(t *C) {
 	s.timeout = make(chan int)
 	debug.SetTraceback("all")
+	started := time.Now()
 
 	go func() {
 		select {
@@ -448,7 +449,8 @@ func (s *GoofysTest) setUpTestTimeout(t *C) {
 				return
 			}
 		case <-time.After(PerTestTimeout):
-			panic(fmt.Sprintf("timeout %v reached", PerTestTimeout))
+			panic(fmt.Sprintf("timeout %v reached. Started %v now %v",
+				PerTestTimeout, started, time.Now()))
 		}
 	}()
 }
