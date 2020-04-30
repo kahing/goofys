@@ -238,7 +238,20 @@ func (s *S3Backend) Init(key string) error {
 	var isAws bool
 	var err error
 
-	if !s.config.RegionSet {
+	if strings.HasPrefix(s.bucket, "arn:aws:s3:") {
+		var parts = strings.SplitN(s.bucket, ":", 7)
+		var region = parts[3]
+		// An access point arn must have a region
+		if region == "" {
+			return fmt.Errorf("%v does not appear to be a valid access point arn", s.bucket)
+		} else if region != *s.awsConfig.Region {
+			s3Log.Infof("Switching from region '%v' to '%v'",
+				*s.awsConfig.Region, region)
+			s.awsConfig.Region = &region
+			s.newS3()
+			s.aws = true
+		}
+	} else if !s.config.RegionSet {
 		err, isAws = s.detectBucketLocationByHEAD()
 		if err == nil {
 			// we detected a region header, this is probably AWS S3,
