@@ -741,6 +741,40 @@ func (s *GoofysTest) TestLookUpInode(t *C) {
 	t.Assert(err, IsNil)
 }
 
+func (s *GoofysTest) IsAzBlobWithHNS() bool {
+	azblob, isAzBlob := s.cloud.(*AZBlob)
+	if !isAzBlob {
+		return false
+	}
+	// If HNS, adding "nested/file" will create automatically
+	// a dir blob at "nested"
+	azblob.PutBlob(&PutBlobInput{Key: "nested/file"})
+	res, err := azblob.HeadBlob(&HeadBlobInput{Key: "nested"})
+	return err == nil && res.IsDirBlob
+}
+
+func (s *GoofysTest) TestDirBlobExistsWithoutDirMetadata(t *C) {
+	azblob, isAzBlob := s.cloud.(*AZBlob)
+	if !isAzBlob || s.IsAzBlobWithHNS() {
+		// This test is not relevant for hns because azure does not allow
+		// presence of "dir/" when HNS is on.
+		t.Skip("This test is only for azblob:noHNS")
+	}
+
+	// Microsoft uses "dir" blobs with metadata field hdi_isfolder to represent
+	// a directory. Test that we dont get confused when "dir/" exists as blob
+	for _, b := range []string{
+		"dir_blob_no_md/", "dir_blob_no_md/file"} {
+		_, err := azblob.putBlobRaw(&PutBlobInput{Key: b})
+		t.Assert(err, IsNil)
+	}
+	_, err := s.LookUpInode(t, "dir_blob_no_md")
+	t.Assert(err, IsNil)
+
+	_, err = s.LookUpInode(t, "dir_blob_no_md/file")
+	t.Assert(err, IsNil)
+}
+
 func (s *GoofysTest) TestPanicWrapper(t *C) {
 	debug.SetTraceback("single")
 
@@ -1390,7 +1424,7 @@ func (s *GoofysTest) TestBackendListPrefix(t *C) {
 	})
 	t.Assert(err, IsNil)
 	t.Assert(len(res.Prefixes), Equals, 0)
-	t.Assert(len(res.Items), Equals, 1)
+	t.Assert(res.Items, HasLen, 1)
 	t.Assert(*res.Items[0].Key, Equals, "file1")
 
 	res, err = s.cloud.ListBlobs(&ListBlobsInput{

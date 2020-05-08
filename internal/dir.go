@@ -1308,8 +1308,11 @@ func (parent *Inode) LookUpInodeDir(name string, c chan ListBlobsOutput, errc ch
 
 	resp, err := cloud.ListBlobs(&ListBlobsInput{
 		Delimiter: aws.String("/"),
-		MaxKeys:   PUInt32(1),
-		Prefix:    &key,
+		// Ideally one result should be sufficient. But when azure hierarchial
+		// namespaces are enabled, azblob returns "a" when we list blobs under "a/".
+		// In such cases we remove "a" from the result. So request for 2 blobs.
+		MaxKeys: PUInt32(2),
+		Prefix:  &key,
 	})
 
 	if err != nil {
