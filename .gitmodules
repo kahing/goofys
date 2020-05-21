@@ -115,3 +115,6 @@
 [submodule "vendor/github.com/kr/text"]
 	path = vendor/github.com/kr/text
 	url = https://github.com/kr/text.git
+[submodule "vendor/github.com/jmespath/go-jmespath"]
+	path = vendor/github.com/jmespath/go-jmespath
+	url = http://github.com/jmespath/go-jmespath
