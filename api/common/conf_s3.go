@@ -73,6 +73,7 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 	awsConfig := (&aws.Config{
 		Region: &c.Region,
 		Logger: GetLogger("s3"),
+		Retryer: client.DefaultRetryer{NumMaxRetries: 20,},
 	}).WithHTTPClient(&http.Client{
 		Transport: &defaultHTTPTransport,
 		Timeout:   flags.HTTPTimeout,
