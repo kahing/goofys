@@ -114,7 +114,9 @@ func NewBackend(bucket string, flags *FlagStorage) (cloud StorageBackend, err er
 		} else {
 			cloud, err = NewS3(bucket, flags, config)
 		}
-	} else {
+	} else if config, ok := flags.Backend.(*GCSConfig); ok {
+		fmt.Println(config);
+	}else {
 		err = fmt.Errorf("Unknown backend config: %T", flags.Backend)
 	}
 
