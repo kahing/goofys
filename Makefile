@@ -14,3 +14,6 @@ build:
 
 install:
 	go install -ldflags "-X main.Version=`git rev-parse HEAD`"
+
+test-internal:
+	go test -v ./... -run "^TestParseBucketSpec$"

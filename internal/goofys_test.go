@@ -503,7 +503,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		_, err = s3.ListBuckets(nil)
 		t.Assert(err, IsNil)
 
-	} else if cloud == "gcs" {
+	} else if cloud == "gcs3" {
 		conf := s.selectTestConfig(t, flags)
 		flags.Backend = &conf
 

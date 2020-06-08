@@ -1,7 +1,17 @@
 package common
 
-import "golang.org/x/oauth2/google"
+import (
+	//"cloud.google.com/go/storage"
+	//"context"
+	//"golang.org/x/oauth2/google"
+)
 
-type GCSConfig struct{
-	Credentials *google.Credentials
+type GCSConfig struct {
+	Region string
+	Prefix string
 }
+
+func (c *GCSConfig) Init () {
+
+}
+

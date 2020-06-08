@@ -106,6 +106,8 @@ func Mount(
 				if spec.Prefix != "" {
 					bucketName += ":" + spec.Prefix
 				}
+			case "gs":
+				fmt.Println("gs")
 			}
 		}
 	}
