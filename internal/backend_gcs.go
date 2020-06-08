@@ -1,29 +1,42 @@
 package internal
 
 import (
-	//"golang.org/x/oauth2/google"
+	"cloud.google.com/go/storage"
+	"context"
+	"github.com/kahing/goofys/api/common"
+	"google.golang.org/api/option"
 	"syscall"
 )
-//
+
+// GCSBackend
 type GCSBackend struct{
-	//creds *google.Credentials
-	//bucket string
+	client *storage.Client
+	config *common.GCSConfig
 }
-//
-//func NewGCS(key string) *GCSBackend{
-//	ctx := context.Background()
-//
-//	// v0.1: only allows authenticated user
-//	credentials, err := google.FindDefaultCredentials(ctx, storage.ScopeReadOnly)
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-//
-//	return &GCSBackend{
-//		creds: credentials,
-//		bucket: key,
-//	}
-//}
+
+
+// NewGCS returns GCSBackend
+func NewGCS(config *common.GCSConfig) (*GCSBackend, error){
+	var client *storage.Client
+	var err error
+
+	if config.Credentials != nil {
+		ctx := context.Background()
+		client, err = storage.NewClient(ctx)
+	} else {
+		ctx := context.Background()
+		client, err = storage.NewClient(ctx, option.WithoutAuthentication())
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &GCSBackend{
+		client: client,
+		config: config,
+	}, nil
+}
 
 func (g *GCSBackend) Init(key string) error {
 	return nil

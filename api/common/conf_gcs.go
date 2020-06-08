@@ -1,17 +1,26 @@
 package common
 
 import (
-	//"cloud.google.com/go/storage"
-	//"context"
-	//"golang.org/x/oauth2/google"
+	"cloud.google.com/go/storage"
+	"context"
+	"golang.org/x/oauth2/google"
 )
 
 type GCSConfig struct {
-	Region string
+	Credentials *google.Credentials
+	Bucket string
 	Prefix string
 }
 
-func (c *GCSConfig) Init () {
+func NewGCSConfig() (*GCSConfig, error){
+	ctx := context.Background()
 
+	// v0.1: only allows authenticated user
+	credentials, err := google.FindDefaultCredentials(ctx, storage.ScopeReadOnly)
+	if err != nil {
+		return nil, err
+	}
+
+	return &GCSConfig{Credentials: credentials, Bucket: "", Prefix: ""}, nil
 }
 

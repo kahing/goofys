@@ -2,16 +2,53 @@ package internal
 
 import (
 	"fmt"
+	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
 func TestParseBucketSpec(t *testing.T){
-	spec, err := ParseBucketSpec("s3://hello")
-	if err != nil {
-		log.Fatal(err)
+	assert := assert.New(t)
+
+	testCases := []struct{
+		input string
+		expected BucketSpec
+	}{
+		// s3
+		{
+			"s3://bucketName/hello/everyone", BucketSpec{
+			Scheme: "s3",
+			Bucket: "bucketName",
+			Prefix: "hello/everyone/",
+		},
+		},
+		// gcs
+		{
+			"gs://bucketName/hello/everyone", BucketSpec{
+				Scheme: "gs",
+				Bucket: "bucketName",
+				Prefix: "hello/everyone/",
+			},
+		},
+		// no prefix
+		{
+			"bucketName/hello/everyone", BucketSpec{
+			Scheme: "s3",
+			Bucket: "bucketName/hello/everyone",
+			Prefix: "",
+		},
+		},
 	}
 
-	fmt.Println("HELLO")
-	fmt.Println(spec)
-	fmt.Println(spec.Bucket)
+	for _, tc := range testCases {
+		spec, err := ParseBucketSpec(tc.input)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println(fmt.Sprintf("Input: %s, Scheme: %s, Bucket: %s, Prefix: %s",
+			tc.input, spec.Scheme, spec.Bucket, spec.Prefix))
+		assert.Equal(tc.expected.Scheme, spec.Scheme)
+		assert.Equal(tc.expected.Bucket, spec.Bucket)
+		assert.Equal(tc.expected.Prefix, spec.Prefix)
+
+	}
 }

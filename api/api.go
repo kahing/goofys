@@ -107,7 +107,11 @@ func Mount(
 					bucketName += ":" + spec.Prefix
 				}
 			case "gs":
-				fmt.Println("gs")
+				config, err := NewGCSConfig()
+				if err != nil {
+					return nil, nil, err
+				}
+				flags.Backend = config
 			}
 		}
 	}
