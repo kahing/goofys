@@ -99,7 +99,7 @@
 	url = https://github.com/google/go-genproto
 [submodule "vendor/google.golang.org/api"]
 	path = vendor/google.golang.org/api
-	url = https://code.googlesource.com/google-api-go-client
+	url = https://github.com/googleapis/google-api-go-client
 [submodule "vendor/gopkg.in/ini.v1"]
 	path = vendor/gopkg.in/ini.v1
 	url = https://gopkg.in/ini.v1
@@ -115,3 +115,6 @@
 [submodule "vendor/github.com/kr/text"]
 	path = vendor/github.com/kr/text
 	url = https://github.com/kr/text.git
+[submodule "vendor/github.com/stretchr/testify"]
+	path = vendor/github.com/stretchr/testify
+	url = https://github.com/stretchr/testify
