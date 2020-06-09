@@ -53,6 +53,7 @@ type FlagStorage struct {
 
 	// Debugging
 	DebugFuse  bool
+	DebugCloud bool
 	DebugS3    bool
 	Foreground bool
 }

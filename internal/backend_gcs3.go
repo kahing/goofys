@@ -45,7 +45,7 @@ func NewGCS3(bucket string, flags *FlagStorage, config *S3Config) (*GCS3, error)
 	if err != nil {
 		return nil, err
 	}
-	s3Backend.Capabilities().Name = "gcs"
+	s3Backend.Capabilities().Name = "gcs3"
 	s := &GCS3{S3Backend: s3Backend}
 	s.S3Backend.gcs = true
 	s.S3Backend.cap.NoParallelMultipart = true

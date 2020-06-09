@@ -22,9 +22,11 @@ func Mount(
 	bucketName string,
 	flags *FlagStorage) (fs *Goofys, mfs *fuse.MountedFileSystem, err error) {
 
-	if flags.DebugS3 {
+	if flags.DebugS3 || flags.DebugCloud {
 		SetCloudLogLevel(logrus.DebugLevel)
 	}
+
+
 	// Mount the file system.
 	mountCfg := &fuse.MountConfig{
 		FSName:                  bucketName,

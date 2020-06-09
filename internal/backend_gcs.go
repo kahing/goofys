@@ -40,13 +40,21 @@ func NewGCS(config *GCSConfig) (*GCSBackend, error){
 		client: client,
 		config: config,
 		bucket: client.Bucket(config.Bucket),
+		cap: &Capabilities{
+			MaxMultipartSize: 5 * 1024 * 1024 * 1024,
+			Name:             "gcs",
+			// TODO: no parallel multipart but resumable uploads
+			NoParallelMultipart: false,
+		},
 	}, nil
 }
 
 var gcsLogger = GetLogger("GCS")
 
-func (g *GCSBackend) Init(key string) error {
-	return nil
+func (g *GCSBackend) Init(key string) (err error) {
+	err = g.testBucket(key)
+
+	return
 }
 
 func (g *GCSBackend) testBucket(key string) (err error) {
@@ -75,11 +83,20 @@ func (g *GCSBackend) Bucket() string {
 	return g.config.Bucket
 }
 
+func getResponseStatus(err error) string {
+	if err != nil {
+		return "ERROR"
+	}
+	return "SUCCESS"
+}
+
 func (g *GCSBackend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	objAttrs, err := g.bucket.Object(param.Key).Attrs(context.Background())
 	if err != nil {
 		return nil, err
 	}
+
+	gcsLogger.Debugf("HEAD %v = %v", param.Key, getResponseStatus(err))
 	
 	return &HeadBlobOutput{
 		BlobItemOutput: BlobItemOutput{

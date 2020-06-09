@@ -258,6 +258,11 @@ func NewApp() (app *cli.App) {
 			},
 
 			cli.BoolFlag{
+				Name:  "debug_cloud",
+				Usage: "Enable Cloud Storage-related debugging output.",
+			},
+
+			cli.BoolFlag{
 				Name:  "f",
 				Usage: "Run goofys in foreground.",
 			},
@@ -279,7 +284,7 @@ func NewApp() (app *cli.App) {
 		flagCategories[f] = "tuning"
 	}
 
-	for _, f := range []string{"help, h", "debug_fuse", "debug_s3", "version, v", "f"} {
+	for _, f := range []string{"help, h", "debug_fuse", "debug_s3", "debug_cloud", "version, v", "f"} {
 		flagCategories[f] = "misc"
 	}
 
@@ -339,6 +344,7 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 
 		// Debugging,
 		DebugFuse:  c.Bool("debug_fuse"),
+		DebugCloud: c.Bool("debug_cloud"),
 		DebugS3:    c.Bool("debug_s3"),
 		Foreground: c.Bool("f"),
 	}
