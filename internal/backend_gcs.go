@@ -3,7 +3,8 @@ package internal
 import (
 	"cloud.google.com/go/storage"
 	"context"
-	"github.com/kahing/goofys/api/common"
+
+	. "github.com/kahing/goofys/api/common"
 	"google.golang.org/api/option"
 	"syscall"
 )
@@ -11,12 +12,13 @@ import (
 // GCSBackend
 type GCSBackend struct{
 	client *storage.Client
-	config *common.GCSConfig
+	config *GCSConfig
+	cap *Capabilities
 }
 
 
 // NewGCS returns GCSBackend
-func NewGCS(config *common.GCSConfig) (*GCSBackend, error){
+func NewGCS(config *GCSConfig) (*GCSBackend, error){
 	var client *storage.Client
 	var err error
 
@@ -38,19 +40,35 @@ func NewGCS(config *common.GCSConfig) (*GCSBackend, error){
 	}, nil
 }
 
+var gcsLogger = GetLogger("GCS")
+
 func (g *GCSBackend) Init(key string) error {
 	return nil
 }
 
+func (g *GCSBackend) testBucket(key string) (err error) {
+	_, err = g.HeadBlob(&HeadBlobInput{Key: key})
+	//if err != nil {
+	//	err = mapAZBError(err)
+	//	if err == fuse.ENOENT {
+	//		err = nil
+	//	}
+	//}
+
+	return
+}
+
 func (g *GCSBackend) Capabilities() *Capabilities {
-	return nil
+	return g.cap
 }
 
 // typically this would return bucket/prefix
 func (g *GCSBackend) Bucket() string {
-	return ""
+	return g.config.Bucket
 }
+
 func (g *GCSBackend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
+	//g.client.Bucket()
 	return nil, syscall.EPERM
 }
 

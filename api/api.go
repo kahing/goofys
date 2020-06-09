@@ -111,6 +111,10 @@ func Mount(
 				if err != nil {
 					return nil, nil, err
 				}
+				config.Bucket = spec.Bucket
+				if config.Prefix != "" {
+					config.Prefix = spec.Prefix
+				}
 				flags.Backend = config
 			}
 		}

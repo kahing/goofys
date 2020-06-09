@@ -13,7 +13,6 @@ func TestParseBucketSpec(t *testing.T){
 		input string
 		expected BucketSpec
 	}{
-		// s3
 		{
 			"s3://bucketName/hello/everyone", BucketSpec{
 			Scheme: "s3",
@@ -21,7 +20,6 @@ func TestParseBucketSpec(t *testing.T){
 			Prefix: "hello/everyone/",
 		},
 		},
-		// gcs
 		{
 			"gs://bucketName/hello/everyone", BucketSpec{
 				Scheme: "gs",
@@ -29,7 +27,6 @@ func TestParseBucketSpec(t *testing.T){
 				Prefix: "hello/everyone/",
 			},
 		},
-		// no prefix
 		{
 			"bucketName/hello/everyone", BucketSpec{
 			Scheme: "s3",
