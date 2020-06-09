@@ -3,6 +3,7 @@ package internal
 import (
 	"cloud.google.com/go/storage"
 	"context"
+	"strings"
 
 	. "github.com/kahing/goofys/api/common"
 	"google.golang.org/api/option"
@@ -14,6 +15,7 @@ type GCSBackend struct{
 	client *storage.Client
 	config *GCSConfig
 	cap *Capabilities
+	bucket *storage.BucketHandle
 }
 
 
@@ -37,6 +39,7 @@ func NewGCS(config *GCSConfig) (*GCSBackend, error){
 	return &GCSBackend{
 		client: client,
 		config: config,
+		bucket: client.Bucket(config.Bucket),
 	}, nil
 }
 
@@ -47,13 +50,18 @@ func (g *GCSBackend) Init(key string) error {
 }
 
 func (g *GCSBackend) testBucket(key string) (err error) {
+	ctx := context.Background()
+
+	// v01: Require users to have read access to the bucket (bucket.list and bucket.get)
+	_, err = g.bucket.Attrs(ctx)
+	if err != nil {
+		return err
+	}
+
 	_, err = g.HeadBlob(&HeadBlobInput{Key: key})
-	//if err != nil {
-	//	err = mapAZBError(err)
-	//	if err == fuse.ENOENT {
-	//		err = nil
-	//	}
-	//}
+	if err == storage.ErrObjectNotExist {
+		err = nil
+	}
 
 	return
 }
@@ -68,8 +76,35 @@ func (g *GCSBackend) Bucket() string {
 }
 
 func (g *GCSBackend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
-	//g.client.Bucket()
-	return nil, syscall.EPERM
+	objAttrs, err := g.bucket.Object(param.Key).Attrs(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	
+	return &HeadBlobOutput{
+		BlobItemOutput: BlobItemOutput{
+			Key: &objAttrs.Name,
+			ETag: &objAttrs.Etag,
+			LastModified: &objAttrs.Updated,
+			Size: uint64(objAttrs.Size),
+		},
+		ContentType: &objAttrs.ContentType,
+		IsDirBlob: strings.HasSuffix(param.Key, "/"),
+		Metadata: mapGCSMetadataToBackendMetadata(objAttrs.Metadata),
+	}, nil
+}
+
+func mapGCSMetadataToBackendMetadata(m map[string]string) map[string]*string {
+	newMap := make(map[string]*string)
+
+	if m != nil {
+		for k, v := range m {
+			lower := strings.ToLower(k)
+			newMap[lower] = &v
+		}
+	}
+
+	return newMap
 }
 
 func (g *GCSBackend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {

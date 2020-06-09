@@ -94,26 +94,83 @@ func getGcsBackend() (*GCSBackend, error) {
 }
 
 func TestGCSBackend_BlobExist(t *testing.T) {
+	testCases := []struct{
+		input string
+		isError bool
+	}{
+		{
+			"tmpfile866376544", // direct object
+			false,
+		},
+		{
+			"dir1/dir2/", // directory only
+			true,
+		},
+		{
+			"dir1/dir2/tmpfile640609998", // object under some directory
+			false,
+		},
+	}
 	gcsBackend, _ := getGcsBackend()
 	bkt := gcsBackend.client.Bucket(gcsBackend.Bucket())
-	bktMetadata, err := bkt.Attrs(context.Background())
+	fmt.Println(gcsBackend.Bucket())
+	_, err := bkt.Attrs(context.Background())
 	assert.Nil(t, err)
-	fmt.Println(bktMetadata)
-	obj, err := bkt.Object(testConfig.object).Attrs(context.Background())
-	assert.Nil(t, err)
-	fmt.Println(obj)
+
+	for _, tc := range testCases {
+		obj, err := bkt.Object(tc.input).Attrs(context.Background())
+		if tc.isError {
+			assert.Error(t, err)
+			printError(err)
+		} else {
+			assert.Nil(t, err)
+			fmt.Println(obj.Prefix, obj.Name, obj.Metadata, obj.Size)
+		}
+	}
 }
 
 func TestGCSBackend_BlobDoesNotExist(t *testing.T) {
 	gcsBackend, _ := getGcsBackend()
 	bkt := gcsBackend.client.Bucket(gcsBackend.Bucket())
-	_, err := bkt.Attrs(context.Background())
-	assert.Nil(t, err)
 	randomObjectName := gcsBackend.config.Prefix + (RandStringBytesMaskImprSrc(32))
-	_, err = bkt.Object(randomObjectName).Attrs(context.Background())
+	_, err := bkt.Object(randomObjectName).Attrs(context.Background())
 	if err == storage.ErrObjectNotExist {
 		fmt.Println("Object not exist")
 	}
+	_, err = bkt.Attrs(context.Background())
+	assert.Nil(t, err)
+}
+
+func TestGCSBackend_ReadOnlyBlobDoesNotExist(t *testing.T) {
+	env := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", viper.GetString("goofys.gcs.readOnlyCredentials"))
+	defer func() {os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", env)}()
+
+	gcsBackend, _ := getGcsBackend()
+	bkt := gcsBackend.client.Bucket(gcsBackend.Bucket())
+	randomObjectName := gcsBackend.config.Prefix + (RandStringBytesMaskImprSrc(32))
+	_, err := bkt.Object(randomObjectName).Attrs(context.Background())
+	if err == storage.ErrObjectNotExist {
+		fmt.Println("Object not exist")
+	}
+	_, err = bkt.Attrs(context.Background())
+	assert.Nil(t, err)
+}
+
+func TestGCSBackend_ReadOnlyBucketDoesNotExist(t *testing.T) {
+	env := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", viper.GetString("goofys.gcs.readOnlyCredentials"))
+	defer func() {os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", env)}()
+
+	gcsBackend, _ := getGcsBackend()
+	bkt := gcsBackend.client.Bucket(viper.GetString("goofys.gcs.bucketWithoutPermission"))
+	randomObjectName := gcsBackend.config.Prefix + (RandStringBytesMaskImprSrc(32))
+	_, err := bkt.Object(randomObjectName).Attrs(context.Background())
+	if err == storage.ErrObjectNotExist {
+		fmt.Println("Object not exist")
+	}
+	_, err = bkt.Attrs(context.Background())
+	assert.Error(t, err)
 }
 
 func TestGCSBackend_BucketNoPermission(t *testing.T) {
@@ -126,9 +183,9 @@ func TestGCSBackend_BucketNoPermission(t *testing.T) {
 	assert.Error(t, err)
 	printError(err)
 
-	_, err = bkt.Attrs(context.Background())
-	assert.Error(t, err)
-	printError(err)
+	//_, err = bkt.Attrs(context.Background())
+	//assert.Error(t, err)
+	//printError(err)
 }
 
 func printError(err error) {
