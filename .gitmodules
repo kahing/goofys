@@ -61,9 +61,6 @@
 [submodule "vendor/github.com/mattn/go-ieproxy"]
 	path = vendor/github.com/mattn/go-ieproxy
 	url = https://github.com/mattn/go-ieproxy
-[submodule "vendor/google.golang.org/grpc"]
-	path = vendor/google.golang.org/grpc
-	url = https://github.com/grpc/grpc-go
 [submodule "vendor/go.opencensus.io"]
 	path = vendor/go.opencensus.io
 	url = https://github.com/census-instrumentation/opencensus-go
@@ -121,3 +118,6 @@
 [submodule "vendor/github.com/spf13/viper"]
 	path = vendor/github.com/spf13/viper
 	url =  https://github.com/spf13/viper
+[submodule "vendor/golang.org/x/oauth2"]
+	path = vendor/golang.org/x/oauth2
+	url = https://github.com/golang/oauth2
