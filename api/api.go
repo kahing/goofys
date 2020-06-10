@@ -26,7 +26,6 @@ func Mount(
 		SetCloudLogLevel(logrus.DebugLevel)
 	}
 
-
 	// Mount the file system.
 	mountCfg := &fuse.MountConfig{
 		FSName:                  bucketName,
@@ -114,6 +113,7 @@ func Mount(
 					return nil, nil, err
 				}
 				config.Bucket = spec.Bucket
+				bucketName = spec.Bucket
 				if config.Prefix != "" {
 					config.Prefix = spec.Prefix
 				}
@@ -121,7 +121,6 @@ func Mount(
 			}
 		}
 	}
-
 	fs = NewGoofys(ctx, bucketName, flags)
 	if fs == nil {
 		err = fmt.Errorf("Mount: initialization failed")

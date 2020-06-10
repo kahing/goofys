@@ -3,6 +3,8 @@ package internal
 import (
 	"cloud.google.com/go/storage"
 	"context"
+	"fmt"
+	"google.golang.org/api/iterator"
 	"strings"
 
 	. "github.com/kahing/goofys/api/common"
@@ -10,16 +12,16 @@ import (
 	"syscall"
 )
 
-// GCSBackend
 type GCSBackend struct{
 	client *storage.Client
 	config *GCSConfig
 	cap *Capabilities
 	bucket *storage.BucketHandle
+	logger *LogHandle
 }
 
 
-// NewGCS returns GCSBackend
+// NewGCS initializes GCS client and returns GCSBackend
 func NewGCS(config *GCSConfig) (*GCSBackend, error){
 	var client *storage.Client
 	var err error
@@ -46,12 +48,12 @@ func NewGCS(config *GCSConfig) (*GCSBackend, error){
 			// TODO: no parallel multipart but resumable uploads
 			NoParallelMultipart: false,
 		},
+		logger: GetLogger("gcs"),
 	}, nil
 }
 
-var gcsLogger = GetLogger("GCS")
-
 func (g *GCSBackend) Init(key string) (err error) {
+	g.logger.Debug("Initializes GCS")
 	err = g.testBucket(key)
 
 	return
@@ -60,12 +62,14 @@ func (g *GCSBackend) Init(key string) (err error) {
 func (g *GCSBackend) testBucket(key string) (err error) {
 	ctx := context.Background()
 
-	// v01: Require users to have read access to the bucket (bucket.list and bucket.get)
+	// v01: Require users to have read access to the bucket bucket.get)
+	g.logger.Debug("Get Bucket Info")
 	_, err = g.bucket.Attrs(ctx)
 	if err != nil {
 		return err
 	}
 
+	g.logger.Debug("Get Object Info")
 	_, err = g.HeadBlob(&HeadBlobInput{Key: key})
 	if err == storage.ErrObjectNotExist {
 		err = nil
@@ -85,18 +89,18 @@ func (g *GCSBackend) Bucket() string {
 
 func getResponseStatus(err error) string {
 	if err != nil {
-		return "ERROR"
+		return fmt.Sprintf("ERROR: %v", err)
 	}
 	return "SUCCESS"
 }
 
 func (g *GCSBackend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	objAttrs, err := g.bucket.Object(param.Key).Attrs(context.Background())
+	g.logger.Debugf("HEAD %v = %v", param.Key, getResponseStatus(err))
+
 	if err != nil {
 		return nil, err
 	}
-
-	gcsLogger.Debugf("HEAD %v = %v", param.Key, getResponseStatus(err))
 	
 	return &HeadBlobOutput{
 		BlobItemOutput: BlobItemOutput{
@@ -104,6 +108,7 @@ func (g *GCSBackend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 			ETag: &objAttrs.Etag,
 			LastModified: &objAttrs.Updated,
 			Size: uint64(objAttrs.Size),
+			StorageClass: &objAttrs.StorageClass,
 		},
 		ContentType: &objAttrs.ContentType,
 		IsDirBlob: strings.HasSuffix(param.Key, "/"),
@@ -125,7 +130,49 @@ func mapGCSMetadataToBackendMetadata(m map[string]string) map[string]*string {
 }
 
 func (g *GCSBackend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
-	return nil, syscall.EPERM
+	// TODO: Ignore object versions from listing
+	query := storage.Query{}
+
+	if param.Prefix != nil {
+		query.Prefix = nilStr(param.Prefix)
+	}
+	if param.Delimiter != nil {
+		query.Delimiter = nilStr(param.Delimiter)
+	}
+
+	prefixes := make([]BlobPrefixOutput, 0)
+	items := make([]BlobItemOutput, 0)
+
+	it := g.bucket.Objects(context.Background(), &query)
+	g.logger.Debugf("LIST Prefix = %s Delim = %s", nilStr(param.Prefix), nilStr(param.Delimiter))
+	for {
+		attrs, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if attrs.Prefix != "" {
+			prefixes = append(prefixes, BlobPrefixOutput{&attrs.Prefix})
+		}
+		if attrs.Name != ""{
+			items = append(items, BlobItemOutput{
+				Key: &attrs.Name,
+				ETag: &attrs.Etag,
+				LastModified: &attrs.Updated,
+				Size: uint64(attrs.Size),
+				StorageClass: &attrs.StorageClass,
+			})
+		}
+	}
+
+	return &ListBlobsOutput{
+		Prefixes: prefixes,
+		Items: items,
+		NextContinuationToken: nil,
+		IsTruncated: false,
+	}, nil
 }
 
 func (g *GCSBackend) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error) {
@@ -179,4 +226,8 @@ func (g *GCSBackend) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, erro
 
 func (g *GCSBackend) Delegate() interface{} {
 	return g
+}
+
+func (g *GCSBackend) Logger() *LogHandle{
+	return g.logger
 }

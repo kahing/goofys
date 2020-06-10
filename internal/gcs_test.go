@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/api/googleapi"
+	"google.golang.org/api/iterator"
 	"os"
 	"testing"
 )
@@ -141,10 +142,96 @@ func TestGCS_BucketNotExist(t *testing.T) {
 func TestGCS_ListObjects(t *testing.T){
 	gcsBackend, _ := getGcsBackend()
 	bkt := gcsBackend.client.Bucket(gcsBackend.Bucket())
-	it := bkt.Objects(context.Background(), nil)
-	pi := it.PageInfo()
-	fmt.Println(pi)
-	fmt.Println(pi.MaxSize)
-	fmt.Println(pi.Remaining())
-	fmt.Println(pi.Token)
+
+	testCases := []struct {
+		prefix   string
+		delim    string
+		noResults bool
+	}{
+		{
+			"", // no prefix
+			"", // no delim
+			false,
+		},
+		{
+			"", // no prefix
+			"/", // with delim
+			false,
+		},
+		{
+			"dir1/", // with prefix
+			"", // no delim
+			false,
+		},
+		{
+			"dir1", // with prefix
+			"", // no delim
+			false,
+		},
+		{
+			"dir1/", // with prefix
+			"/", // with delim
+			false,
+		},
+		{
+			"dir1", // with prefix
+			"/", // with delim
+			false,
+		},
+		{
+			"dir2/", // with prefix
+			"/", // with delim
+			true,
+		},
+		{
+			"nonexistent", // with nonexistent prefix
+			"", // no delim
+			true,
+		},
+	}
+
+	for _, tc := range testCases {
+		query := storage.Query{}
+		if tc.prefix != "" {
+			query.Prefix = tc.prefix
+		}
+
+		if tc.delim != ""{
+			query.Delimiter = tc.delim
+		}
+
+		fmt.Printf("===LIST OBJECTS ===\n" +
+			"Input = prefix: %s, delim: %s\n", tc.prefix, tc.delim)
+
+		it := bkt.Objects(context.Background(), &query)
+
+		var prefixes []BlobPrefixOutput
+		var items []BlobItemOutput
+
+		for {
+			attrs, err := it.Next()
+			if err == iterator.Done {
+				break
+			}
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Printf("attr.Prefix: %s, attr.Name: %s\n", attrs.Prefix, attrs.Name)
+			if attrs.Prefix != "" {
+				prefixes = append(prefixes, BlobPrefixOutput{&attrs.Prefix})
+			}
+			if attrs.Name != ""{
+				items = append(items, BlobItemOutput{
+					Key: &attrs.Name,
+					ETag: &attrs.Etag,
+					LastModified: &attrs.Updated,
+					Size: uint64(attrs.Size),
+					StorageClass: &attrs.StorageClass,
+				})
+			}
+		}
+		fmt.Printf("Prefixes: %v, Length: %v\n", prefixes, len(prefixes))
+		fmt.Printf("Items: %v, Length: %v\n", items, len(items))
+	}
+
 }
