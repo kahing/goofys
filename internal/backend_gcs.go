@@ -4,11 +4,10 @@ import (
 	"cloud.google.com/go/storage"
 	"context"
 	"fmt"
-	"google.golang.org/api/iterator"
-	"strings"
-
 	. "github.com/kahing/goofys/api/common"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+	"strings"
 	"syscall"
 )
 
@@ -82,7 +81,7 @@ func (g *GCSBackend) Capabilities() *Capabilities {
 	return g.cap
 }
 
-// typically this would return bucket/prefix
+// Bucket() typically returns the bucket/prefix
 func (g *GCSBackend) Bucket() string {
 	return g.config.Bucket
 }
@@ -95,35 +94,38 @@ func getResponseStatus(err error) string {
 }
 
 func (g *GCSBackend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
-	objAttrs, err := g.bucket.Object(param.Key).Attrs(context.Background())
+	attrs, err := g.bucket.Object(param.Key).Attrs(context.Background())
 	g.logger.Debugf("HEAD %v = %v", param.Key, getResponseStatus(err))
 
 	if err != nil {
 		return nil, err
 	}
-	
+
+	var metadata map[string]*string
+	if attrs.Metadata != nil {
+		metadata = mapGCSMetadataToBackendMetadata(attrs.Metadata)
+	}
+
 	return &HeadBlobOutput{
 		BlobItemOutput: BlobItemOutput{
-			Key: &objAttrs.Name,
-			ETag: &objAttrs.Etag,
-			LastModified: &objAttrs.Updated,
-			Size: uint64(objAttrs.Size),
-			StorageClass: &objAttrs.StorageClass,
+			Key: &attrs.Name,
+			ETag: &attrs.Etag,
+			LastModified: &attrs.Updated,
+			Size: uint64(attrs.Size),
+			StorageClass: &attrs.StorageClass,
 		},
-		ContentType: &objAttrs.ContentType,
+		ContentType: &attrs.ContentType,
 		IsDirBlob: strings.HasSuffix(param.Key, "/"),
-		Metadata: mapGCSMetadataToBackendMetadata(objAttrs.Metadata),
+		Metadata: metadata,
 	}, nil
 }
 
 func mapGCSMetadataToBackendMetadata(m map[string]string) map[string]*string {
 	newMap := make(map[string]*string)
 
-	if m != nil {
-		for k, v := range m {
-			lower := strings.ToLower(k)
-			newMap[lower] = &v
-		}
+	for k, v := range m {
+		lower := strings.ToLower(k)
+		newMap[lower] = &v
 	}
 
 	return newMap
@@ -192,7 +194,48 @@ func (g *GCSBackend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 }
 
 func (g *GCSBackend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
-	return nil, syscall.EPERM
+	obj := g.bucket.Object(param.Key)
+	ctx := context.Background()
+
+	var err error
+
+	// Get Object metadata
+	attrs, err := g.bucket.Object(param.Key).Attrs(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	g.logger.Debugf("GET ATTRS %v = %s ", param.Key, getResponseStatus(err))
+
+	// Get Object reader
+	var rc *storage.Reader
+	if param.Start != 0 || param.Count != 0 {
+		rc, err = obj.NewRangeReader(ctx, int64(param.Start), int64(param.Count))
+	} else {
+		rc, err = obj.NewReader(ctx)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	g.logger.Debugf("GET OBJECT %v = %s ", param.Key, getResponseStatus(err))
+	//metadata := make(map[string]*string)
+	//metadata["content-encoding"] = &rc.Attrs.ContentEncoding
+	//metadata["cache-control"] = &rc.Attrs.CacheControl
+
+	return &GetBlobOutput{
+		HeadBlobOutput: HeadBlobOutput{
+			BlobItemOutput: BlobItemOutput{
+				Key: &attrs.Name,
+				ETag: &attrs.Etag,
+				LastModified: &rc.Attrs.LastModified,
+				Size: uint64(rc.Attrs.Size),
+				StorageClass: &attrs.StorageClass,
+			},
+			ContentType: &rc.Attrs.ContentType,
+			//Metadata: metadata,
+		},
+		Body: rc,
+	}, nil
 }
 
 func (g *GCSBackend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error){

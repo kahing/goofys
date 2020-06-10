@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
+	"io/ioutil"
 	"os"
 	"testing"
 )
@@ -18,6 +19,8 @@ func getGcsBackend() (*GCSBackend, error) {
 
 	return gcsBackend, err
 }
+
+var gcsBackend *GCSBackend;
 
 func TestGCS_BlobExist(t *testing.T) {
 	testCases := []struct {
@@ -37,7 +40,6 @@ func TestGCS_BlobExist(t *testing.T) {
 			false,
 		},
 	}
-	gcsBackend, _ := getGcsBackend()
 	bkt := gcsBackend.client.Bucket(gcsBackend.Bucket())
 	_, err := bkt.Attrs(context.Background())
 	assert.Nil(t, err)
@@ -46,7 +48,7 @@ func TestGCS_BlobExist(t *testing.T) {
 		obj, err := bkt.Object(tc.input).Attrs(context.Background())
 		if tc.isError {
 			assert.Error(t, err)
-			printError(err)
+			printGcsError(err)
 		} else {
 			assert.Nil(t, err)
 			fmt.Println(obj.Prefix, obj.Name, obj.Metadata, obj.Size)
@@ -55,7 +57,6 @@ func TestGCS_BlobExist(t *testing.T) {
 }
 
 func TestGCS_BlobDoesNotExist(t *testing.T) {
-	gcsBackend, _ := getGcsBackend()
 	bkt := gcsBackend.client.Bucket(gcsBackend.Bucket())
 	randomObjectName := gcsBackend.config.Prefix + (RandStringBytesMaskImprSrc(32))
 	_, err := bkt.Object(randomObjectName).Attrs(context.Background())
@@ -67,11 +68,9 @@ func TestGCS_BlobDoesNotExist(t *testing.T) {
 }
 
 func TestGCS_ReadOnlyBlobDoesNotExist(t *testing.T) {
-	env := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
-	os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", viper.GetString("goofys.gcs.readOnlyCredentials"))
-	defer func() { os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", env) }()
+	gcsBackend, setEnvFunc, _ := getReadOnlyBackend()
+	defer setEnvFunc()
 
-	gcsBackend, _ := getGcsBackend()
 	bkt := gcsBackend.client.Bucket(gcsBackend.Bucket())
 	randomObjectName := gcsBackend.config.Prefix + (RandStringBytesMaskImprSrc(32))
 	_, err := bkt.Object(randomObjectName).Attrs(context.Background())
@@ -82,12 +81,18 @@ func TestGCS_ReadOnlyBlobDoesNotExist(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-func TestGCS_ReadOnlyBucketDoesNotExist(t *testing.T) {
+func getReadOnlyBackend() (*GCSBackend, func(), error) {
 	env := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
 	os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", viper.GetString("goofys.gcs.readOnlyCredentials"))
-	defer func() { os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", env) }()
-
 	gcsBackend, _ := getGcsBackend()
+
+	return gcsBackend, func() { os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", env) }, nil
+}
+
+func TestGCS_ReadOnlyBucketDoesNotExist(t *testing.T) {
+	gcsBackend, setEnvFunc, _ := getReadOnlyBackend()
+	defer setEnvFunc()
+
 	bkt := gcsBackend.client.Bucket(viper.GetString("goofys.gcs.bucketWithoutPermission"))
 	randomObjectName := gcsBackend.config.Prefix + (RandStringBytesMaskImprSrc(32))
 	_, err := bkt.Object(randomObjectName).Attrs(context.Background())
@@ -99,21 +104,20 @@ func TestGCS_ReadOnlyBucketDoesNotExist(t *testing.T) {
 }
 
 func TestGCS_BucketNoPermission(t *testing.T) {
-	gcsBackend, _ := getGcsBackend()
 	bktName := viper.GetString("goofys.gcs.bucketWithoutPermission")
 
 	bkt := gcsBackend.client.Bucket(bktName)
 	randomObjectName := gcsBackend.config.Prefix + (RandStringBytesMaskImprSrc(32))
 	_, err := bkt.Object(randomObjectName).Attrs(context.Background())
 	assert.Error(t, err)
-	printError(err)
+	printGcsError(err)
 
 	//_, err = bkt.Attrs(context.Background())
 	//assert.Error(t, err)
-	//printError(err)
+	//printGcsError(err)
 }
 
-func printError(err error) {
+func printGcsError(err error) {
 	if e, ok := err.(*googleapi.Error); ok {
 		fmt.Println(e.Code, e.Body, e.Details, e.Message)
 	}
@@ -126,21 +130,19 @@ func printError(err error) {
 }
 
 func TestGCS_BucketNotExist(t *testing.T) {
-	gcsBackend, _ := getGcsBackend()
 	bktName := viper.GetString("goofys.gcs.bucketDontExist")
 	bkt := gcsBackend.client.Bucket(bktName)
 	randomObjectName := gcsBackend.config.Prefix + (RandStringBytesMaskImprSrc(32))
 	_, err := bkt.Object(randomObjectName).Attrs(context.Background())
 	assert.Error(t, err)
-	printError(err)
+	printGcsError(err)
 
 	_, err = bkt.Attrs(context.Background())
 	assert.Error(t, err)
-	printError(err)
+	printGcsError(err)
 }
 
 func TestGCS_ListObjects(t *testing.T){
-	gcsBackend, _ := getGcsBackend()
 	bkt := gcsBackend.client.Bucket(gcsBackend.Bucket())
 
 	testCases := []struct {
@@ -233,5 +235,18 @@ func TestGCS_ListObjects(t *testing.T){
 		fmt.Printf("Prefixes: %v, Length: %v\n", prefixes, len(prefixes))
 		fmt.Printf("Items: %v, Length: %v\n", items, len(items))
 	}
+}
 
+func TestGCS_GetBlob(t *testing.T){
+	objName := "tmpfile866376544"
+	rc, err := gcsBackend.client.Bucket(gcsBackend.Bucket()).Object(objName).NewReader(context.Background())
+	if err != nil {
+		printGcsError(err)
+	}
+	defer rc.Close()
+	data, err := ioutil.ReadAll(rc)
+	if err != nil {
+		printGcsError(err)
+	}
+	fmt.Println(string(data))
 }

@@ -6,14 +6,11 @@ import (
 	"github.com/kahing/goofys/api/common"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"io/ioutil"
 	"os"
 	"testing"
 )
 
-type TestConfig struct {
-	goofysBucket string
-	object string
-}
 
 func LoadConfig(){
 	viper.SetConfigType("yaml")
@@ -25,15 +22,11 @@ func LoadConfig(){
 	}
 }
 
-var testConfig TestConfig
 
 func TestMain(m *testing.M) {
 	log.Println("Do stuff BEFORE the tests!")
 	LoadConfig()
-	testConfig = TestConfig{
-		goofysBucket: viper.GetString("goofys.gcs.bucket"),
-		object: viper.GetString("goofys.gcs.object"),
-	}
+	gcsBackend, _ = getGcsBackend()
 	exitVal := m.Run()
 	log.Println("Do stuff AFTER the tests!")
 
@@ -74,7 +67,7 @@ func getGcsConfig(bucket string) (*common.GCSConfig, error) {
 
 
 func TestGCSBackend_CreateBackend(t *testing.T){
-	config, _ := getGcsConfig(testConfig.goofysBucket)
+	config, _ := getGcsConfig(viper.GetString("goofys.gcs.bucketWithPermission"))
 	gcsBackend, err := NewGCS(config)
 
 	if err != nil {
@@ -84,8 +77,6 @@ func TestGCSBackend_CreateBackend(t *testing.T){
 }
 
 func TestGCSBackend_HeadBlob(t *testing.T) {
-	gcsBackend, _ := getGcsBackend()
-
 	testCases := []struct {
 		input   string
 		isError bool
@@ -109,4 +100,15 @@ func TestGCSBackend_HeadBlob(t *testing.T) {
 			fmt.Println(blobOut.BlobItemOutput, blobOut.LastModified, blobOut.Size)
 		}
 	}
+}
+
+func TestGCSBackend_GetBlob(t *testing.T){
+	objName := "tmpfile866376544"
+	blobOutput, err := gcsBackend.GetBlob(&GetBlobInput{
+		Key:     objName,
+	})
+	assert.Nil(t, err)
+	data, err := ioutil.ReadAll(blobOutput.Body)
+	assert.Nil(t, err)
+	fmt.Println(string(data))
 }
