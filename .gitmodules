@@ -118,3 +118,6 @@
 [submodule "vendor/github.com/stretchr/testify"]
 	path = vendor/github.com/stretchr/testify
 	url = https://github.com/stretchr/testify
+[submodule "vendor/github.com/spf13/viper"]
+	path = vendor/github.com/spf13/viper
+	url =  https://github.com/spf13/viper
