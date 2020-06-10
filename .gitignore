@@ -5,7 +5,5 @@ xout
 s3proxy.jar
 
 .idea
-tmp
 .DS_Store
-secrets
 .env
