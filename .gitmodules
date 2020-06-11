@@ -129,4 +129,7 @@
 	url = https://github.com/googleapis/gax-go
 [submodule "vendor/google.golang.org/protobuf"]
 	path = vendor/google.golang.org/protobuf
+	url = https://github.com/protocolbuffers/protobuf-go
+[submodule "vendor/github.com/golang/protobuf"]
+	path = vendor/github.com/golang/protobuf
 	url = https://github.com/golang/protobuf
