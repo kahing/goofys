@@ -70,9 +70,6 @@
 [submodule "vendor/github.com/dimchansky/utfbom"]
 	path = vendor/github.com/dimchansky/utfbom
 	url = https://github.com/dimchansky/utfbom
-[submodule "vendor/github.com/golang/protobuf"]
-	path = vendor/github.com/golang/protobuf
-	url = https://github.com/golang/protobuf/
 [submodule "vendor/github.com/grpc-ecosystem/grpc-gateway"]
 	path = vendor/github.com/grpc-ecosystem/grpc-gateway
 	url = https://github.com/grpc-ecosystem/grpc-gateway/
@@ -130,3 +127,6 @@
 [submodule "vendor/github.com/googleapis/gax-go"]
 	path = vendor/github.com/googleapis/gax-go
 	url = https://github.com/googleapis/gax-go
+[submodule "vendor/google.golang.org/protobuf"]
+	path = vendor/google.golang.org/protobuf
+	url = https://github.com/golang/protobuf
