@@ -610,6 +610,8 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		s.cloud, err = NewADLv2(bucket, flags, &config)
 		t.Assert(err, IsNil)
 		t.Assert(s.cloud, NotNil)
+	}  else if cloud == "gcs" {
+
 	} else {
 		t.Fatal("Unsupported backend")
 	}

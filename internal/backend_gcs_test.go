@@ -4,7 +4,8 @@ import (
 	"cloud.google.com/go/storage"
 	"context"
 	"fmt"
-	"github.com/deka108/goplay/pkg/env"
+	"os"
+
 	"github.com/kahing/goofys/api/common"
 	"github.com/spf13/viper"
 	"google.golang.org/api/googleapi"
@@ -24,12 +25,11 @@ func getGcsConfig(bucket string) (*common.GCSConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	config, err := common.NewGCSConfig(viper.GetString("goofys.gcs.bucketName"), "")
+	config, err := common.NewGCSConfig(spec.Bucket, "")
 	if err != nil {
 		return nil, err
 	}
 
-	config.Bucket = spec.Bucket
 	if config.Prefix != "" {
 		config.Prefix = spec.Prefix
 	}
@@ -37,7 +37,10 @@ func getGcsConfig(bucket string) (*common.GCSConfig, error) {
 }
 
 func getGcsBackend() (*GCSBackend, error) {
-	config, _ := getGcsConfig(viper.GetString("goofys.gcs.bucketWithPermission"))
+	config, err := getGcsConfig(viper.GetString("goofys.gcs.bucketWithPermission"))
+	if err != nil {
+		return nil, err
+	}
 	gcsBackend, err := NewGCS(config)
 
 	return gcsBackend, err
@@ -45,7 +48,7 @@ func getGcsBackend() (*GCSBackend, error) {
 
 func (s *GcsBackendTest) SetUpSuite(c *C) {
 	viper.SetConfigType("yaml")
-	viper.SetConfigFile(env.GetEnv("CONFIG_FILE", true))
+	viper.SetConfigFile(os.ExpandEnv(os.Getenv("CONFIG_FILE")))
 
 	err := viper.ReadInConfig() // Find and read the config file
 	c.Assert(err, IsNil, Commentf("ERROR: reading config file: %s \n", err))
@@ -82,10 +85,11 @@ func (s *GcsBackendTest) TestGCSBackend_HeadBlob(c *C) {
 		blobOut, err := s.gcsBackend.HeadBlob(&HeadBlobInput{Key: tc.input})
 		if tc.isError {
 			c.Assert(err, ErrorMatches, "storage: object doesn't exist")
-			fmt.Println(err)
 		} else {
 			c.Assert(err, IsNil)
-			fmt.Println(blobOut.BlobItemOutput, blobOut.LastModified, blobOut.Size)
+			c.Assert(blobOut.BlobItemOutput.Key, NotNil)
+			c.Assert(blobOut.LastModified, NotNil)
+			c.Assert(blobOut.Size > 0, Equals, true)
 		}
 	}
 }

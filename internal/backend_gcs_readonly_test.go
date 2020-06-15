@@ -3,7 +3,6 @@ package internal
 import (
 	"cloud.google.com/go/storage"
 	"context"
-	"github.com/deka108/goplay/pkg/env"
 	"github.com/kahing/goofys/api/common"
 	"github.com/spf13/viper"
 	"os"
@@ -20,7 +19,7 @@ var _ = Suite(&GcsReadOnlyBackendTest{})
 
 func (s *GcsReadOnlyBackendTest) SetUpSuite(c *C) {
 	viper.SetConfigType("yaml")
-	viper.SetConfigFile(env.GetEnv("CONFIG_FILE", true))
+	viper.SetConfigFile(os.ExpandEnv(os.Getenv("CONFIG_FILE")))
 
 	err := viper.ReadInConfig() // Find and read the config file
 	c.Assert(err, IsNil, Commentf("ERROR: reading config file: %s \n", err))
@@ -28,7 +27,8 @@ func (s *GcsReadOnlyBackendTest) SetUpSuite(c *C) {
 }
 
 func (s *GcsReadOnlyBackendTest) SetUpTest(c *C) {
-	os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", viper.GetString("goofys.gcs.readOnlyCredentials"))
+	os.Setenv("GOOGLE_APPLICATION_CREDENTIALS",
+		os.ExpandEnv(viper.GetString("goofys.gcs.readOnlyCredentials")))
 	gcsBackend, _ := getGcsBackend()
 	s.gcsBackend = gcsBackend
 }
@@ -40,7 +40,7 @@ func (s *GcsReadOnlyBackendTest) TearDownTest(c *C) {
 func (s *GcsReadOnlyBackendTest) TestGCSConfig_WithoutCredentials(c *C) {
 	os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
 	_, err := common.NewGCSConfig(viper.GetString("goofys.gcs.bucketName"), "")
-	c.Assert(err, ErrorMatches, ".*could not .* credentials.*")
+	c.Assert(err, ErrorMatches, ".*could not find default credentials.*")
 }
 
 func (s *GcsReadOnlyBackendTest) TestGCS_ReadOnlyBlobDoesNotExist(c *C) {

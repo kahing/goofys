@@ -133,3 +133,36 @@
 [submodule "vendor/github.com/golang/protobuf"]
 	path = vendor/github.com/golang/protobuf
 	url = https://github.com/golang/protobuf
+[submodule "vendor/github.com/fsnotify/fsnotify"]
+	path = vendor/github.com/fsnotify/fsnotify
+	url = https://github.com/fsnotify/fsnotify.git
+[submodule "vendor/github.com/hashicorp/hcl"]
+	path = vendor/github.com/hashicorp/hcl
+	url = https://github.com/hashicorp/hcl.git
+[submodule "vendor/github.com/magiconair/properties"]
+	path = vendor/github.com/magiconair/properties
+	url = https://github.com/magiconair/properties
+[submodule "vendor/github.com/mitchellh/mapstructure"]
+	path = vendor/github.com/mitchellh/mapstructure
+	url = https://github.com/mitchellh/mapstructure
+[submodule "vendor/github.com/pelletier/go-toml"]
+	path = vendor/github.com/pelletier/go-toml
+	url = https://github.com/pelletier/go-toml
+[submodule "vendor/github.com/spf13/afero"]
+	path = vendor/github.com/spf13/afero
+	url = https://github.com/spf13/afero
+[submodule "vendor/github.com/spf13/cast"]
+	path = vendor/github.com/spf13/cast
+	url = https://github.com/spf13/cast
+[submodule "vendor/github.com/spf13/jwalterweatherman"]
+	path = vendor/github.com/spf13/jwalterweatherman
+	url = https://github.com/spf13/jwalterweatherman
+[submodule "vendor/github.com/spf13/pflag"]
+	path = vendor/github.com/spf13/pflag
+	url = https://github.com/spf13/pflag
+[submodule "vendor/github.com/subosito/gotenv"]
+	path = vendor/github.com/subosito/gotenv
+	url = https://github.com/subosito/gotenv
+[submodule "vendor/gopkg.in/yaml.v2"]
+	path = vendor/gopkg.in/yaml.v2
+	url = https://github.com/go-yaml/yaml
