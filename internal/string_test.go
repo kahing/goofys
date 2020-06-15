@@ -2,23 +2,25 @@ package internal
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/assert"
-	"testing"
+
+	. "gopkg.in/check.v1"
 )
 
-func TestParseBucketSpec(t *testing.T){
-	assert := assert.New(t)
+type StringTest struct{}
 
-	testCases := []struct{
-		input string
+var _ = Suite(&StringTest{})
+
+func (s *StringTest) TestParseBucketSpec(t *C) {
+	testCases := []struct {
+		input    string
 		expected BucketSpec
 	}{
 		{
 			"s3://bucketName/hello/everyone", BucketSpec{
-			Scheme: "s3",
-			Bucket: "bucketName",
-			Prefix: "hello/everyone/",
-		},
+				Scheme: "s3",
+				Bucket: "bucketName",
+				Prefix: "hello/everyone/",
+			},
 		},
 		{
 			"gs://bucketName/hello/everyone", BucketSpec{
@@ -29,10 +31,10 @@ func TestParseBucketSpec(t *testing.T){
 		},
 		{
 			"bucketName/hello/everyone", BucketSpec{
-			Scheme: "s3",
-			Bucket: "bucketName/hello/everyone",
-			Prefix: "",
-		},
+				Scheme: "s3",
+				Bucket: "bucketName/hello/everyone",
+				Prefix: "",
+			},
 		},
 	}
 
@@ -43,9 +45,6 @@ func TestParseBucketSpec(t *testing.T){
 		}
 		fmt.Println(fmt.Sprintf("Input: %s, Scheme: %s, Bucket: %s, Prefix: %s",
 			tc.input, spec.Scheme, spec.Bucket, spec.Prefix))
-		assert.Equal(tc.expected.Scheme, spec.Scheme)
-		assert.Equal(tc.expected.Bucket, spec.Bucket)
-		assert.Equal(tc.expected.Prefix, spec.Prefix)
-
+		t.Assert(tc.expected, DeepEquals, spec)
 	}
 }

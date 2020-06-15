@@ -7,22 +7,21 @@ import (
 
 type GCSConfig struct {
 	Credentials *google.Credentials
-	Bucket string
-	Prefix string
-	//Scope
+	Bucket      string
+	Prefix      string
+
+	// TODO: Scope can be added to the config to limit user's access to the bucket
 }
 
-func NewGCSConfig() (*GCSConfig, error){
+func NewGCSConfig(bucket string, prefix string) (*GCSConfig, error) {
 	ctx := context.Background()
 
-	// v0.1: only allows authenticated user and read only acccess
-	//credentials, err := google.FindDefaultCredentials(ctx)
+	// Currently, we only allow authenticated user to use goofys for GCS
 	credentials, err := google.FindDefaultCredentials(ctx)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return &GCSConfig{Credentials: credentials, Bucket: "", Prefix: ""}, nil
+	return &GCSConfig{Credentials: credentials, Bucket: bucket, Prefix: prefix}, nil
 }
-

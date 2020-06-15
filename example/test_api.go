@@ -4,8 +4,8 @@ import (
 	goofys "github.com/kahing/goofys/api"
 	common "github.com/kahing/goofys/api/common"
 
-	"fmt"
 	"context"
+	"fmt"
 )
 
 func main() {

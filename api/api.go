@@ -108,15 +108,11 @@ func Mount(
 					bucketName += ":" + spec.Prefix
 				}
 			case "gs":
-				config, err := NewGCSConfig()
+				config, err := NewGCSConfig(spec.Bucket, spec.Prefix)
 				if err != nil {
 					return nil, nil, err
 				}
-				config.Bucket = spec.Bucket
 				bucketName = spec.Bucket
-				if config.Prefix != "" {
-					config.Prefix = spec.Prefix
-				}
 				flags.Backend = config
 			}
 		}

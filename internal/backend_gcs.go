@@ -6,31 +6,26 @@ import (
 	"fmt"
 	. "github.com/kahing/goofys/api/common"
 	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
 	"strings"
 	"syscall"
 )
 
-type GCSBackend struct{
-	client *storage.Client
-	config *GCSConfig
-	cap *Capabilities
-	bucket *storage.BucketHandle
-	logger *LogHandle
+type GCSBackend struct {
+	client *storage.Client       // Client is used to interact with GCS and safe for concurrent use
+	config *GCSConfig            // GCS Config stores user's and bucket configuration
+	cap    *Capabilities         // Capabilities is owned by the storage bucket
+	bucket *storage.BucketHandle // provides set of methods to operate on a bucket
+	logger *LogHandle            // logger for GCS backend
 }
 
-
-// NewGCS initializes GCS client and returns GCSBackend
-func NewGCS(config *GCSConfig) (*GCSBackend, error){
+// NewGCS initializes GCS client and returns GCSBackend and error
+func NewGCS(config *GCSConfig) (*GCSBackend, error) {
 	var client *storage.Client
 	var err error
 
 	if config.Credentials != nil {
 		ctx := context.Background()
 		client, err = storage.NewClient(ctx)
-	} else {
-		ctx := context.Background()
-		client, err = storage.NewClient(ctx, option.WithoutAuthentication())
 	}
 
 	if err != nil {
@@ -44,7 +39,7 @@ func NewGCS(config *GCSConfig) (*GCSBackend, error){
 		cap: &Capabilities{
 			MaxMultipartSize: 5 * 1024 * 1024 * 1024,
 			Name:             "gcs",
-			// TODO: no parallel multipart but resumable uploads
+			// TODO: no parallel multipart in GCS, but they have resumable uploads
 			NoParallelMultipart: false,
 		},
 		logger: GetLogger("gcs"),
@@ -61,14 +56,14 @@ func (g *GCSBackend) Init(key string) (err error) {
 func (g *GCSBackend) testBucket(key string) (err error) {
 	ctx := context.Background()
 
-	// v01: Require users to have read access to the bucket bucket.get)
-	g.logger.Debug("Get Bucket Info")
+	// require users to have read access to the bucket bucket.get)
+	g.logger.Debug("Getting bucket info..")
 	_, err = g.bucket.Attrs(ctx)
 	if err != nil {
-		return err
+		return
 	}
 
-	g.logger.Debug("Get Object Info")
+	g.logger.Debug("Getting object Info..")
 	_, err = g.HeadBlob(&HeadBlobInput{Key: key})
 	if err == storage.ErrObjectNotExist {
 		err = nil
@@ -108,15 +103,15 @@ func (g *GCSBackend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 
 	return &HeadBlobOutput{
 		BlobItemOutput: BlobItemOutput{
-			Key: &attrs.Name,
-			ETag: &attrs.Etag,
+			Key:          &attrs.Name,
+			ETag:         &attrs.Etag,
 			LastModified: &attrs.Updated,
-			Size: uint64(attrs.Size),
+			Size:         uint64(attrs.Size),
 			StorageClass: &attrs.StorageClass,
 		},
 		ContentType: &attrs.ContentType,
-		IsDirBlob: strings.HasSuffix(param.Key, "/"),
-		Metadata: metadata,
+		IsDirBlob:   strings.HasSuffix(param.Key, "/"),
+		Metadata:    metadata,
 	}, nil
 }
 
@@ -124,8 +119,7 @@ func mapGCSMetadataToBackendMetadata(m map[string]string) map[string]*string {
 	newMap := make(map[string]*string)
 
 	for k, v := range m {
-		lower := strings.ToLower(k)
-		newMap[lower] = &v
+		newMap[k] = &v
 	}
 
 	return newMap
@@ -158,22 +152,22 @@ func (g *GCSBackend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) 
 		if attrs.Prefix != "" {
 			prefixes = append(prefixes, BlobPrefixOutput{&attrs.Prefix})
 		}
-		if attrs.Name != ""{
+		if attrs.Name != "" {
 			items = append(items, BlobItemOutput{
-				Key: &attrs.Name,
-				ETag: &attrs.Etag,
+				Key:          &attrs.Name,
+				ETag:         &attrs.Etag,
 				LastModified: &attrs.Updated,
-				Size: uint64(attrs.Size),
+				Size:         uint64(attrs.Size),
 				StorageClass: &attrs.StorageClass,
 			})
 		}
 	}
 
 	return &ListBlobsOutput{
-		Prefixes: prefixes,
-		Items: items,
+		Prefixes:              prefixes,
+		Items:                 items,
 		NextContinuationToken: nil,
-		IsTruncated: false,
+		IsTruncated:           false,
 	}, nil
 }
 
@@ -225,10 +219,10 @@ func (g *GCSBackend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 	return &GetBlobOutput{
 		HeadBlobOutput: HeadBlobOutput{
 			BlobItemOutput: BlobItemOutput{
-				Key: &attrs.Name,
-				ETag: &attrs.Etag,
+				Key:          &attrs.Name,
+				ETag:         &attrs.Etag,
 				LastModified: &rc.Attrs.LastModified,
-				Size: uint64(rc.Attrs.Size),
+				Size:         uint64(rc.Attrs.Size),
 				StorageClass: &attrs.StorageClass,
 			},
 			ContentType: &rc.Attrs.ContentType,
@@ -238,7 +232,7 @@ func (g *GCSBackend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 	}, nil
 }
 
-func (g *GCSBackend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error){
+func (g *GCSBackend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 	return nil, syscall.EPERM
 }
 
@@ -246,24 +240,24 @@ func (g *GCSBackend) MultipartBlobBegin(param *MultipartBlobBeginInput) (*Multip
 	return nil, syscall.EPERM
 }
 
-func (g *GCSBackend) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error){
+func (g *GCSBackend) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error) {
 	return nil, syscall.EPERM
 }
 
-func (g *GCSBackend) MultipartBlobAbort(param *MultipartBlobCommitInput) (*MultipartBlobAbortOutput, error){
+func (g *GCSBackend) MultipartBlobAbort(param *MultipartBlobCommitInput) (*MultipartBlobAbortOutput, error) {
 	return nil, syscall.EPERM
 }
 
-func (g *GCSBackend) MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error){
+func (g *GCSBackend) MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error) {
 	return nil, syscall.EPERM
 }
-func (g *GCSBackend) MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error){
+func (g *GCSBackend) MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error) {
 	return nil, syscall.EPERM
 }
-func (g *GCSBackend) RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput, error){
+func (g *GCSBackend) RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput, error) {
 	return nil, syscall.EPERM
 }
-func (g *GCSBackend) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error){
+func (g *GCSBackend) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error) {
 	return nil, syscall.EPERM
 }
 
@@ -271,6 +265,6 @@ func (g *GCSBackend) Delegate() interface{} {
 	return g
 }
 
-func (g *GCSBackend) Logger() *LogHandle{
+func (g *GCSBackend) Logger() *LogHandle {
 	return g.logger
 }
