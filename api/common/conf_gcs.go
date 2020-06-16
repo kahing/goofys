@@ -7,13 +7,14 @@ import (
 
 type GCSConfig struct {
 	Credentials *google.Credentials
+	ProjectId   string
 	Bucket      string
 	Prefix      string
 
 	// TODO: Scope can be added to the config to limit user's access to the bucket
 }
 
-func NewGCSConfig(bucket string, prefix string) (*GCSConfig, error) {
+func NewGCSConfig(projectId string, bucket string, prefix string) (*GCSConfig, error) {
 	ctx := context.Background()
 
 	// Currently, we only allow authenticated user to use goofys for GCS
@@ -23,5 +24,9 @@ func NewGCSConfig(bucket string, prefix string) (*GCSConfig, error) {
 		return nil, err
 	}
 
-	return &GCSConfig{Credentials: credentials, Bucket: bucket, Prefix: prefix}, nil
+	if projectId == "" {
+		projectId = credentials.ProjectID
+	}
+
+	return &GCSConfig{Credentials: credentials, Bucket: bucket, Prefix: prefix, ProjectId: projectId}, nil
 }

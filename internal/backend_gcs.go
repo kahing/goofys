@@ -4,7 +4,9 @@ import (
 	"cloud.google.com/go/storage"
 	"context"
 	"fmt"
+	"github.com/jacobsa/fuse"
 	. "github.com/kahing/goofys/api/common"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"strings"
 	"syscall"
@@ -255,10 +257,20 @@ func (g *GCSBackend) MultipartExpire(param *MultipartExpireInput) (*MultipartExp
 	return nil, syscall.EPERM
 }
 func (g *GCSBackend) RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput, error) {
-	return nil, syscall.EPERM
+	err := g.bucket.Delete(context.Background())
+	if err != nil {
+		return nil, mapGcsError(err)
+	}
+
+	return &RemoveBucketOutput{}, nil
 }
 func (g *GCSBackend) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error) {
-	return nil, syscall.EPERM
+	err := g.bucket.Create(context.Background(), g.config.ProjectId, nil)
+	if err != nil {
+		return nil, mapGcsError(err)
+	}
+
+	return &MakeBucketOutput{}, nil
 }
 
 func (g *GCSBackend) Delegate() interface{} {
@@ -267,4 +279,25 @@ func (g *GCSBackend) Delegate() interface{} {
 
 func (g *GCSBackend) Logger() *LogHandle {
 	return g.logger
+}
+
+func mapGcsError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	if e, ok := err.(*googleapi.Error); ok {
+		switch e.Code {
+		case 409:
+			if strings.Contains(e.Message, "already") && strings.Contains(e.Message, "bucket") {
+				return fuse.EEXIST
+			}
+		case 404:
+			if e.Message == "Not Found" {
+				return syscall.ENXIO
+			}
+		}
+	}
+
+	return err
 }

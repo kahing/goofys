@@ -25,7 +25,7 @@ func getGcsConfig(bucket string) (*common.GCSConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	config, err := common.NewGCSConfig(spec.Bucket, "")
+	config, err := common.NewGCSConfig("", spec.Bucket, "")
 	if err != nil {
 		return nil, err
 	}
@@ -56,8 +56,9 @@ func (s *GcsBackendTest) SetUpSuite(c *C) {
 }
 
 func (s *GcsBackendTest) TestGCSConfig_WithCredentials(c *C) {
-	_, err := common.NewGCSConfig(viper.GetString("goofys.gcs.bucketName"), "")
+	conf, err := common.NewGCSConfig("", viper.GetString("goofys.gcs.bucketName"), "")
 	c.Assert(err, IsNil)
+	c.Assert(conf.Credentials.ProjectID, NotNil)
 }
 
 func (s *GcsBackendTest) TestGCSBackend_CreateBackend(c *C) {

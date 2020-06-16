@@ -39,7 +39,7 @@ func (s *GcsReadOnlyBackendTest) TearDownTest(c *C) {
 
 func (s *GcsReadOnlyBackendTest) TestGCSConfig_WithoutCredentials(c *C) {
 	os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
-	_, err := common.NewGCSConfig(viper.GetString("goofys.gcs.bucketName"), "")
+	_, err := common.NewGCSConfig("", viper.GetString("goofys.gcs.bucketName"), "")
 	c.Assert(err, ErrorMatches, ".*could not find default credentials.*")
 }
 
