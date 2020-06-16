@@ -18,6 +18,10 @@ type GcsReadOnlyBackendTest struct {
 var _ = Suite(&GcsReadOnlyBackendTest{})
 
 func (s *GcsReadOnlyBackendTest) SetUpSuite(c *C) {
+	if os.Getenv("cloud") != "" {
+		c.Skip("Skipping GCSTest to test for Backend Only...")
+	}
+
 	viper.SetConfigType("yaml")
 	viper.SetConfigFile(os.ExpandEnv(os.Getenv("CONFIG_FILE")))
 
@@ -29,7 +33,7 @@ func (s *GcsReadOnlyBackendTest) SetUpSuite(c *C) {
 func (s *GcsReadOnlyBackendTest) SetUpTest(c *C) {
 	os.Setenv("GOOGLE_APPLICATION_CREDENTIALS",
 		os.ExpandEnv(viper.GetString("goofys.gcs.readOnlyCredentials")))
-	gcsBackend, _ := getGcsBackend()
+	gcsBackend, _ := getGcsBackend(0)
 	s.gcsBackend = gcsBackend
 }
 
@@ -39,13 +43,13 @@ func (s *GcsReadOnlyBackendTest) TearDownTest(c *C) {
 
 func (s *GcsReadOnlyBackendTest) TestGCSConfig_WithoutCredentials(c *C) {
 	os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
-	_, err := common.NewGCSConfig("", viper.GetString("goofys.gcs.bucketName"), "")
+	_, err := common.NewGCSConfig("", viper.GetString("goofys.gcs.bucketName"), nil)
 	c.Assert(err, ErrorMatches, ".*could not find default credentials.*")
 }
 
 func (s *GcsReadOnlyBackendTest) TestGCS_ReadOnlyBlobDoesNotExist(c *C) {
 	bkt := s.gcsBackend.client.Bucket(s.gcsBackend.Bucket())
-	randomObjectName := s.gcsBackend.config.Prefix + (RandStringBytesMaskImprSrc(32))
+	randomObjectName := RandStringBytesMaskImprSrc(32)
 	_, err := bkt.Object(randomObjectName).Attrs(context.Background())
 	c.Assert(err, Equals, storage.ErrObjectNotExist)
 	_, err = bkt.Attrs(context.Background())
@@ -54,9 +58,11 @@ func (s *GcsReadOnlyBackendTest) TestGCS_ReadOnlyBlobDoesNotExist(c *C) {
 
 func (s *GcsReadOnlyBackendTest) TestGCS_ReadOnlyBucketDoesNotExist(c *C) {
 	bkt := s.gcsBackend.client.Bucket(viper.GetString("goofys.gcs.bucketWithoutPermission"))
-	randomObjectName := s.gcsBackend.config.Prefix + (RandStringBytesMaskImprSrc(32))
+	randomObjectName := RandStringBytesMaskImprSrc(32)
+
 	_, err := bkt.Object(randomObjectName).Attrs(context.Background())
 	c.Assert(err, Equals, storage.ErrObjectNotExist)
+
 	_, err = bkt.Attrs(context.Background())
 	c.Assert(err, ErrorMatches, "storage: bucket doesn't exist")
 }

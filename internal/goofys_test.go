@@ -15,11 +15,10 @@
 package internal
 
 import (
-	. "github.com/kahing/goofys/api/common"
-
 	"bufio"
 	"bytes"
 	"fmt"
+	. "github.com/kahing/goofys/api/common"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -610,8 +609,16 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		s.cloud, err = NewADLv2(bucket, flags, &config)
 		t.Assert(err, IsNil)
 		t.Assert(s.cloud, NotNil)
-	}  else if cloud == "gcs" {
+	} else if cloud == "gcs" {
+		// Generate GCS Config
+		config, err := NewGCSConfig("", bucket, nil)
+		t.Assert(err, IsNil)
+		t.Assert(config, NotNil)
 
+		flags.Backend = config
+		s.cloud, err = NewGCS(config)
+		t.Assert(err, IsNil)
+		t.Assert(s.cloud, NotNil)
 	} else {
 		t.Fatal("Unsupported backend")
 	}
@@ -923,6 +930,11 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 }
 
 func (s *GoofysTest) TestReadOffset(t *C) {
+	if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Log("GCS READ OFFSET")
+		t.Skip("GCSBackend pagination is in TODO.")
+	}
+
 	root := s.getRoot(t)
 	f := "file1"
 
@@ -1280,6 +1292,8 @@ func (s *GoofysTest) TestRenameToExisting(t *C) {
 func (s *GoofysTest) TestBackendListPagination(t *C) {
 	if _, ok := s.cloud.(*ADLv1); ok {
 		t.Skip("ADLv1 doesn't have pagination")
+	} else if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("GCSBackend pagination is in TODO.")
 	}
 	if s.azurite {
 		// https://github.com/Azure/Azurite/issues/262
@@ -1771,6 +1785,9 @@ func (s *GoofysTest) testExplicitDir(t *C) {
 }
 
 func (s *GoofysTest) TestBenchLs(t *C) {
+	if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("GCSBackend pagination is in TODO.")
+	}
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	mountPoint := "/tmp/mnt" + s.fs.bucket
@@ -1778,6 +1795,9 @@ func (s *GoofysTest) TestBenchLs(t *C) {
 }
 
 func (s *GoofysTest) TestBenchCreate(t *C) {
+	if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("GCSBackend pagination is in TODO.")
+	}
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	mountPoint := "/tmp/mnt" + s.fs.bucket
@@ -1785,6 +1805,9 @@ func (s *GoofysTest) TestBenchCreate(t *C) {
 }
 
 func (s *GoofysTest) TestBenchCreateParallel(t *C) {
+	if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("GCSBackend pagination is in TODO.")
+	}
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	mountPoint := "/tmp/mnt" + s.fs.bucket
@@ -1792,6 +1815,9 @@ func (s *GoofysTest) TestBenchCreateParallel(t *C) {
 }
 
 func (s *GoofysTest) TestBenchIO(t *C) {
+	if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("GCSBackend pagination is in TODO.")
+	}
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	mountPoint := "/tmp/mnt" + s.fs.bucket
@@ -1799,6 +1825,9 @@ func (s *GoofysTest) TestBenchIO(t *C) {
 }
 
 func (s *GoofysTest) TestBenchFindTree(t *C) {
+	if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("GCSBackend pagination is in TODO.")
+	}
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	mountPoint := "/tmp/mnt" + s.fs.bucket
@@ -3199,6 +3228,7 @@ func (s *GoofysTest) TestAzureDirBlob(t *C) {
 	if _, ok := s.cloud.(*AZBlob); !ok {
 		t.Skip("only for Azure blob")
 	}
+	t.Log("GCS in AZURE?")
 
 	fakedir := []string{"dir2", "dir3"}
 
@@ -3346,6 +3376,10 @@ func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud S
 	case *ADLv2:
 		config, _ := s.fs.flags.Backend.(*ADLv2Config)
 		cloud, err = NewADLv2(bucket, s.fs.flags, config)
+		t.Assert(err, IsNil)
+	case *GCSBackend:
+		config, _ := s.fs.flags.Backend.(*GCSConfig)
+		cloud, err = NewGCS(config)
 		t.Assert(err, IsNil)
 	default:
 		t.Fatal("unknown backend")
@@ -3903,6 +3937,8 @@ func checkSortedListsAreEqual(l1, l2 []string) error {
 func (s *GoofysTest) TestReadDirDash(t *C) {
 	if s.azurite {
 		t.Skip("ADLv1 doesn't have pagination")
+	} else if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("GCSBackend pagination is in TODO.")
 	}
 	root := s.getRoot(t)
 	root.dir.mountPrefix = "prefix"

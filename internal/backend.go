@@ -15,6 +15,7 @@
 package internal
 
 import (
+	"cloud.google.com/go/storage"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -61,6 +62,7 @@ type ListBlobsInput struct {
 	MaxKeys           *uint32
 	StartAfter        *string // XXX: not supported by Azure
 	ContinuationToken *string
+	Iterator          *storage.ObjectIterator
 }
 
 type BlobPrefixOutput struct {
@@ -71,6 +73,7 @@ type ListBlobsOutput struct {
 	Prefixes              []BlobPrefixOutput
 	Items                 []BlobItemOutput
 	NextContinuationToken *string
+	Iterator              *storage.ObjectIterator
 	IsTruncated           bool
 
 	RequestId string

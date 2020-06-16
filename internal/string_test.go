@@ -1,8 +1,6 @@
 package internal
 
 import (
-	"fmt"
-
 	. "gopkg.in/check.v1"
 )
 
@@ -43,8 +41,8 @@ func (s *StringTest) TestParseBucketSpec(t *C) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Println(fmt.Sprintf("Input: %s, Scheme: %s, Bucket: %s, Prefix: %s",
-			tc.input, spec.Scheme, spec.Bucket, spec.Prefix))
+		//fmt.Println(fmt.Sprintf("Input: %s, Scheme: %s, Bucket: %s, Prefix: %s",
+		//	tc.input, spec.Scheme, spec.Bucket, spec.Prefix))
 		t.Assert(tc.expected, DeepEquals, spec)
 	}
 }

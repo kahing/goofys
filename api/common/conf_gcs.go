@@ -3,18 +3,19 @@ package common
 import (
 	"context"
 	"golang.org/x/oauth2/google"
+	"time"
 )
 
 type GCSConfig struct {
 	Credentials *google.Credentials
 	ProjectId   string
 	Bucket      string
-	Prefix      string
+	HTTPTimeout time.Duration
 
 	// TODO: Scope can be added to the config to limit user's access to the bucket
 }
 
-func NewGCSConfig(projectId string, bucket string, prefix string) (*GCSConfig, error) {
+func NewGCSConfig(projectId string, bucket string, flags *FlagStorage) (*GCSConfig, error) {
 	ctx := context.Background()
 
 	// Currently, we only allow authenticated user to use goofys for GCS
@@ -28,5 +29,10 @@ func NewGCSConfig(projectId string, bucket string, prefix string) (*GCSConfig, e
 		projectId = credentials.ProjectID
 	}
 
-	return &GCSConfig{Credentials: credentials, Bucket: bucket, Prefix: prefix, ProjectId: projectId}, nil
+	gcsConfig := &GCSConfig{Credentials: credentials, Bucket: bucket, ProjectId: projectId}
+	if flags != nil {
+		gcsConfig.HTTPTimeout = flags.HTTPTimeout
+	}
+
+	return gcsConfig, nil
 }
