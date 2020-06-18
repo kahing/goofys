@@ -2983,6 +2983,9 @@ func (s *GoofysTest) TestRead403(t *C) {
 }
 
 func (s *GoofysTest) TestRmdirWithDiropen(t *C) {
+	if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("Skipping this test on GCSBackend as it causes PANIC.")
+	}
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
