@@ -166,3 +166,6 @@
 [submodule "vendor/gopkg.in/yaml.v2"]
 	path = vendor/gopkg.in/yaml.v2
 	url = https://github.com/go-yaml/yaml
+[submodule "vendor/github.com/google/go-cmp"]
+	path = vendor/github.com/google/go-cmp
+	url = https://github.com/google/go-cmp

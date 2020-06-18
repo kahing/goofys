@@ -177,12 +177,12 @@ func (s *GcsBackendTest) TestGCSBackend_DeleteBlobs(c *C){
 	}
 	c.Assert(len(keys), Equals, N)
 
-	//// Delete many objects at once
-	//res, err := s.gcsBackend.DeleteBlobs(&DeleteBlobsInput{
-	//	Items: keys,
-	//})
-	//c.Assert(err, IsNil)
-	//c.Assert(res, NotNil)
+	// Delete many objects at once
+	res, err := s.gcsBackend.DeleteBlobs(&DeleteBlobsInput{
+		Items: keys,
+	})
+	c.Assert(err, IsNil)
+	c.Assert(res, NotNil)
 }
 
 func printGcsError(err error) {

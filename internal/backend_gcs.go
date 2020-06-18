@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"github.com/jacobsa/fuse"
 	"github.com/kahing/goofys/api/common"
+	"golang.org/x/sync/errgroup"
+	syncsem "golang.org/x/sync/semaphore"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"io/ioutil"
@@ -216,24 +218,28 @@ func (g *GCSBackend) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, erro
 
 func (g *GCSBackend) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error) {
 	// TODO: Add concurrency mechanisms for DeleteBlobs (ErrGroup + Semaphores)
-	parentCtx := context.Background()
-	parentCtx, cancel := context.WithCancel(parentCtx)
-	defer cancel()
+	eg, rootCtx := errgroup.WithContext(context.Background())
+	sem := syncsem.NewWeighted(100)
 
 	for _, item := range param.Items {
-		err := func(item string) (err error) {
-			obj := g.bucket.Object(item)
-			ctx, cancel := g.getContextWithTimeout(parentCtx)
+		if err := sem.Acquire(rootCtx, 1); err != nil {
+			return nil, err
+		}
+		curItem := item
+		eg.Go(func() error {
+			defer sem.Release(1)
 
-			err = obj.Delete(ctx)
+			obj := g.bucket.Object(curItem)
+			ctx, cancel := g.getContextWithTimeout(rootCtx)
 			defer cancel()
 
-			return
-		}(item)
+			err := obj.Delete(ctx)
+			return err
+		})
+	}
 
-		if err != nil {
-			return nil, mapGcsError(err)
-		}
+	if err := eg.Wait(); err != nil {
+		return nil, mapGcsError(err)
 	}
 
 	return &DeleteBlobsOutput{}, nil
@@ -359,7 +365,7 @@ func (g *GCSBackend) RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput
 	}
 
 	return &RemoveBucketOutput{}, nil
-}
+  }
 func (g *GCSBackend) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error) {
 	ctx, cancel := g.getContextWithTimeout(nil)
 	defer cancel()

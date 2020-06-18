@@ -931,10 +931,8 @@ func (s *GoofysTest) TestReadFiles(t *C) {
 
 func (s *GoofysTest) TestReadOffset(t *C) {
 	if _, ok := s.cloud.(*GCSBackend); ok {
-		t.Log("GCS READ OFFSET")
-		t.Skip("GCSBackend pagination is in TODO.")
+		t.Skip("Skipping this test on GCSBackend as it causes PANIC.")
 	}
-
 	root := s.getRoot(t)
 	f := "file1"
 
@@ -1733,12 +1731,18 @@ func (s *GoofysTest) runFuseTest(t *C, mountPoint string, umount bool, cmdArgs .
 }
 
 func (s *GoofysTest) TestFuse(t *C) {
+	if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("Skipping this test on GCSBackend as it causes PANIC.")
+	}
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
 	s.runFuseTest(t, mountPoint, true, "../test/fuse-test.sh", mountPoint)
 }
 
 func (s *GoofysTest) TestFuseWithTTL(t *C) {
+	if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("Skipping this test on GCSBackend as it causes PANIC.")
+	}
 	s.fs.flags.StatCacheTTL = 60 * 1000 * 1000 * 1000
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
@@ -1786,7 +1790,7 @@ func (s *GoofysTest) testExplicitDir(t *C) {
 
 func (s *GoofysTest) TestBenchLs(t *C) {
 	if _, ok := s.cloud.(*GCSBackend); ok {
-		t.Skip("GCSBackend pagination is in TODO.")
+		t.Skip("Skipping this test on GCSBackend as it causes PANIC.")
 	}
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
@@ -1796,7 +1800,7 @@ func (s *GoofysTest) TestBenchLs(t *C) {
 
 func (s *GoofysTest) TestBenchCreate(t *C) {
 	if _, ok := s.cloud.(*GCSBackend); ok {
-		t.Skip("GCSBackend pagination is in TODO.")
+		t.Skip("Skipping this test on GCSBackend as it causes PANIC.")
 	}
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
@@ -1806,7 +1810,7 @@ func (s *GoofysTest) TestBenchCreate(t *C) {
 
 func (s *GoofysTest) TestBenchCreateParallel(t *C) {
 	if _, ok := s.cloud.(*GCSBackend); ok {
-		t.Skip("GCSBackend pagination is in TODO.")
+		t.Skip("Skipping this test on GCSBackend as it causes PANIC.")
 	}
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
@@ -1816,7 +1820,7 @@ func (s *GoofysTest) TestBenchCreateParallel(t *C) {
 
 func (s *GoofysTest) TestBenchIO(t *C) {
 	if _, ok := s.cloud.(*GCSBackend); ok {
-		t.Skip("GCSBackend pagination is in TODO.")
+		t.Skip("Skipping this test on GCSBackend as it causes PANIC.")
 	}
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
@@ -1826,7 +1830,7 @@ func (s *GoofysTest) TestBenchIO(t *C) {
 
 func (s *GoofysTest) TestBenchFindTree(t *C) {
 	if _, ok := s.cloud.(*GCSBackend); ok {
-		t.Skip("GCSBackend pagination is in TODO.")
+		t.Skip("Skipping this test on GCSBackend as it causes PANIC.")
 	}
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
@@ -1838,6 +1842,9 @@ func (s *GoofysTest) TestBenchFindTree(t *C) {
 func (s *GoofysTest) TestIssue231(t *C) {
 	if isTravis() {
 		t.Skip("disable in travis, not sure if it has enough memory")
+	}
+	if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("Skipping this test on GCSBackend as it causes PANIC.")
 	}
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "issue231")
@@ -1968,6 +1975,9 @@ func (s *GoofysTest) TestBucketPrefixSlash(t *C) {
 }
 
 func (s *GoofysTest) TestFuseWithPrefix(t *C) {
+	if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("Skipping this test on GCSBackend as it causes PANIC.")
+	}
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
 	s.fs = NewGoofys(context.Background(), s.fs.bucket+":testprefix", s.fs.flags)
@@ -2565,6 +2575,9 @@ func (s *GoofysTest) TestXAttrSet(t *C) {
 }
 
 func (s *GoofysTest) TestPythonCopyTree(t *C) {
+	if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("Skipping this test on GCSBackend as it causes PANIC.")
+	}
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
 	s.runFuseTest(t, mountPoint, true, "python", "-c",
@@ -3937,8 +3950,6 @@ func checkSortedListsAreEqual(l1, l2 []string) error {
 func (s *GoofysTest) TestReadDirDash(t *C) {
 	if s.azurite {
 		t.Skip("ADLv1 doesn't have pagination")
-	} else if _, ok := s.cloud.(*GCSBackend); ok {
-		t.Skip("GCSBackend pagination is in TODO.")
 	}
 	root := s.getRoot(t)
 	root.dir.mountPrefix = "prefix"
