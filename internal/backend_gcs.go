@@ -1,16 +1,17 @@
 package internal
 
 import (
-	"bytes"
 	"cloud.google.com/go/storage"
 	"context"
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/jacobsa/fuse"
 	"github.com/kahing/goofys/api/common"
 	"golang.org/x/sync/errgroup"
 	syncsem "golang.org/x/sync/semaphore"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
 	"io/ioutil"
 	"net"
 	"strings"
@@ -19,20 +20,24 @@ import (
 
 type GCSBackend struct {
 	client *storage.Client       // Client is used to interact with GCS and safe for concurrent use
-	config *common.GCSConfig            // GCS Config stores user's and bucket configuration
+	config *common.GCSConfig     // GCS Config stores user's and bucket configuration
 	cap    *Capabilities         // Capabilities is owned by the storage bucket
 	bucket *storage.BucketHandle // provides set of methods to operate on a bucket
-	logger *common.LogHandle            // logger for GCS backend
+	logger *common.LogHandle     // logger for GCS backend
 }
 
-// NewGCS initializes GCS client and returns GCSBackend and error
+// NewGCS initializes GCS Backend.
+// It initializes a new storage.Client, BucketHandle, Logger, and GCS storage Capabilities.
+// It returns GCSBackend or error.
 func NewGCS(config *common.GCSConfig) (*GCSBackend, error) {
 	var client *storage.Client
 	var err error
 
+	ctx := context.Background()
 	if config.Credentials != nil {
-		ctx := context.Background()
 		client, err = storage.NewClient(ctx)
+	} else {
+		client, err = storage.NewClient(ctx, option.WithoutAuthentication())
 	}
 
 	if err != nil {
@@ -47,13 +52,14 @@ func NewGCS(config *common.GCSConfig) (*GCSBackend, error) {
 			MaxMultipartSize: 5 * 1024 * 1024 * 1024,
 			Name:             "gcs",
 			// TODO: no parallel multipart in GCS, but they have resumable uploads
-			NoParallelMultipart: false,
+			NoParallelMultipart: true,
 		},
 		logger: common.GetLogger("gcs"),
 	}, nil
 }
 
-// Init initializes GCS mount by checking user's access to bucket and random object checks.
+// Init initializes GCS by checking user's access to bucket.
+// It returns an error if the user has no access to the Bucket.
 func (g *GCSBackend) Init(key string) (err error) {
 	g.logger.Debug("Initializes GCS")
 	err = g.testBucket(key)
@@ -61,6 +67,8 @@ func (g *GCSBackend) Init(key string) (err error) {
 	return
 }
 
+// testBucket check if user has access to the bucket
+// It returns an error if the user has no access to the bucket.
 func (g *GCSBackend) testBucket(key string) (err error) {
 	ctx := context.Background()
 
@@ -83,11 +91,12 @@ func (g *GCSBackend) testBucket(key string) (err error) {
 	return
 }
 
+// Capabilities returns GCSBackend capabilities.
 func (g *GCSBackend) Capabilities() *Capabilities {
 	return g.cap
 }
 
-// Bucket() typically returns the bucket/prefix
+// Bucket returns the GCSBackend bucket.
 func (g *GCSBackend) Bucket() string {
 	return g.config.Bucket
 }
@@ -99,6 +108,8 @@ func getResponseStatus(err error) string {
 	return "SUCCESS"
 }
 
+// HeadBlob gets the file object metadata on GCS.
+// It returns the HeadBlobOutput if request is successful or error if encountered.
 func (g *GCSBackend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	ctx, cancel := g.getContextWithTimeout(nil)
 	defer cancel()
@@ -129,8 +140,11 @@ func (g *GCSBackend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	}, nil
 }
 
+// getContextWithTimeout generates a context with timeout if the HTTPTimeout is not 0.
+// It will create a new context if the parent context is nil or a child context if it is not nil.
+// It returns the new context and a cancel function.
 func (g *GCSBackend) getContextWithTimeout(ctx context.Context) (context.Context, func()) {
-	if ctx == nil{
+	if ctx == nil {
 		ctx = context.Background()
 	}
 	cancel := func() {}
@@ -140,6 +154,7 @@ func (g *GCSBackend) getContextWithTimeout(ctx context.Context) (context.Context
 	return ctx, cancel
 }
 
+// mapGCSMetadataToBackendMetadata converts the original map[string]string to map[string]*string.
 func mapGCSMetadataToBackendMetadata(m map[string]string) map[string]*string {
 	newMap := make(map[string]*string)
 
@@ -150,9 +165,13 @@ func mapGCSMetadataToBackendMetadata(m map[string]string) map[string]*string {
 	return newMap
 }
 
+// ListBlobs generates list of blobs in GCS given the prefix and delimiter queries.
+// It is capable to perform pagination or non-pagination requests depending on user
+// the availability of MaxKeys or ContinuationToken param.
+// It returns ListBlobsOutput if the request is successful and error if encountered.
 func (g *GCSBackend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 	// TODO: Ignore object versions from listing
-	// TODO: Pagination Implementation
+	requestId := getUUID()
 	query := storage.Query{}
 
 	if param.Prefix != nil {
@@ -162,44 +181,81 @@ func (g *GCSBackend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) 
 		query.Delimiter = nilStr(param.Delimiter)
 	}
 
-	prefixes := make([]BlobPrefixOutput, 0)
-	items := make([]BlobItemOutput, 0)
-
 	ctx, cancel := g.getContextWithTimeout(nil)
 	defer cancel()
 
 	it := g.bucket.Objects(ctx, &query)
-	g.logger.Debugf("LIST Prefix = %s Delim = %s", nilStr(param.Prefix), nilStr(param.Delimiter))
-	for {
-		attrs, err := it.Next()
-		if err == iterator.Done {
-			break
+
+	var prefixes []BlobPrefixOutput
+	var items []BlobItemOutput
+	var nextContToken *string
+
+	// With Pagination
+	if param.MaxKeys != nil || param.ContinuationToken != nil {
+		pager := iterator.NewPager(it, int(*param.MaxKeys), nilStr(param.ContinuationToken))
+		var entries []*storage.ObjectAttrs
+		nextToken, err := pager.NextPage(&entries)
+
+		if nextToken != "" {
+			nextContToken = &nextToken
 		}
+
+		g.logger.Debugf("LIST Prefix = %s Delim = %s: %s", nilStr(param.Prefix),
+			nilStr(param.Delimiter), getResponseStatus(err))
+
 		if err != nil {
 			return nil, mapGcsError(err)
 		}
-		if attrs.Prefix != "" {
-			prefixes = append(prefixes, BlobPrefixOutput{&attrs.Prefix})
+
+		for _, entry := range entries {
+			if entry.Prefix != "" {
+				prefixes = append(prefixes, BlobPrefixOutput{&entry.Prefix})
+			}
+			if entry.Name != "" {
+				items = append(items, BlobItemOutput{
+					Key:          &entry.Name,
+					ETag:         &entry.Etag,
+					LastModified: &entry.Updated,
+					Size:         uint64(entry.Size),
+					StorageClass: &entry.StorageClass,
+				})
+			}
 		}
-		if attrs.Name != "" {
-			items = append(items, BlobItemOutput{
-				Key:          &attrs.Name,
-				ETag:         &attrs.Etag,
-				LastModified: &attrs.Updated,
-				Size:         uint64(attrs.Size),
-				StorageClass: &attrs.StorageClass,
-			})
+	} else {
+		// No Pagination
+		for {
+			attrs, err := it.Next()
+			if err == iterator.Done {
+				break
+			}
+			if err != nil {
+				return nil, mapGcsError(err)
+			}
+			if attrs.Prefix != "" {
+				prefixes = append(prefixes, BlobPrefixOutput{&attrs.Prefix})
+			}
+			if attrs.Name != "" {
+				items = append(items, BlobItemOutput{
+					Key:          &attrs.Name,
+					ETag:         &attrs.Etag,
+					LastModified: &attrs.Updated,
+					Size:         uint64(attrs.Size),
+					StorageClass: &attrs.StorageClass,
+				})
+			}
 		}
 	}
 
 	return &ListBlobsOutput{
 		Prefixes:              prefixes,
 		Items:                 items,
-		NextContinuationToken: nil,
-		IsTruncated:           false,
+		NextContinuationToken: nextContToken,
+		IsTruncated:           nextContToken != nil,
+		RequestId:             requestId,
 	}, nil
 }
 
+// DeleteBlob deletes a GCS blob.
 func (g *GCSBackend) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error) {
 	obj := g.bucket.Object(param.Key)
 
@@ -216,8 +272,9 @@ func (g *GCSBackend) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, erro
 	return &DeleteBlobOutput{}, nil
 }
 
+// DeleteBlobs deletes multiple GCS blobs.
+// It uses concurrent mechanism to deletes object using semaphores and errorgroup.
 func (g *GCSBackend) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error) {
-	// TODO: Add concurrency mechanisms for DeleteBlobs (ErrGroup + Semaphores)
 	eg, rootCtx := errgroup.WithContext(context.Background())
 	sem := syncsem.NewWeighted(100)
 
@@ -245,15 +302,36 @@ func (g *GCSBackend) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, e
 	return &DeleteBlobsOutput{}, nil
 }
 
+// RenameBlob is not supported for GCS backend.
 func (g *GCSBackend) RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error) {
-	return nil, syscall.EPERM
+	return nil, syscall.ENOTSUP
 }
 
+// CopyBlob copies a source object to another destination object under the same bucket.
 func (g *GCSBackend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
-	return nil, syscall.EPERM
+	requestId := getUUID()
+	src := g.bucket.Object(param.Source)
+	dest := g.bucket.Object(param.Destination)
+
+	ctx, cancel := g.getContextWithTimeout(nil)
+	defer cancel()
+
+	// Copy content and modify metadata.
+	copier := dest.CopierFrom(src)
+	_, err := copier.Run(ctx)
+
+	if err != nil {
+		return nil, mapGcsError(err)
+	}
+
+	return &CopyBlobOutput{
+		RequestId: requestId,
+	}, nil
 }
 
+// GetBlob returns a file reader for a GCS object.
 func (g *GCSBackend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
+	requestId := getUUID()
 	obj := g.bucket.Object(param.Key)
 
 	parentCtx := context.Background()
@@ -266,9 +344,13 @@ func (g *GCSBackend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 
 	attrs, err := g.bucket.Object(param.Key).Attrs(ctx1)
 	g.logger.Debugf("GET ATTRS %v = %s ", param.Key, getResponseStatus(err))
+
 	if err != nil {
 		return nil, mapGcsError(err)
 	}
+
+	// TODO: Handle Timeout
+	//ctx2 := context.Background()
 
 	// Get Object reader
 	ctx2, cancel := g.getContextWithTimeout(parentCtx)
@@ -280,16 +362,17 @@ func (g *GCSBackend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 	} else {
 		rc, err = obj.NewReader(ctx2)
 	}
-	if err != nil {
-		return nil, mapGcsError(err)
-	}
-	data, err := ioutil.ReadAll(rc)
-	defer rc.Close()
-
 	g.logger.Debugf("GET OBJECT %v = %s ", param.Key, getResponseStatus(err))
 	if err != nil {
 		return nil, mapGcsError(err)
 	}
+	//data, err := ioutil.ReadAll(rc)
+	//defer rc.Close()
+	//
+	//g.logger.Debugf("GET OBJECT %v = %s ", param.Key, getResponseStatus(err))
+	//if err != nil {
+	//	return nil, mapGcsError(err)
+	//}
 
 	return &GetBlobOutput{
 		HeadBlobOutput: HeadBlobOutput{
@@ -302,29 +385,39 @@ func (g *GCSBackend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 			},
 			ContentType: &rc.Attrs.ContentType,
 		},
-		Body: ioutil.NopCloser(bytes.NewReader(data)),
+		//Body:      ioutil.NopCloser(bytes.NewReader(data)),
+		Body:      rc,
+		RequestId: requestId,
 	}, nil
 }
 
+// PutBlob writes a file to GCS.
 func (g *GCSBackend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
+	requestId := getUUID()
 	data, err := ioutil.ReadAll(param.Body)
+	g.logger.Debugf("PUT BLOB READ %v = %s ", param.Key, getResponseStatus(err))
 	if err != nil {
 		return nil, mapGcsError(err)
 	}
 
-	ctx, cancel := g.getContextWithTimeout(nil)
-	defer cancel()
+	// TODO: PUT request handling
+	//ctx, cancel := g.getContextWithTimeout(nil)
+	//defer cancel()
 
+	ctx := context.Background()
 	wc := g.bucket.Object(param.Key).NewWriter(ctx)
+
 	if param.ContentType != nil && *param.ContentType != "" {
 		wc.ContentType = nilStr(param.ContentType)
 	}
 
-	g.logger.Debugf("PUT OBJECT %v = %s ", param.Key, getResponseStatus(err))
+	g.logger.Debugf("PUT BLOB %v = %s ", param.Key, getResponseStatus(err))
 
 	if _, err := wc.Write(data); err != nil {
 		return nil, mapGcsError(err)
 	}
+
+	g.logger.Debugf("PUT BLOB FLUSH %v = %s ", param.Key, getResponseStatus(err))
 
 	if err := wc.Close(); err != nil {
 		return nil, mapGcsError(err)
@@ -332,29 +425,35 @@ func (g *GCSBackend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 	attrs := wc.Attrs()
 
 	return &PutBlobOutput{
-		ETag: &attrs.Etag,
+		ETag:         &attrs.Etag,
 		LastModified: &attrs.Updated,
 		StorageClass: &attrs.StorageClass,
+		RequestId:    requestId,
 	}, nil
 }
 
+func getUUID() string {
+	requestId := uuid.New().String()
+	return requestId
+}
+
 func (g *GCSBackend) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlobCommitInput, error) {
-	return nil, syscall.EPERM
+	return nil, syscall.ENOTSUP
 }
 
 func (g *GCSBackend) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error) {
-	return nil, syscall.EPERM
+	return nil, syscall.ENOTSUP
 }
 
 func (g *GCSBackend) MultipartBlobAbort(param *MultipartBlobCommitInput) (*MultipartBlobAbortOutput, error) {
-	return nil, syscall.EPERM
+	return nil, syscall.ENOTSUP
 }
 
 func (g *GCSBackend) MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error) {
-	return nil, syscall.EPERM
+	return nil, syscall.ENOTSUP
 }
 func (g *GCSBackend) MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error) {
-	return nil, syscall.EPERM
+	return nil, syscall.ENOTSUP
 }
 func (g *GCSBackend) RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput, error) {
 	ctx, cancel := g.getContextWithTimeout(nil)
@@ -365,7 +464,7 @@ func (g *GCSBackend) RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput
 	}
 
 	return &RemoveBucketOutput{}, nil
-  }
+}
 func (g *GCSBackend) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error) {
 	ctx, cancel := g.getContextWithTimeout(nil)
 	defer cancel()

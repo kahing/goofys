@@ -473,6 +473,8 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		FileMode:    0700,
 		Uid:         uint32(uid),
 		Gid:         uint32(gid),
+		DebugCloud:  true,
+		DebugFuse:   true,
 		HTTPTimeout: 30 * time.Second,
 	}
 
@@ -616,6 +618,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		t.Assert(config, NotNil)
 
 		flags.Backend = config
+		// Generate Backend
 		s.cloud, err = NewGCS(config)
 		t.Assert(err, IsNil)
 		t.Assert(s.cloud, NotNil)
@@ -1110,21 +1113,33 @@ func (s *GoofysTest) testWriteFileAt(t *C, fileName string, offset int64, size i
 }
 
 func (s *GoofysTest) TestWriteLargeFile(t *C) {
+	if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("Skipping this test on GCSBackend because of MPU.")
+	}
 	s.testWriteFile(t, "testLargeFile", int64(READAHEAD_CHUNK)+1024*1024, 128*1024)
 	s.testWriteFile(t, "testLargeFile2", int64(READAHEAD_CHUNK), 128*1024)
 	s.testWriteFile(t, "testLargeFile3", int64(READAHEAD_CHUNK)+1, 128*1024)
 }
 
 func (s *GoofysTest) TestWriteReallyLargeFile(t *C) {
+	if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("Skipping this test on GCSBackend because of MPU.")
+	}
 	s.testWriteFile(t, "testLargeFile", 512*1024*1024+1, 128*1024)
 }
 
 func (s *GoofysTest) TestWriteReplicatorThrottle(t *C) {
+	if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("Skipping this test on GCSBackend because of MPU.")
+	}
 	s.fs.replicators = Ticket{Total: 1}.Init()
 	s.testWriteFile(t, "testLargeFile", 21*1024*1024, 128*1024)
 }
 
 func (s *GoofysTest) TestReadWriteMinimumMemory(t *C) {
+	if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("Skipping this test on GCSBackend because of MPU.")
+	}
 	if _, ok := s.cloud.(*ADLv1); ok {
 		s.fs.bufferPool.maxBuffers = 4
 	} else {
@@ -1290,8 +1305,6 @@ func (s *GoofysTest) TestRenameToExisting(t *C) {
 func (s *GoofysTest) TestBackendListPagination(t *C) {
 	if _, ok := s.cloud.(*ADLv1); ok {
 		t.Skip("ADLv1 doesn't have pagination")
-	} else if _, ok := s.cloud.(*GCSBackend); ok {
-		t.Skip("GCSBackend pagination is in TODO.")
 	}
 	if s.azurite {
 		// https://github.com/Azure/Azurite/issues/262
@@ -1304,6 +1317,8 @@ func (s *GoofysTest) TestBackendListPagination(t *C) {
 		itemsPerPage = 1000
 	case *AZBlob, *ADLv2:
 		itemsPerPage = 5000
+	case *GCSBackend:
+		itemsPerPage = 1000
 	default:
 		t.Fatalf("unknown backend: %T", s.cloud)
 	}
@@ -1750,6 +1765,9 @@ func (s *GoofysTest) TestFuseWithTTL(t *C) {
 }
 
 func (s *GoofysTest) TestCheap(t *C) {
+	if _, ok := s.cloud.(*GCSBackend); ok {
+		t.Skip("Skipping this test on GCSBackend because of MPU.")
+	}
 	s.fs.flags.Cheap = true
 	s.TestLookUpInode(t)
 	s.TestWriteLargeFile(t)
@@ -2592,6 +2610,7 @@ func (s *GoofysTest) TestCreateRenameBeforeCloseFuse(t *C) {
 		// so our code to ignore ENOENT fails
 		t.Skip("https://github.com/Azure/Azurite/issues/219")
 	}
+	// TODO: Fails in GCS too, 404 object doesn't exist
 
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
@@ -3630,6 +3649,14 @@ func (s *GoofysTest) TestMountsError(t *C) {
 		defer func() {
 			adlCloud.client.BaseClient.Authorizer = auth
 		}()
+	} else if gcs, ok := s.cloud.(*GCSBackend); ok {
+		// GCSBackend can't detect bucket doesn't exist because
+		// HEAD an object on existing Bucket always return 404 NotFound
+		config := gcs.config
+		config.Bucket = bucket
+		var err error
+		cloud, err = NewGCS(config)
+		t.Assert(err, IsNil)
 	} else {
 		cloud = s.newBackend(t, bucket, false)
 	}

@@ -62,7 +62,6 @@ type ListBlobsInput struct {
 	MaxKeys           *uint32
 	StartAfter        *string // XXX: not supported by Azure
 	ContinuationToken *string
-	Iterator          *storage.ObjectIterator
 }
 
 type BlobPrefixOutput struct {
