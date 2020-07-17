@@ -61,7 +61,7 @@ import (
 	"runtime/debug"
 )
 
-const READAHEAD_CHUNK = uint32(5 * 1024 * 1024)
+const READAHEAD_CHUNK = uint32(20 * 1024 * 1024)
 
 // so I don't get complains about unused imports
 var ignored = logrus.DebugLevel
