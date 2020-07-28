@@ -244,10 +244,15 @@ func adlv1LastModified(t int64) time.Time {
 }
 
 func adlv1FileStatus2BlobItem(f *adl.FileStatusProperties, key *string) BlobItemOutput {
+	var lastModified *time.Time
+	if f.ModificationTime != nil {
+		lastModified = PTime(adlv1LastModified(*f.ModificationTime))
+	}
+
 	return BlobItemOutput{
 		Key:          key,
-		LastModified: PTime(adlv1LastModified(*f.ModificationTime)),
-		Size:         uint64(*f.Length),
+		LastModified: lastModified,
+		Size:         uint64(NilInt64(f.Length)),
 	}
 }
 

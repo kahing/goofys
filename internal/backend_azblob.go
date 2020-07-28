@@ -470,14 +470,6 @@ func (b *AZBlob) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	}, nil
 }
 
-func nilUint32(v *uint32) uint32 {
-	if v == nil {
-		return 0
-	} else {
-		return *v
-	}
-}
-
 func (b *AZBlob) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 	// azure blob does not support startAfter
 	if param.StartAfter != nil {
@@ -497,7 +489,7 @@ func (b *AZBlob) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 
 	options := azblob.ListBlobsSegmentOptions{
 		Prefix:     NilStr(param.Prefix),
-		MaxResults: int32(nilUint32(param.MaxKeys)),
+		MaxResults: int32(NilUint32(param.MaxKeys)),
 		Details: azblob.BlobListingDetails{
 			// blobfuse (following wasb) convention uses
 			// an empty blob with "hdi_isfolder" metadata
