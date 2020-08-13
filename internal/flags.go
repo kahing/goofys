@@ -97,6 +97,11 @@ func NewApp() (app *cli.App) {
 				Usage: "Print this help text and exit successfully.",
 			},
 
+			cli.StringFlag{
+				Name:  "pid-file",
+				Usage: "Write a pid file containing the process pid.",
+			},
+
 			/////////////////////////
 			// File system
 			/////////////////////////
@@ -319,6 +324,8 @@ func parseOptions(m map[string]string, s string) {
 // variables into which the flags will parse.
 func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 	flags := &FlagStorage{
+		PidFile: c.String("pid-file"),
+
 		// File system
 		MountOptions: make(map[string]string),
 		DirMode:      os.FileMode(c.Int("dir-mode")),

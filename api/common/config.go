@@ -26,6 +26,8 @@ import (
 )
 
 type FlagStorage struct {
+	PidFile string
+
 	// File system
 	MountOptions      map[string]string
 	MountPoint        string
