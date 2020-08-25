@@ -5,11 +5,7 @@
 
 Service Account credentials or user authentication. Ensure that either the service account or user has the proper permissions to the Bucket / Object under GCS.
 
-For example, read-only access should be granted the following permissions:
-```
-storage.objects.get
-storage.objects.list
-````
+To have a successful mount, we require users to have object listing (`storage.objects.list`) permission to the bucket.
 
 ### Service Account credentials
 

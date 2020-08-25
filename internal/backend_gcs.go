@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"path"
 	"strings"
 	"syscall"
 
@@ -78,16 +79,20 @@ func NewGCS(bucket string, config *common.GCSConfig) (*GCSBackend, error) {
 
 // Init checks user's access to bucket.
 func (g *GCSBackend) Init(key string) error {
-	g.logger.Debugf("INIT GCS: %s", key)
-	_, err := g.bucket.Object(key).Attrs(context.Background())
-
-	// Currently we return successful mounts on 404 errors. However, GCS does not differentiate bucket not found and
-	// object not found errors. So, even though we don't know that the bucket exists, we will still mount successfully.
-	if err == storage.ErrObjectNotExist {
-		err = nil
+	// We will do a successful mount if the user can list on the bucket.
+	// This is different other backends because GCS does not differentiate between object not found and
+	// bucket not found.
+	prefix, _ := path.Split(key)
+	_, err := g.ListBlobs(&ListBlobsInput{
+		MaxKeys: PUInt32(1),
+		Prefix:  PString(prefix),
+	})
+	g.logger.Debugf("INIT GCS: ListStatus = %s", getDebugResponseStatus(err))
+	if err == syscall.ENXIO {
+		return fmt.Errorf("bucket %v does not exist", g.bucketName)
 	}
-
-	return mapGCSError(err)
+	// Errors can be returned directly since ListBlobs converts them to syscall errors.
+	return err
 }
 
 func (g *GCSBackend) Capabilities() *Capabilities {
