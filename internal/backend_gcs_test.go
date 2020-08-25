@@ -187,19 +187,18 @@ func (s *GCSBackendTest) TearDownTest(c *C) {
 }
 
 func (s *GCSBackendTest) TestGCSBackend_Init_Authenticated(c *C) {
-	// on existing private bucket
+	// No error when accessing existing private bucket.
 	err := s.gcsBackend.Init(s.bucketName)
 	c.Assert(err, IsNil)
 
-	// on nonexistent bucket
-	gcsBackend, err := s.getGCSTestBackend(RandStringBytesMaskImprSrc(16))
+	// Not Found error when accessing nonexistent bucket.
+	randBktName := RandStringBytesMaskImprSrc(16)
+	gcsBackend, err := s.getGCSTestBackend(randBktName)
 	c.Assert(err, IsNil)
 	err = gcsBackend.Init(RandStringBytesMaskImprSrc(16))
-	// there is no error because we return not found errors as successful
-	// bucket not found has the same 404 error code as object not found
-	c.Assert(err, IsNil)
+	c.Assert(err, ErrorMatches, fmt.Sprintf("bucket %s does not exist", randBktName))
 
-	// on public bucket
+	// No error when accessing public bucket.
 	gcsBackend, err = s.getGCSTestBackend("gcp-public-data-nexrad-l2")
 	c.Assert(err, IsNil)
 	err = gcsBackend.Init(RandStringBytesMaskImprSrc(16))
@@ -218,19 +217,20 @@ func (s *GCSBackendTest) TestGCSBackend_Init_Unauthenticated(c *C) {
 		c.Skip("Skipping this test because credentials still exist in the environment.")
 	}
 
-	// on existing private bucket
+	// Access error on existing private bucket.
 	gcsBackend, err := s.getGCSTestBackend(s.bucketName)
 	c.Assert(err, IsNil)
 	err = gcsBackend.Init(RandStringBytesMaskImprSrc(15))
 	c.Assert(err, Equals, syscall.EACCES)
 
-	// on nonexistent bucket. there is no error because bucket not found is a 404 error
-	gcsBackend, err = s.getGCSTestBackend(RandStringBytesMaskImprSrc(16))
+	// Not Found error when accessing nonexistent bucket.
+	randBktName := RandStringBytesMaskImprSrc(16)
+	gcsBackend, err = s.getGCSTestBackend(randBktName)
 	c.Assert(err, IsNil)
 	err = gcsBackend.Init(RandStringBytesMaskImprSrc(16))
-	c.Assert(err, IsNil)
+	c.Assert(err, ErrorMatches, fmt.Sprintf("bucket %s does not exist", randBktName))
 
-	// on public bucket
+	// No error when accessing public bucket.
 	gcsBackend, err = s.getGCSTestBackend("gcp-public-data-nexrad-l2")
 	c.Assert(err, IsNil)
 	err = gcsBackend.Init(RandStringBytesMaskImprSrc(16))
@@ -249,21 +249,24 @@ func (s *GCSBackendTest) TestGCSBackend_Init_Authenticated_ReadOnlyAccess(c *C) 
 	}()
 	os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", os.Getenv("READONLY_GOOGLE_APPLICATION_CREDENTIALS"))
 
-	// on existing private bucket
+	// No error when accessing existing private bucket.
 	gcsBackend, err := s.getGCSTestBackend(s.bucketName)
 	c.Assert(err, IsNil)
+	err = gcsBackend.Init(s.bucketName)
+	c.Assert(err, IsNil)
 
-	// error when trying to modify object
+	// Access error when trying to modify object.
 	_, err = gcsBackend.DeleteBlob(&DeleteBlobInput{Key: s.testSpec.existingObjKey})
 	c.Assert(err, Equals, syscall.EACCES)
 
-	// on nonexistent bucket. there is no error because bucket not found is a 404 error
-	gcsBackend, err = s.getGCSTestBackend(RandStringBytesMaskImprSrc(16))
+	// Not Found error when accessing nonexistent bucket.
+	randBktName := RandStringBytesMaskImprSrc(16)
+	gcsBackend, err = s.getGCSTestBackend(randBktName)
 	c.Assert(err, IsNil)
 	err = gcsBackend.Init(RandStringBytesMaskImprSrc(16))
-	c.Assert(err, IsNil)
+	c.Assert(err, ErrorMatches, fmt.Sprintf("bucket %s does not exist", randBktName))
 
-	// on public bucket
+	// No error when accessing public bucket.
 	gcsBackend, err = s.getGCSTestBackend("gcp-public-data-nexrad-l2")
 	c.Assert(err, IsNil)
 	err = gcsBackend.Init(RandStringBytesMaskImprSrc(16))
