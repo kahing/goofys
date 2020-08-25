@@ -158,6 +158,9 @@ func (s *GCSBackendTest) SetUpSuite(c *C) {
 }
 
 func (s *GCSBackendTest) TearDownSuite(c *C) {
+	if os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") == "" {
+		c.Skip("Skipping because GOOGLE_APPLICATION_CREDENTIALS variable is unset.")
+	}
 	out, err := s.gcsBackend.ListBlobs(&ListBlobsInput{})
 	c.Assert(err, IsNil)
 
