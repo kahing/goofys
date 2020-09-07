@@ -758,7 +758,7 @@ func (fs *Goofys) ForgetInode(
 	inode := fs.getInodeOrDie(op.Inode)
 	fs.mu.RUnlock()
 
-	var parent = inode.Parent
+	parent := inode.Parent
 	if parent != nil {
 		parent.mu.Lock()
 		defer parent.mu.Unlock()
