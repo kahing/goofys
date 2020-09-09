@@ -758,9 +758,10 @@ func (fs *Goofys) ForgetInode(
 	inode := fs.getInodeOrDie(op.Inode)
 	fs.mu.RUnlock()
 
-	if inode.Parent != nil {
-		inode.Parent.mu.Lock()
-		defer inode.Parent.mu.Unlock()
+	parent := inode.Parent
+	if parent != nil {
+		parent.mu.Lock()
+		defer parent.mu.Unlock()
 	}
 	stale := inode.DeRef(op.N)
 
@@ -771,8 +772,8 @@ func (fs *Goofys) ForgetInode(
 		delete(fs.inodes, op.Inode)
 		fs.forgotCnt += 1
 
-		if inode.Parent != nil {
-			inode.Parent.removeChildUnlocked(inode)
+		if parent != nil {
+			parent.removeChildUnlocked(inode)
 		}
 	}
 
