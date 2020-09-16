@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"net/url"
 	"runtime/debug"
 	"strings"
@@ -35,7 +36,6 @@ import (
 	"github.com/jacobsa/fuse/fuseutil"
 
 	"github.com/sirupsen/logrus"
-	"net/http"
 )
 
 // goofys is a Filey System written in Go. All the backend data is
@@ -1194,4 +1194,16 @@ func (fs *Goofys) Rename(
 		}
 	}
 	return
+}
+
+// return full name of the given inode
+func (fs *Goofys) GetFullName(id fuseops.InodeID) *string {
+	fs.mu.Lock()
+	inode := fs.inodes[id]
+	fs.mu.Unlock()
+	if inode == nil {
+		return nil
+	}
+	return inode.FullName()
+
 }
