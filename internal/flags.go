@@ -97,11 +97,6 @@ func NewApp() (app *cli.App) {
 				Usage: "Print this help text and exit successfully.",
 			},
 
-			cli.StringFlag{
-				Name:  "pid-file",
-				Usage: "Write a pid file containing the process pid.",
-			},
-
 			/////////////////////////
 			// File system
 			/////////////////////////
@@ -265,6 +260,11 @@ func NewApp() (app *cli.App) {
 			cli.BoolFlag{
 				Name:  "f",
 				Usage: "Run goofys in foreground.",
+			},
+
+			cli.StringFlag{
+				Name:  "pid-file",
+				Usage: "Write a pid file containing the process pid. Does nothing if -f is used.",
 			},
 		},
 	}
