@@ -119,14 +119,14 @@ func GetLogger(name string) *LogHandle {
 
 	if logger, ok := loggers[name]; ok {
 		if name != "main" && name != "fuse" {
-			logger.Level = cloudLogLevel
+			logger.SetLevel(cloudLogLevel)
 		}
 		return logger
 	} else {
 		logger := NewLogger(name)
 		loggers[name] = logger
 		if name != "main" && name != "fuse" {
-			logger.Level = cloudLogLevel
+			logger.SetLevel(cloudLogLevel)
 		}
 		return logger
 	}
