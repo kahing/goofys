@@ -244,15 +244,29 @@ func adlv1LastModified(t int64) time.Time {
 }
 
 func adlv1FileStatus2BlobItem(f *adl.FileStatusProperties, key *string) BlobItemOutput {
+	logNilFileStatusField := func(msg string) {
+		adls1Log.Warnf("%s - type: %v, permission: %v, path: %v",
+			msg, f.Type, NilStr(f.Permission), NilStr(key))
+	}
+
 	var lastModified *time.Time
 	if f.ModificationTime != nil {
 		lastModified = PTime(adlv1LastModified(*f.ModificationTime))
+	} else {
+		logNilFileStatusField("empty modification time")
+	}
+
+	var size uint64
+	if f.Length != nil {
+		size = uint64(*f.Length)
+	} else {
+		logNilFileStatusField("empty length")
 	}
 
 	return BlobItemOutput{
 		Key:          key,
 		LastModified: lastModified,
-		Size:         uint64(NilInt64(f.Length)),
+		Size:         size,
 	}
 }
 
