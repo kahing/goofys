@@ -3,6 +3,7 @@
 [![Build Status](https://travis-ci.org/kahing/goofys.svg?branch=master)](https://travis-ci.org/kahing/goofys)
 [![Github All Releases](https://img.shields.io/github/downloads/kahing/goofys/total.svg)](https://github.com/kahing/goofys/releases/)
 [![Twitter Follow](https://img.shields.io/twitter/follow/s3goofys.svg?style=social&label=Follow)](https://twitter.com/s3goofys)
+[![Stack Overflow Questions](https://img.shields.io/stackexchange/stackoverflow/t/goofys?label=Stack%20Overflow%20questions)](https://stackoverflow.com/search?q=%5Bgoofys%5D+is%3Aquestion)
 
 # Overview
 
