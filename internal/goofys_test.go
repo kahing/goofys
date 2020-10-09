@@ -3196,6 +3196,39 @@ func (s *GoofysTest) TestIssue326(t *C) {
 		"file1", "file2", "folder#1#", "folder@name.something", "zero"})
 }
 
+// Test for this issue: https://github.com/kahing/goofys/issues/564
+func (s *GoofysTest) TestInvalidXMLIssue(t *C) {
+	dirName := "invalidXml"
+	// This is not an invalid xml but checking if url decoding was successful
+	dirNameWithValidXml := "folder1 !#$%&'<>*+,-.=?@[\\^~_\t"
+	// Testing directory name with invalid xml
+	dirNameWithInvalidXml := "invalid\b\v\a"
+
+	_, err := s.cloud.PutBlob(&PutBlobInput{
+		Key: fmt.Sprintf("%s/%s", dirName, dirNameWithValidXml),
+		Body: bytes.NewReader([]byte("")),
+		Size: PUInt64(0),
+	})
+	t.Assert(err, IsNil)
+
+	path := fmt.Sprintf("%s/%s", dirName, dirNameWithInvalidXml)
+	_, err = s.cloud.PutBlob(&PutBlobInput{
+		Key: path,
+		Body: bytes.NewReader([]byte("")),
+		Size: PUInt64(0),
+	})
+	t.Assert(err, IsNil)
+	// Delete the blob with invalid xml in its key as DeleteBlobs in tear down is not able to delete it
+	defer func() {
+		_, err := s.cloud.DeleteBlob(&DeleteBlobInput{Key: path})
+		t.Assert(err, IsNil)
+	}()
+
+	dir, err := s.LookUpInode(t, dirName)
+	t.Assert(err, IsNil)
+	s.assertEntries(t, dir, []string{dirNameWithValidXml, dirNameWithInvalidXml})
+}
+
 func (s *GoofysTest) TestSlurpFileAndDir(t *C) {
 	if _, ok := s.cloud.Delegate().(*S3Backend); !ok {
 		t.Skip("only for S3")

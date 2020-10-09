@@ -36,6 +36,10 @@ import (
 	"github.com/jacobsa/fuse"
 )
 
+const (
+	s3ListObjectsInputUrlEncodingType = "url"
+)
+
 type S3Backend struct {
 	*s3.S3
 	cap Capabilities
@@ -287,6 +291,7 @@ func (s *S3Backend) ListObjectsV2(params *s3.ListObjectsV2Input) (*s3.ListObject
 		if err != nil {
 			return nil, "", err
 		}
+
 		return resp, s.getRequestId(req), nil
 	} else {
 		v1 := s3.ListObjectsInput{
@@ -326,6 +331,36 @@ func (s *S3Backend) ListObjectsV2(params *s3.ListObjectsV2Input) (*s3.ListObject
 
 		return &v2Objs, "", nil
 	}
+}
+
+func urlDecodeListObjectsV2Output(output *s3.ListObjectsV2Output) error {
+	for _, commonPrefix := range output.CommonPrefixes {
+		if commonPrefix == nil || commonPrefix.Prefix == nil {
+			continue
+		}
+
+		if decodedPrefix, err := url.QueryUnescape(*commonPrefix.Prefix); err == nil {
+			commonPrefix.Prefix = &decodedPrefix
+		} else {
+			s3Log.Errorf("err decoding list object common prefix %v: %v", *commonPrefix.Prefix, err)
+			return err
+		}
+	}
+
+	for _, content := range output.Contents {
+		if content == nil || content.Key == nil {
+			continue
+		}
+
+		if decodedKey, err := url.QueryUnescape(*content.Key); err == nil {
+			content.Key = &decodedKey
+		} else {
+			s3Log.Errorf("err decoding list object content %v: %v", *content.Key, err)
+			return err
+		}
+	}
+
+	return nil
 }
 
 func metadataToLower(m map[string]*string) map[string]*string {
@@ -394,9 +429,15 @@ func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		MaxKeys:           maxKeys,
 		StartAfter:        param.StartAfter,
 		ContinuationToken: param.ContinuationToken,
+		// Use URL encoding so that keys with invalid xml characters can be listed
+		EncodingType:      PString(s3ListObjectsInputUrlEncodingType),
 	})
 	if err != nil {
 		return nil, mapAwsError(err)
+	}
+
+	if err := urlDecodeListObjectsV2Output(resp); err != nil {
+		return nil, err
 	}
 
 	prefixes := make([]BlobPrefixOutput, 0)
