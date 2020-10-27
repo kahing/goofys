@@ -570,6 +570,7 @@ func (dh *DirHandle) ReadDir(offset fuseops.DirOffset) (en *DirHandleEntry, err 
 			// childTmp.AttrTime < dh.refreshStartTime => the child entry was not
 			// updated from cloud by this dir Handle.
 			// So this is a stale entry that should be removed.
+			fuseLog.Infoln("remove stale", childTmp.Id, childTmp.Parent, *childTmp.FullName())
 			childTmp.Parent = nil
 			parent.removeChildUnlocked(childTmp)
 		} else {
