@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -56,6 +57,11 @@ type S3Backend struct {
 }
 
 func NewS3(bucket string, flags *FlagStorage, config *S3Config) (*S3Backend, error) {
+	if !config.RegionSet && os.Getenv("AWS_REGION") != "" {
+		config.RegionSet = true
+		config.Region = os.Getenv("AWS_REGION")
+	}
+
 	awsConfig, err := config.ToAwsConfig(flags)
 	if err != nil {
 		return nil, err
@@ -430,7 +436,7 @@ func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		StartAfter:        param.StartAfter,
 		ContinuationToken: param.ContinuationToken,
 		// Use URL encoding so that keys with invalid xml characters can be listed
-		EncodingType:      PString(s3ListObjectsInputUrlEncodingType),
+		EncodingType: PString(s3ListObjectsInputUrlEncodingType),
 	})
 	if err != nil {
 		return nil, mapAwsError(err)
