@@ -71,7 +71,7 @@ const READAHEAD_CHUNK = uint32(20 * 1024 * 1024)
 
 // NewFileHandle returns a new file handle for the given `inode` triggered by fuse
 // operation with the given `opMetadata`
-func NewFileHandle(inode *Inode, opMetadata fuseops.OpMetadata) *FileHandle {
+func NewFileHandle(inode *Inode, opMetadata fuseops.OpContext) *FileHandle {
 	tgid, err := GetTgid(opMetadata.Pid)
 	if err != nil {
 		log.Debugf(

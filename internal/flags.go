@@ -242,6 +242,10 @@ func NewApp() (app *cli.App) {
 				Value: 30 * time.Second,
 				Usage: "Set the timeout on HTTP requests to S3",
 			},
+			cli.BoolFlag{
+				Name:  "disable-default-permissions",
+				Usage: "Disable UNIX default_permissions flag on FUSE mount.",
+			},
 
 			/////////////////////////
 			// Debugging
@@ -275,7 +279,7 @@ func NewApp() (app *cli.App) {
 		flagCategories[f] = "aws"
 	}
 
-	for _, f := range []string{"cheap", "no-implicit-dir", "stat-cache-ttl", "type-cache-ttl", "http-timeout"} {
+	for _, f := range []string{"cheap", "no-implicit-dir", "stat-cache-ttl", "type-cache-ttl", "http-timeout", "disable-default-permissions"} {
 		flagCategories[f] = "tuning"
 	}
 
@@ -327,11 +331,12 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		Gid:          uint32(c.Int("gid")),
 
 		// Tuning,
-		Cheap:        c.Bool("cheap"),
-		ExplicitDir:  c.Bool("no-implicit-dir"),
-		StatCacheTTL: c.Duration("stat-cache-ttl"),
-		TypeCacheTTL: c.Duration("type-cache-ttl"),
-		HTTPTimeout:  c.Duration("http-timeout"),
+		Cheap:                     c.Bool("cheap"),
+		ExplicitDir:               c.Bool("no-implicit-dir"),
+		StatCacheTTL:              c.Duration("stat-cache-ttl"),
+		TypeCacheTTL:              c.Duration("type-cache-ttl"),
+		HTTPTimeout:               c.Duration("http-timeout"),
+		DisableDefaultPermissions: c.Bool("disable-default-permissions"),
 
 		// Common Backend Config
 		Endpoint:       c.String("endpoint"),
