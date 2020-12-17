@@ -27,10 +27,11 @@ func Mount(
 	}
 	// Mount the file system.
 	mountCfg := &fuse.MountConfig{
-		FSName:                  bucketName,
-		Options:                 flags.MountOptions,
-		ErrorLogger:             GetStdLogger(NewLogger("fuse"), logrus.ErrorLevel),
-		DisableWritebackCaching: true,
+		FSName:                    bucketName,
+		Options:                   flags.MountOptions,
+		ErrorLogger:               GetStdLogger(NewLogger("fuse"), logrus.ErrorLevel),
+		DisableWritebackCaching:   true,
+		DisableDefaultPermissions: flags.DisableDefaultPermissions,
 	}
 
 	if flags.DebugFuse {
