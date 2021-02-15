@@ -6,7 +6,7 @@
 
 # Overview
 
-Goofys allows you to mount an S3 bucket as a filey system.
+Goofys allows you to mount an S3 bucket as a file system.
 
 It's a Filey System instead of a File System because goofys strives
 for performance first and POSIX second. Particularly things that are
