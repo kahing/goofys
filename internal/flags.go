@@ -376,6 +376,12 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		parseOptions(flags.MountOptions, o)
 	}
 
+	if _, ok := flags.MountOptions["bg"]; ok {
+		flags.BgInit = true
+		// remove it from mount option so it doesn't go to the kernel
+		delete(flags.MountOptions, "bg")
+	}
+
 	flags.MountPointArg = c.Args()[1]
 	flags.MountPoint = flags.MountPointArg
 	var err error

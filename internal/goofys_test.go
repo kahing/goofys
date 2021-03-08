@@ -3205,7 +3205,7 @@ func (s *GoofysTest) TestInvalidXMLIssue(t *C) {
 	dirNameWithInvalidXml := "invalid\b\v\a"
 
 	_, err := s.cloud.PutBlob(&PutBlobInput{
-		Key: fmt.Sprintf("%s/%s", dirName, dirNameWithValidXml),
+		Key:  fmt.Sprintf("%s/%s", dirName, dirNameWithValidXml),
 		Body: bytes.NewReader([]byte("")),
 		Size: PUInt64(0),
 	})
@@ -3213,7 +3213,7 @@ func (s *GoofysTest) TestInvalidXMLIssue(t *C) {
 
 	path := fmt.Sprintf("%s/%s", dirName, dirNameWithInvalidXml)
 	_, err = s.cloud.PutBlob(&PutBlobInput{
-		Key: path,
+		Key:  path,
 		Body: bytes.NewReader([]byte("")),
 		Size: PUInt64(0),
 	})
@@ -4316,4 +4316,39 @@ func (s *GoofysTest) TestReadMyOwnNewFileFuse(t *C) {
 	//buf, err := ioutil.ReadFile(filePath)
 	//t.Assert(err, IsNil)
 	//t.Assert(string(buf), Equals, "filex")
+}
+
+func (s *GoofysTest) TestBgSlowMount(t *C) {
+	start := time.Now()
+	s.fs.flags.BgInit = true
+
+	s.fs = newGoofys(context.Background(), s.fs.bucket, s.fs.flags,
+		func(bucket string, flags *FlagStorage) (StorageBackend, error) {
+			cloud, err := NewBackend(bucket, flags)
+			if err != nil {
+				return nil, err
+			}
+
+			time.Sleep(2 * time.Second)
+
+			return cloud, nil
+		})
+	now := time.Now()
+	// check that this takes less than 1 second even though we are
+	// sleeping for 2
+	t.Assert(now.Before(start.Add(1*time.Second)), Equals, true,
+		Commentf("start %v now %v", start, now))
+
+	// lookup still works via the lazy init wrapper
+	fs := &LazyInitFileSystem{
+		Fs: s.fs,
+	}
+
+	lookup := fuseops.LookUpInodeOp{
+		Parent: fuseops.RootInodeID,
+		Name:   "file1",
+	}
+
+	err := fs.LookUpInode(nil, &lookup)
+	t.Assert(err, IsNil)
 }
