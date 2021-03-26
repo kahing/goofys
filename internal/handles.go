@@ -105,28 +105,51 @@ func NewInode(fs *Goofys, parent *Inode, name *string) (inode *Inode) {
 	return
 }
 
+func deepCopyBlobItemOputput(item *BlobItemOutput) BlobItemOutput {
+
+	key := *item.Key
+	etag := *item.ETag
+	lastmodified := *item.LastModified
+	var sc string
+	if item.StorageClass != nil {
+		sc = *item.StorageClass
+	}
+
+	return BlobItemOutput{
+		Key:          &key,
+		ETag:         &etag,
+		LastModified: &lastmodified,
+		Size:         item.Size,
+		StorageClass: &sc,
+	}
+}
+
 func (inode *Inode) SetFromBlobItem(item *BlobItemOutput) {
+	// copy item so they won't hold back references to the HTTP
+	// responses and SDK objects. See discussion in
+	// https://github.com/kahing/goofys/pull/547
+	itemcopy := deepCopyBlobItemOputput(item)
 	inode.mu.Lock()
 	defer inode.mu.Unlock()
 
-	inode.Attributes.Size = item.Size
+	inode.Attributes.Size = itemcopy.Size
 	// don't want to point to the attribute because that
 	// can get updated
-	size := item.Size
+	size := inode.Attributes.Size
 	inode.KnownSize = &size
 	if item.LastModified != nil {
-		inode.Attributes.Mtime = *item.LastModified
+		inode.Attributes.Mtime = *itemcopy.LastModified
 	} else {
 		inode.Attributes.Mtime = inode.fs.rootAttrs.Mtime
 	}
 	if item.ETag != nil {
-		inode.s3Metadata["etag"] = []byte(*item.ETag)
-		inode.knownETag = item.ETag
+		inode.s3Metadata["etag"] = []byte(*itemcopy.ETag)
+		inode.knownETag = itemcopy.ETag
 	} else {
 		delete(inode.s3Metadata, "etag")
 	}
 	if item.StorageClass != nil {
-		inode.s3Metadata["storage-class"] = []byte(*item.StorageClass)
+		inode.s3Metadata["storage-class"] = []byte(*itemcopy.StorageClass)
 	} else {
 		delete(inode.s3Metadata, "storage-class")
 	}
