@@ -9,7 +9,7 @@ install:
 - make s3proxy.jar
 script: travis_retry ./test/run-tests.sh GoofysTest
 go:
-  - 1.11.5
+  - 1.16
 go_import_path: github.com/kahing/goofys
 matrix:
   include:
