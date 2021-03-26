@@ -1104,6 +1104,9 @@ func (s *GoofysTest) TestWriteLargeFile(t *C) {
 }
 
 func (s *GoofysTest) TestWriteReallyLargeFile(t *C) {
+	if _, ok := s.cloud.(*S3Backend); ok && s.emulator {
+		t.Skip("seems to be OOM'ing S3proxy 1.8.0")
+	}
 	s.testWriteFile(t, "testLargeFile", 512*1024*1024+1, 128*1024)
 }
 
