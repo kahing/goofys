@@ -352,8 +352,8 @@ func (b *ADLv1) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		continuationToken = param.StartAfter
 	}
 
-	_, prefixes, items, err := b.appendToListResults(nilStr(param.Prefix),
-		recursive, nilStr(continuationToken), param.MaxKeys, nil, nil)
+	_, prefixes, items, err := b.appendToListResults(NilStr(param.Prefix),
+		recursive, NilStr(continuationToken), param.MaxKeys, nil, nil)
 	if err == fuse.ENOENT {
 		err = nil
 	} else if err != nil {

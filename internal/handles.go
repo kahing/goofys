@@ -107,12 +107,13 @@ func NewInode(fs *Goofys, parent *Inode, name *string) (inode *Inode) {
 
 func deepCopyBlobItemOputput(item *BlobItemOutput) BlobItemOutput {
 
-	key := *item.Key
-	etag := *item.ETag
-	lastmodified := *item.LastModified
-	var sc string
-	if item.StorageClass != nil {
-		sc = *item.StorageClass
+	key := NilStr(item.Key)
+	etag := NilStr(item.ETag)
+	sc := NilStr(item.StorageClass)
+
+	var lastmodified time.Time
+	if item.LastModified != nil {
+		lastmodified = *item.LastModified
 	}
 
 	return BlobItemOutput{

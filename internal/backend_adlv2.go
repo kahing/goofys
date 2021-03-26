@@ -384,7 +384,7 @@ func (b *ADLv2) listBlobs(param *ListBlobsInput, maxResults *int32) (adl2PathLis
 	// read errors are transient and should probably be retried more
 	for attempt := 0; attempt < 30; attempt++ {
 		res, err = b.client.List(context.TODO(), param.Delimiter == nil, b.bucket,
-			nilStr(param.Prefix), nilStr(param.ContinuationToken), maxResults,
+			NilStr(param.Prefix), NilStr(param.ContinuationToken), maxResults,
 			nil, "", nil, "")
 		err = mapADLv2Error(res.Response.Response, err, false)
 		if err == nil {
@@ -479,7 +479,7 @@ func (b *ADLv2) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		items = append(items, BlobItemOutput{
 			Key:          &key,
 			ETag:         p.ETag,
-			LastModified: parseADLv2Time(nilStr(p.LastModified)),
+			LastModified: parseADLv2Time(NilStr(p.LastModified)),
 			Size:         uint64(p.contentLength()),
 		})
 	}
@@ -571,7 +571,7 @@ func (b *ADLv2) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 	}
 
 	res, err := b.client.Read(context.TODO(), b.bucket, param.Key, bytes,
-		"", nil, nilStr(param.IfMatch), "", "", "",
+		"", nil, NilStr(param.IfMatch), "", "", "",
 		"", nil, "")
 	if err != nil {
 		return nil, mapADLv2Error(res.Response.Response, err, false)
@@ -633,7 +633,7 @@ func (b *ADLv2) toADLProperties(metadata map[string]*string) string {
 func (b *ADLv2) create(key string, pathType adl2.PathResourceType, contentType *string,
 	metadata map[string]*string, leaseId string) (resp autorest.Response, err error) {
 	resp, err = b.client.Create(context.TODO(), b.bucket, key,
-		pathType, "", "", "", "", "", "", "", nilStr(contentType),
+		pathType, "", "", "", "", "", "", "", NilStr(contentType),
 		"", "", "", "", leaseId, "", b.toADLProperties(metadata), "", "", "", "", "", "",
 		"", "", "", "", "", nil, "")
 	if err != nil {
@@ -707,7 +707,7 @@ func (b *ADLv2) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 			return nil, err
 		}
 
-		flush, err := b.flush(param.Key, size, nilStr(param.ContentType), "")
+		flush, err := b.flush(param.Key, size, NilStr(param.ContentType), "")
 		if err != nil {
 			return nil, err
 		}
@@ -760,7 +760,7 @@ func (b *ADLv2) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBl
 	}
 
 	commitData := &ADLv2MultipartBlobCommitInput{
-		ContentType:    nilStr(param.ContentType),
+		ContentType:    NilStr(param.ContentType),
 		RenewLeaseStop: make(chan bool, 1),
 	}
 

@@ -117,6 +117,14 @@ func PTime(v time.Time) *time.Time {
 	return &v
 }
 
+func NilStr(v *string) string {
+	if v == nil {
+		return ""
+	} else {
+		return *v
+	}
+}
+
 func xattrEscape(value []byte) (s string) {
 	for _, c := range value {
 		if c == '%' {

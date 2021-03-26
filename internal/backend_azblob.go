@@ -420,7 +420,7 @@ func nilMetadata(m map[string]*string) map[string]string {
 	metadata := make(map[string]string)
 	for k, v := range m {
 		k = strings.ToLower(k)
-		metadata[k] = nilStr(v)
+		metadata[k] = NilStr(v)
 	}
 	return metadata
 }
@@ -470,13 +470,6 @@ func (b *AZBlob) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	}, nil
 }
 
-func nilStr(v *string) string {
-	if v == nil {
-		return ""
-	} else {
-		return *v
-	}
-}
 func nilUint32(v *uint32) uint32 {
 	if v == nil {
 		return 0
@@ -503,7 +496,7 @@ func (b *AZBlob) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 	var nextMarker *string
 
 	options := azblob.ListBlobsSegmentOptions{
-		Prefix:     nilStr(param.Prefix),
+		Prefix:     NilStr(param.Prefix),
 		MaxResults: int32(nilUint32(param.MaxKeys)),
 		Details: azblob.BlobListingDetails{
 			// blobfuse (following wasb) convention uses
@@ -523,7 +516,7 @@ func (b *AZBlob) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 			azblob.Marker{
 				param.ContinuationToken,
 			},
-			nilStr(param.Delimiter),
+			NilStr(param.Delimiter),
 			options)
 		if err != nil {
 			return nil, mapAZBError(err)
@@ -811,7 +804,7 @@ func (b *AZBlob) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 	resp, err := blob.Upload(context.TODO(),
 		body,
 		azblob.BlobHTTPHeaders{
-			ContentType: nilStr(param.ContentType),
+			ContentType: NilStr(param.ContentType),
 		},
 		nilMetadata(param.Metadata), azblob.BlobAccessConditions{})
 	if err != nil {
