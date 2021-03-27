@@ -437,7 +437,10 @@ func (s *GoofysTest) setupDefaultEnv(t *C, public bool) {
 	s.setupEnv(t, s.env, public)
 }
 
-func (s *GoofysTest) setUpTestTimeout(t *C) {
+func (s *GoofysTest) setUpTestTimeout(t *C, timeout time.Duration) {
+	if s.timeout != nil {
+		close(s.timeout)
+	}
 	s.timeout = make(chan int)
 	debug.SetTraceback("all")
 	started := time.Now()
@@ -448,9 +451,9 @@ func (s *GoofysTest) setUpTestTimeout(t *C) {
 			if !ok {
 				return
 			}
-		case <-time.After(PerTestTimeout):
+		case <-time.After(timeout):
 			panic(fmt.Sprintf("timeout %v reached. Started %v now %v",
-				PerTestTimeout, started, time.Now()))
+				timeout, started, time.Now()))
 		}
 	}()
 }
@@ -458,7 +461,7 @@ func (s *GoofysTest) setUpTestTimeout(t *C) {
 func (s *GoofysTest) SetUpTest(t *C) {
 	log.Infof("Starting at %v", time.Now())
 
-	s.setUpTestTimeout(t)
+	s.setUpTestTimeout(t, PerTestTimeout)
 
 	var bucket string
 	mount := os.Getenv("MOUNT")
@@ -1775,6 +1778,7 @@ func (s *GoofysTest) TestBenchLs(t *C) {
 	s.fs.flags.TypeCacheTTL = 1 * time.Minute
 	s.fs.flags.StatCacheTTL = 1 * time.Minute
 	mountPoint := "/tmp/mnt" + s.fs.bucket
+	s.setUpTestTimeout(t, 20*time.Minute)
 	s.runFuseTest(t, mountPoint, false, "../bench/bench.sh", "cat", mountPoint, "ls")
 }
 
