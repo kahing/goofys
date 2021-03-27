@@ -313,6 +313,7 @@ func (s *GoofysTest) deleteBucket(cloud StorageBackend) error {
 
 func (s *GoofysTest) TearDownTest(t *C) {
 	close(s.timeout)
+	s.timeout = nil
 
 	for _, cloud := range s.removeBucket {
 		err := s.deleteBucket(cloud)
