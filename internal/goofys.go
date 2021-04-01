@@ -55,7 +55,7 @@ type Goofys struct {
 
 	umask uint32
 
-	gcs       bool
+	gcsS3     bool
 	rootAttrs InodeAttributes
 
 	bufferPool *BufferPool
@@ -114,6 +114,8 @@ func NewBackend(bucket string, flags *FlagStorage) (cloud StorageBackend, err er
 		} else {
 			cloud, err = NewS3(bucket, flags, config)
 		}
+	} else if config, ok := flags.Backend.(*GCSConfig); ok {
+		cloud, err = NewGCS(bucket, config)
 	} else {
 		err = fmt.Errorf("Unknown backend config: %T", flags.Backend)
 	}
@@ -197,7 +199,7 @@ func newGoofys(ctx context.Context, bucket string, flags *FlagStorage,
 		log.Errorf("Unable to setup backend: %v", err)
 		return nil
 	}
-	_, fs.gcs = cloud.Delegate().(*GCS3)
+	_, fs.gcsS3 = cloud.Delegate().(*GCS3)
 
 	randomObjectName := prefix + (RandStringBytesMaskImprSrc(32))
 	err = cloud.Init(randomObjectName)

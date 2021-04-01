@@ -25,6 +25,7 @@ func Mount(
 	if flags.DebugS3 {
 		SetCloudLogLevel(logrus.DebugLevel)
 	}
+
 	// Mount the file system.
 	mountCfg := &fuse.MountConfig{
 		FSName:                  bucketName,
@@ -106,6 +107,10 @@ func Mount(
 				if spec.Prefix != "" {
 					bucketName += ":" + spec.Prefix
 				}
+			case "gs":
+				config := NewGCSConfig()
+				bucketName = spec.Bucket
+				flags.Backend = config
 			}
 		}
 	}

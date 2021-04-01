@@ -507,7 +507,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		_, err = s3.ListBuckets(nil)
 		t.Assert(err, IsNil)
 
-	} else if cloud == "gcs" {
+	} else if cloud == "gcs3" {
 		conf := s.selectTestConfig(t, flags)
 		flags.Backend = &conf
 
@@ -612,6 +612,15 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		flags.Backend = &config
 
 		s.cloud, err = NewADLv2(bucket, flags, &config)
+		t.Assert(err, IsNil)
+		t.Assert(s.cloud, NotNil)
+	} else if cloud == "gcs" {
+		config := NewGCSConfig()
+		t.Assert(config, NotNil)
+
+		flags.Backend = config
+		var err error
+		s.cloud, err = NewGCS(bucket, config)
 		t.Assert(err, IsNil)
 		t.Assert(s.cloud, NotNil)
 	} else {
@@ -1297,6 +1306,8 @@ func (s *GoofysTest) TestBackendListPagination(t *C) {
 		itemsPerPage = 1000
 	case *AZBlob, *ADLv2:
 		itemsPerPage = 5000
+	case *GCSBackend:
+		itemsPerPage = 1000
 	default:
 		t.Fatalf("unknown backend: %T", s.cloud)
 	}
@@ -3353,6 +3364,10 @@ func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud S
 		config, _ := s.fs.flags.Backend.(*ADLv2Config)
 		cloud, err = NewADLv2(bucket, s.fs.flags, config)
 		t.Assert(err, IsNil)
+	case *GCSBackend:
+		config, _ := s.fs.flags.Backend.(*GCSConfig)
+		cloud, err = NewGCS(bucket, config)
+		t.Assert(err, IsNil)
 	default:
 		t.Fatal("unknown backend")
 	}
@@ -3586,6 +3601,19 @@ func (s *GoofysTest) TestMountsError(t *C) {
 		defer func() {
 			adlCloud.client.BaseClient.Authorizer = auth
 		}()
+	} else if _, ok := s.cloud.(*GCSBackend); ok {
+		// We'll trigger a failure on GCS mount by using an unauthenticated client to mount to a private bucket
+		defaultCreds := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+		os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+		defer func() {
+			os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", defaultCreds)
+		}()
+
+		var err error
+		config := NewGCSConfig()
+		cloud, err = NewGCS(s.fs.bucket, config)
+		t.Assert(err, IsNil)
 	} else {
 		cloud = s.newBackend(t, bucket, false)
 	}

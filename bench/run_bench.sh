@@ -24,6 +24,7 @@ dir=$(dirname $0)
 mkdir bench-mnt
 
 S3FS_CACHE="-ouse_cache=/tmp/cache"
+GCSFUSE_CACHE="" # by default performs caching
 GOOFYS_CACHE="--cache /tmp/cache -o allow_other"
 
 if [ "$CACHE" == "false" ]; then
@@ -51,6 +52,12 @@ if [ -f /usr/local/bin/blobfuse ]; then
     GOOFYS_ENDPOINT=""
 fi
 
+if [ -f /root/go/bin/gcsfuse ]; then
+  PROG="gcsfuse"
+  GOOFYS_BUCKET="gs://${BUCKET}"
+  GOOFYS_ENDPOINT=""
+fi
+
 rm -f $dir/bench.goofys $dir/bench.$PROG $dir/bench.png $dir/bench-cached.png
 
 export BUCKET
@@ -59,6 +66,7 @@ export ENDPOINT
 S3FS="s3fs -f -ostat_cache_expire=1 ${S3FS_CACHE} ${S3FS_ENDPOINT} $BUCKET bench-mnt"
 GOOFYS="goofys -f --stat-cache-ttl 1s --type-cache-ttl 1s ${GOOFYS_CACHE} ${GOOFYS_ENDPOINT} ${GOOFYS_BUCKET} bench-mnt"
 BLOBFUSE="blobfuse bench-mnt --container-name=$BUCKET --tmp-path=/tmp/cache"
+GCSFUSE="gcsfuse --temp-dir /tmp/cache --foreground $GCSFUSE_CACHE $BUCKET bench-mnt"
 LOCAL="cat"
 
 iter=10
@@ -108,6 +116,10 @@ for fs in $PROG goofys; do
 	    FS=$BLOBFUSE
 	    CREATE_FS=$FS
 	    ;;
+        gcsfuse)
+            FS=$GCSFUSE
+            CREATE_FS=$FS
+            ;;
         cat)
             FS=$LOCAL
             CREATE_FS=$FS

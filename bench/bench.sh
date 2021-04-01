@@ -5,6 +5,7 @@
 : ${test:=""}
 : ${CACHE:="false"}
 : ${CLEANUP:="true"}
+: ${MOUNT_LOG:="mount.log"}
 
 iter=10
 
@@ -49,7 +50,7 @@ else
     BLOBFUSE="false"
 fi
 
-$cmd >& mount.log &
+$cmd >& $MOUNT_LOG &
 PID=$!
 
 function cleanup {
@@ -73,7 +74,7 @@ function cleanup {
 
 function cleanup_err {
     err=$?
-    cat mount.log
+    cat $MOUNT_LOG
     if [ $MOUNTED == 1 ]; then
         popd >&/dev/null || true
         rmdir $prefix >&/dev/null || true
@@ -99,7 +100,7 @@ function wait_for_mount {
     done
     if ! grep -q $mnt /proc/mounts; then
         echo "$mnt not mounted by $cmd"
-        cat mount.log
+        cat $MOUNT_LOG
         exit 1
     fi
 }
@@ -144,7 +145,7 @@ function run_test {
 		fusermount -u $mnt
 		sleep 1
 	    fi
-	    $cmd >& mount.log &
+	    $cmd >& $MOUNT_LOG &
 	    PID=$!
 	    wait_for_mount
 	    pushd "$prefix" >/dev/null

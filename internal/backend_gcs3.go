@@ -34,7 +34,7 @@ type GCS3 struct {
 	*S3Backend
 }
 
-type GCSMultipartBlobCommitInput struct {
+type GCS3MultipartBlobCommitInput struct {
 	Size uint64
 	ETag *string
 	Prev *MultipartBlobAddInput
@@ -45,7 +45,7 @@ func NewGCS3(bucket string, flags *FlagStorage, config *S3Config) (*GCS3, error)
 	if err != nil {
 		return nil, err
 	}
-	s3Backend.Capabilities().Name = "gcs"
+	s3Backend.Capabilities().Name = "gcs3"
 	s := &GCS3{S3Backend: s3Backend}
 	s.S3Backend.gcs = true
 	s.S3Backend.cap.NoParallelMultipart = true
@@ -125,7 +125,7 @@ func (s *GCS3) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlo
 		Metadata:    param.Metadata,
 		UploadId:    &location,
 		Parts:       make([]*string, 10000), // at most 10K parts
-		backendData: &GCSMultipartBlobCommitInput{},
+		backendData: &GCS3MultipartBlobCommitInput{},
 	}, nil
 }
 
@@ -183,9 +183,9 @@ func (s *GCS3) uploadPart(param *MultipartBlobAddInput, totalSize uint64, last b
 }
 
 func (s *GCS3) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error) {
-	var commitData *GCSMultipartBlobCommitInput
+	var commitData *GCS3MultipartBlobCommitInput
 	var ok bool
-	if commitData, ok = param.Commit.backendData.(*GCSMultipartBlobCommitInput); !ok {
+	if commitData, ok = param.Commit.backendData.(*GCS3MultipartBlobCommitInput); !ok {
 		panic("Incorrect commit data type")
 	}
 
@@ -210,9 +210,9 @@ func (s *GCS3) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAdd
 }
 
 func (s *GCS3) MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error) {
-	var commitData *GCSMultipartBlobCommitInput
+	var commitData *GCS3MultipartBlobCommitInput
 	var ok bool
-	if commitData, ok = param.backendData.(*GCSMultipartBlobCommitInput); !ok {
+	if commitData, ok = param.backendData.(*GCS3MultipartBlobCommitInput); !ok {
 		panic("Incorrect commit data type")
 	}
 

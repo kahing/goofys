@@ -16,6 +16,7 @@ package internal
 
 import (
 	"fmt"
+	"strings"
 	"time"
 	"unicode"
 
@@ -125,6 +126,30 @@ func NilStr(v *string) string {
 	}
 }
 
+func NilUint32(v *uint32) uint32 {
+	if v == nil {
+		return 0
+	} else {
+		return *v
+	}
+}
+
+func NilInt64(v *int64) int64 {
+	if v == nil {
+		return 0
+	} else {
+		return *v
+	}
+}
+
+func NilUint64(v *uint64) uint64 {
+	if v == nil {
+		return 0
+	} else {
+		return *v
+	}
+}
+
 func xattrEscape(value []byte) (s string) {
 	for _, c := range value {
 		if c == '%' {
@@ -186,4 +211,38 @@ func GetTgid(pid uint32) (tgid *int32, err error) {
 		return nil, err
 	}
 	return &tgidVal, nil
+}
+
+func PMetadata(m map[string]string) map[string]*string {
+	metadata := make(map[string]*string)
+	for k, _ := range m {
+		k = strings.ToLower(k)
+		v := m[k]
+		metadata[k] = &v
+	}
+	return metadata
+}
+
+func NilMetadata(m map[string]*string) map[string]string {
+	metadata := make(map[string]string)
+	for k, v := range m {
+		k = strings.ToLower(k)
+		metadata[k] = NilStr(v)
+	}
+	return metadata
+}
+
+// The following functions are useful to debug byte sizes
+func ConvertBytesToIEC(size int64) string {
+	var unit int64 = 1024
+	if size < unit {
+		return fmt.Sprintf("%d %c", size, 'B')
+	}
+	// divide size by unit until it is less than unit
+	curSize, exp := float64(size), 0
+	for curSize >= float64(unit) {
+		curSize /= float64(unit)
+		exp += 1
+	}
+	return fmt.Sprintf("%.1f %ciB", curSize, "KMGTPEZY"[exp-1])
 }
