@@ -1,0 +1,44 @@
+FROM golang:1.14 AS goofys-builder
+
+# install goofys
+WORKDIR $GOPATH/src/github.com/kahing/goofys
+
+COPY . .
+
+RUN git init
+RUN git submodule update --init --recursive
+RUN go build
+
+# install gcsfuse, the binary is added to /go/bin/gcsfuse
+RUN go get -u github.com/googlecloudplatform/gcsfuse
+
+FROM ubuntu:18.04
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get -y install --no-install-recommends \
+            # gcsfuse dependencies \
+            fuse \
+            # for running goofys benchmark \
+            curl python-setuptools python-pip gnuplot-nox imagemagick awscli \
+            # finally, clean up to make image smaller \
+            && apt-get clean
+
+# install catfs, required to run goofys with cache
+RUN curl -L -O https://github.com/kahing/catfs/releases/download/v0.8.0/catfs && \
+    mv catfs /usr/bin && chmod 0755 /usr/bin/catfs
+
+# goofys graph generation
+RUN pip install numpy
+
+ENV PATH=$PATH:/root/go/bin
+
+# copy go binaries
+COPY --from=goofys-builder /go/src/github.com/kahing/goofys/goofys /root/go/bin/goofys
+COPY --from=goofys-builder /go/bin/gcsfuse /root/go/bin/gcsfuse
+
+WORKDIR /root/go/src/github.com/kahing/goofys
+
+# copy bench scripts
+COPY bench bench
+
+ENTRYPOINT ["/root/go/src/github.com/kahing/goofys/bench/run_bench.sh"]

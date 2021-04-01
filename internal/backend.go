@@ -26,6 +26,7 @@ import (
 )
 
 type Capabilities struct {
+	// set this to true to disable parallel upload
 	NoParallelMultipart bool
 	MaxMultipartSize    uint64
 	// indicates that the blob store has native support for directories
@@ -162,7 +163,7 @@ type MultipartBlobCommitInput struct {
 	Parts    []*string
 	NumParts uint32
 
-	// for GCS
+	// additional backend specific data
 	backendData interface{}
 }
 
@@ -278,8 +279,39 @@ func (p sortBlobItemOutput) Swap(i, j int) {
 	p[i], p[j] = p[j], p[i]
 }
 
+func (l ListBlobsInput) String() string {
+	return fmt.Sprintf("ListBlobsInput{Prefix: %v, Delim: %v, StartAfter: %v, MaxKeys: %v, ContToken: %v}",
+		NilStr(l.Prefix),
+		NilStr(l.Delimiter),
+		NilStr(l.StartAfter),
+		NilUint32(l.MaxKeys),
+		NilStr(l.ContinuationToken))
+}
+
+func (b GetBlobInput) String() string {
+	return fmt.Sprintf("GetBlobInput{Key: %s, Start: %d, Count: %d}", b.Key, b.Start, b.Count)
+}
+
 func (b BlobItemOutput) String() string {
 	return fmt.Sprintf("%v: %v", *b.Key, b.Size)
+}
+
+func (b PutBlobInput) String() string {
+	return fmt.Sprintf("PutBlobInput{Key: %s, Size: %d, ContentType: %s}", b.Key, NilUint64(b.Size),
+		NilStr(b.ContentType))
+}
+
+func (b CopyBlobInput) String() string {
+	return fmt.Sprintf("CopyBlobInput{Src: %s, Dest: %s, Size: %d}", b.Source, b.Destination, b.Size)
+}
+
+func (b MultipartBlobBeginInput) String() string {
+	return fmt.Sprintf("MultipartBlobBeginInput{Key: %s, ContentType: %s}", b.Key, NilStr(b.ContentType))
+}
+
+func (b MultipartBlobAddInput) String() string {
+	return fmt.Sprintf("MultipartBlobAddInput{Key: %s, Offset: %d, Size: %d, Last: %v}",
+		NilStr(b.Commit.Key), b.Offset, b.Size, b.Last)
 }
 
 func (b BlobPrefixOutput) String() string {

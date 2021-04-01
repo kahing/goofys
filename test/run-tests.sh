@@ -9,6 +9,7 @@ set -o nounset
 : ${PROXY_PID:=""}
 : ${TIMEOUT:="10m"}
 : ${MOUNT:="false"}
+: ${GOOGLE_APPLICATION_CREDENTIALS:=""}
 
 export MOUNT
 
@@ -65,6 +66,11 @@ elif [ $CLOUD == "azblob" ]; then
     export ENDPOINT
 elif [ $CLOUD == "adlv1" ]; then
     TIMEOUT=40m
+elif [ $CLOUD == "gcs" ]; then
+    if [ "$GOOGLE_APPLICATION_CREDENTIALS" = "" ]; then
+      echo "GOOGLE_APPLICATION_CREDENTIALS must be set" 1>&2
+      exit 1
+    fi
 fi
 
 if [ "$PROXY_BIN" != "" ]; then
