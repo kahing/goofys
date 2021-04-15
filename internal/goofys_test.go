@@ -4200,10 +4200,12 @@ func (s *GoofysTest) testReadMyOwnWriteFuse(t *C, externalUpdate bool) {
 	if !externalUpdate {
 		// we flushed and ttl expired, next lookup should
 		// realize nothing is changed and NOT invalidate the
-		// cache. Except ADLv1 because PUT there doesn't
+		// cache. Except ADLv1,GCS because PUT there doesn't
 		// return the mtime, so the open above will think the
 		// file is updated and not re-use cache
-		if _, adlv1 := s.cloud.(*ADLv1); !adlv1 {
+		_, adlv1 := s.cloud.(*ADLv1)
+		_, isGCS := s.cloud.(*GCSBackend)
+		if  !adlv1 && !isGCS {
 			cloud.err = fuse.EINVAL
 		}
 	} else {
