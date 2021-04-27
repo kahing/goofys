@@ -768,7 +768,7 @@ func (b *ADLv2) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBl
 		for {
 			select {
 			case <-commitData.RenewLeaseStop:
-				break
+				return
 			case <-time.After(30 * time.Second):
 				b.lease(adl2.Renew, param.Key, leaseId, 60, "")
 			}
