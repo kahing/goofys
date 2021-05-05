@@ -260,6 +260,31 @@ func azureAccountsClient(account string) (azblob.AccountsClient, error) {
 	}
 
 	c.BaseClient.Authorizer = authorizer
+	c.BaseClient.RequestInspector = func(p autorest.Preparer) autorest.Preparer {
+		return autorest.PreparerFunc(func(r *http.Request) (*http.Request, error) {
+			azbLog.Debugf("%v %v", r.Method, r.URL.String())
+			r, err := p.Prepare(r)
+			if err != nil {
+				azbLog.Error(err)
+			}
+			return r, err
+		})
+	}
+	c.BaseClient.ResponseInspector = func(p autorest.Responder) autorest.Responder {
+		return autorest.ResponderFunc(func(r *http.Response) error {
+			// seems like this is called twice per
+			// response and causes one extra debug log,
+			// but that's better than not logging it
+			azbLog.Debugf("%v %v %v",
+				r.Request.Method, r.Request.URL.String(), r.Status)
+			err := p.Respond(r)
+			if err != nil {
+				azbLog.Error(err)
+			}
+			return err
+		})
+	}
+
 	return c, nil
 }
 
