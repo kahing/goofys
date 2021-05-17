@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -136,21 +137,54 @@ func (s *S3Backend) newS3() {
 	s.S3.Handlers.Sign.PushBack(addAcceptEncoding)
 }
 
-func (s *S3Backend) detectBucketLocationByHEAD() (err error, isAws bool) {
-	u := url.URL{
-		Scheme: "https",
-		Host:   "s3.amazonaws.com",
-		Path:   s.bucket,
+// s3 allowed more flexible bucket names at some point and now
+// requires more restrictive names that are always dns safe. This
+// function doesn't validate all of the bucket naming rules in
+// https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
+// but only those that impact whether we can use bucket name in DNS
+func isBucketNameDNSSafe(bucket string) bool {
+	// We dont allow dot: The linked aws documentation says that.
+	// > For best compatibility, we recommend that you avoid using dots (.) in bucket names,
+	// > except for buckets that are used only for static website hosting. If you include dots
+	// > in a bucket's name, you can't use virtual-host-style addressing over HTTPS, unless
+	// > you perform your own certificate validation. This is because the security certificates
+	// > used for virtual hosting of buckets don't work for buckets with dots in their names.
+	matched, err := regexp.MatchString("^[a-zA-Z0-9\\-]{3,63}$", bucket)
+	if err != nil {
+		s3Log.Errorf("cannot match %v: %v", bucket, err)
+		return false
 	}
+	return matched
+}
 
+func (s *S3Backend) detectBucketLocationByHEAD() (err error, isAws bool) {
+	var u url.URL
 	if s.awsConfig.Endpoint != nil {
+		// If the endpoint is set, just use it as host.
 		endpoint, err := url.Parse(*s.awsConfig.Endpoint)
 		if err != nil {
 			return err, false
 		}
-
-		u.Scheme = endpoint.Scheme
-		u.Host = endpoint.Host
+		u = url.URL {
+			Scheme: endpoint.Scheme,
+			Host:   endpoint.Host,
+			Path:   s.bucket,
+		}
+	} else if isBucketNameDNSSafe(s.bucket) {
+		// prefer using host-based bucket URL to detect region because
+		// in AWS PrivateLink, host-based bucket resolves to a usable
+		// IP whereas the address behind s3.amazonaws.com may be
+		// blocked
+		u = url.URL{
+			Scheme: "https",
+			Host:   s.bucket + ".s3.amazonaws.com",
+		}
+	} else {
+		u = url.URL{
+			Scheme: "https",
+			Host:   "s3.amazonaws.com",
+			Path:   s.bucket,
+		}
 	}
 
 	var req *http.Request
