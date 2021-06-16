@@ -18,7 +18,8 @@ close-to-open.
 
 # Installation
 
-* On Linux, install via [pre-built binaries](https://github.com/kahing/goofys/releases/latest/download/goofys). You may also need to install fuse-utils first.
+* On Linux, install via [pre-built binaries](https://github.com/kahing/goofys/releases/latest/download/goofys). 
+You may also need to install fuse too if you want to mount it on startup.
 
 * On macOS, install via [Homebrew](https://brew.sh/):
 
