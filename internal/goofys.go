@@ -553,6 +553,8 @@ func mapHttpError(status int) error {
 		return syscall.ENOTSUP
 	case http.StatusConflict:
 		return syscall.EINTR
+	case 411: // Length Required
+		return syscall.EINVAL
 	case 429:
 		return syscall.EAGAIN
 	case 500:

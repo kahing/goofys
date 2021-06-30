@@ -148,6 +148,10 @@ func NewAZBlob(container string, config *AZBlobConfig) (*AZBlob, error) {
 		RequestLog: azblob.RequestLogOptions{
 			LogWarningIfTryOverThreshold: time.Duration(-1),
 		},
+		Retry: azblob.RetryOptions{
+			MaxTries:   config.MaxRetries,
+			RetryDelay: config.RetryDuration,
+		},
 		HTTPSender: newAzBlobHTTPClientFactory(),
 	}
 

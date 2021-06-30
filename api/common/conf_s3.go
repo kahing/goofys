@@ -55,6 +55,7 @@ type S3Config struct {
 	Session     *session.Session
 
 	BucketOwner string
+	MaxRetries  int
 }
 
 var s3Session *session.Session
@@ -77,6 +78,10 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 		Transport: &defaultHTTPTransport,
 		Timeout:   flags.HTTPTimeout,
 	})
+	if c.MaxRetries != 0 {
+		awsConfig.MaxRetries = &c.MaxRetries
+	}
+
 	if flags.DebugS3 {
 		awsConfig.LogLevel = aws.LogLevel(aws.LogDebug | aws.LogDebugWithRequestErrors)
 	}

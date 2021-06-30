@@ -47,6 +47,9 @@ type AZBlobConfig struct {
 
 	Container string
 	Prefix    string
+
+	RetryDuration time.Duration
+	MaxRetries    int32
 }
 
 func (config *AZBlobConfig) Init() {
@@ -83,16 +86,18 @@ func (config *AZBlobConfig) WithAuthorization() autorest.PrepareDecorator {
 }
 
 type ADLv1Config struct {
-	Endpoint   string
-	Authorizer autorest.Authorizer
+	Endpoint      string
+	Authorizer    autorest.Authorizer
+	RetryDuration time.Duration
 }
 
 func (config *ADLv1Config) Init() {
 }
 
 type ADLv2Config struct {
-	Endpoint   string
-	Authorizer autorest.Authorizer
+	Endpoint      string
+	Authorizer    autorest.Authorizer
+	RetryDuration time.Duration
 }
 
 type AzureAuthorizerConfig struct {

@@ -137,6 +137,7 @@ func NewADLv1(bucket string, flags *FlagStorage, config *ADLv1Config) (*ADLv1, e
 	}
 
 	adlClient := adl.NewClient()
+	adlClient.BaseClient.Client.RetryDuration = config.RetryDuration
 	adlClient.BaseClient.Client.Authorizer = config.Authorizer
 	adlClient.BaseClient.Client.RequestInspector = LogRequest
 	adlClient.BaseClient.Client.ResponseInspector = LogResponse
