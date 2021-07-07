@@ -16,9 +16,12 @@
 package main
 
 import (
+	"net/url"
+
 	goofys "github.com/kahing/goofys/api"
 	. "github.com/kahing/goofys/api/common"
 	. "github.com/kahing/goofys/internal"
+	"github.com/pkg/errors"
 
 	"fmt"
 	"os"
@@ -106,9 +109,10 @@ func kill(pid int, s os.Signal) (err error) {
 func mount(
 	ctx context.Context,
 	bucketName string,
+	bucketPath string,
 	flags *FlagStorage) (fs *Goofys, mfs *fuse.MountedFileSystem, err error) {
 
-	return goofys.Mount(ctx, bucketName, flags)
+	return goofys.Mount(ctx, bucketName, bucketPath, flags)
 }
 
 func massagePath() {
@@ -155,7 +159,20 @@ func main() {
 		}
 
 		// Populate and parse flags.
-		bucketName := c.Args()[0]
+		s3URL := c.Args()[0]
+		u, err := url.Parse(s3URL)
+		if err != nil {
+			err = errors.Wrap(err, "url parse")
+			return
+		}
+
+		scheme := u.Scheme
+		if scheme == "" {
+			scheme = "s3"
+		}
+		bucketName := fmt.Sprintf("%s://%s", scheme, u.Host)
+		bucketPath := u.Path
+
 		flags = PopulateFlags(c)
 		if flags == nil {
 			cli.ShowAppHelp(c)
@@ -207,6 +224,7 @@ func main() {
 		fs, mfs, err = mount(
 			context.Background(),
 			bucketName,
+			bucketPath,
 			flags)
 
 		if err != nil {

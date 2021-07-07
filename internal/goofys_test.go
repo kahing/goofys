@@ -57,8 +57,9 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	. "gopkg.in/check.v1"
 	"runtime/debug"
+
+	. "gopkg.in/check.v1"
 )
 
 // so I don't get complains about unused imports
@@ -490,7 +491,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		conf := s.selectTestConfig(t, flags)
 		flags.Backend = &conf
 
-		s3, err := NewS3(bucket, flags, &conf)
+		s3, err := NewS3(bucket, "", flags, &conf)
 		t.Assert(err, IsNil)
 
 		s.cloud = s3
@@ -512,7 +513,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		flags.Backend = &conf
 
 		var err error
-		s.cloud, err = NewGCS3(bucket, flags, &conf)
+		s.cloud, err = NewGCS3(bucket, "", flags, &conf)
 		t.Assert(s.cloud, NotNil)
 		t.Assert(err, IsNil)
 	} else if cloud == "azblob" {
@@ -639,9 +640,9 @@ func (s *GoofysTest) SetUpTest(t *C) {
 	}
 
 	if hasEnv("AWS") {
-		s.fs = newGoofys(context.Background(), bucket, flags,
-			func(bucket string, flags *FlagStorage) (StorageBackend, error) {
-				cloud, err := NewBackend(bucket, flags)
+		s.fs = newGoofys(context.Background(), bucket, "", flags,
+			func(bucket, path string, flags *FlagStorage) (StorageBackend, error) {
+				cloud, err := NewBackend(bucket, path, flags)
 				if err != nil {
 					return nil, err
 				}
@@ -649,7 +650,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 				return NewS3BucketEventualConsistency(cloud.(*S3Backend)), nil
 			})
 	} else {
-		s.fs = NewGoofys(context.Background(), bucket, flags)
+		s.fs = NewGoofys(context.Background(), bucket, "", flags)
 	}
 	t.Assert(s.fs, NotNil)
 
@@ -1948,17 +1949,17 @@ func (s *GoofysTest) TestPutMimeType(t *C) {
 }
 
 func (s *GoofysTest) TestBucketPrefixSlash(t *C) {
-	s.fs = NewGoofys(context.Background(), s.fs.bucket+":dir2", s.fs.flags)
+	s.fs = NewGoofys(context.Background(), s.fs.bucket+":dir2", "", s.fs.flags)
 	t.Assert(s.getRoot(t).dir.mountPrefix, Equals, "dir2/")
 
-	s.fs = NewGoofys(context.Background(), s.fs.bucket+":dir2///", s.fs.flags)
+	s.fs = NewGoofys(context.Background(), s.fs.bucket+":dir2///", "", s.fs.flags)
 	t.Assert(s.getRoot(t).dir.mountPrefix, Equals, "dir2/")
 }
 
 func (s *GoofysTest) TestFuseWithPrefix(t *C) {
 	mountPoint := "/tmp/mnt" + s.fs.bucket
 
-	s.fs = NewGoofys(context.Background(), s.fs.bucket+":testprefix", s.fs.flags)
+	s.fs = NewGoofys(context.Background(), s.fs.bucket+":testprefix", "", s.fs.flags)
 
 	s.runFuseTest(t, mountPoint, true, "../test/fuse-test.sh", mountPoint)
 }
@@ -2020,7 +2021,7 @@ func (s *GoofysTest) anonymous(t *C) {
 	s3.bucket = s.fs.bucket
 	s.setupDefaultEnv(t, true)
 
-	s.fs = NewGoofys(context.Background(), s.fs.bucket, s.fs.flags)
+	s.fs = NewGoofys(context.Background(), s.fs.bucket, "", s.fs.flags)
 	t.Assert(s.fs, NotNil)
 
 	// should have auto-detected by S3 backend
@@ -3332,7 +3333,7 @@ func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud S
 	switch s.cloud.Delegate().(type) {
 	case *S3Backend:
 		config, _ := s.fs.flags.Backend.(*S3Config)
-		s3, err := NewS3(bucket, s.fs.flags, config)
+		s3, err := NewS3(bucket, "", s.fs.flags, config)
 		t.Assert(err, IsNil)
 
 		s3.aws = hasEnv("AWS")
@@ -3350,7 +3351,7 @@ func (s *GoofysTest) newBackend(t *C, bucket string, createBucket bool) (cloud S
 		}
 	case *GCS3:
 		config, _ := s.fs.flags.Backend.(*S3Config)
-		cloud, err = NewGCS3(bucket, s.fs.flags, config)
+		cloud, err = NewGCS3(bucket, "", s.fs.flags, config)
 		t.Assert(err, IsNil)
 	case *AZBlob:
 		config, _ := s.fs.flags.Backend.(*AZBlobConfig)
@@ -3583,7 +3584,7 @@ func (s *GoofysTest) TestMountsError(t *C) {
 		config := *s3.config
 		flags.Endpoint = "0.0.0.0:0"
 		var err error
-		cloud, err = NewS3(bucket, &flags, &config)
+		cloud, err = NewS3(bucket, "", &flags, &config)
 		t.Assert(err, IsNil)
 	} else if _, ok := s.cloud.(*ADLv1); ok {
 		config, _ := s.fs.flags.Backend.(*ADLv1Config)

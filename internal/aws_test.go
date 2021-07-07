@@ -32,7 +32,7 @@ var _ = Suite(&AwsTest{})
 
 func (s *AwsTest) SetUpSuite(t *C) {
 	var err error
-	s.s3, err = NewS3("", &FlagStorage{}, &S3Config{
+	s.s3, err = NewS3("", "", &FlagStorage{}, &S3Config{
 		Region: "us-east-1",
 	})
 	t.Assert(err, IsNil)

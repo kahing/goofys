@@ -15,6 +15,9 @@
 package internal
 
 import (
+	"errors"
+	"path"
+
 	. "github.com/kahing/goofys/api/common"
 
 	"fmt"
@@ -41,6 +44,7 @@ type S3Backend struct {
 	cap Capabilities
 
 	bucket    string
+	path      string
 	awsConfig *aws.Config
 	flags     *FlagStorage
 	config    *S3Config
@@ -51,13 +55,14 @@ type S3Backend struct {
 	v2Signer bool
 }
 
-func NewS3(bucket string, flags *FlagStorage, config *S3Config) (*S3Backend, error) {
+func NewS3(bucket, path string, flags *FlagStorage, config *S3Config) (*S3Backend, error) {
 	awsConfig, err := config.ToAwsConfig(flags)
 	if err != nil {
 		return nil, err
 	}
 	s := &S3Backend{
 		bucket:    bucket,
+		path:      path,
 		awsConfig: awsConfig,
 		flags:     flags,
 		config:    config,
@@ -294,7 +299,7 @@ func (s *S3Backend) ListObjectsV2(params *s3.ListObjectsV2Input) (*s3.ListObject
 			Delimiter:    params.Delimiter,
 			EncodingType: params.EncodingType,
 			MaxKeys:      params.MaxKeys,
-			Prefix:       params.Prefix,
+			Prefix:       aws.String(path.Join(s.path, *params.Prefix)),
 			RequestPayer: params.RequestPayer,
 		}
 		if params.StartAfter != nil {
@@ -328,6 +333,10 @@ func (s *S3Backend) ListObjectsV2(params *s3.ListObjectsV2Input) (*s3.ListObject
 	}
 }
 
+func (s *S3Backend) pathedKey(key string) *string {
+	return aws.String(path.Join(s.path, key))
+}
+
 func metadataToLower(m map[string]*string) map[string]*string {
 	if m != nil {
 		var toDelete []string
@@ -352,7 +361,7 @@ func (s *S3Backend) getRequestId(r *request.Request) string {
 
 func (s *S3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	head := s3.HeadObjectInput{Bucket: &s.bucket,
-		Key: &param.Key,
+		Key: s.pathedKey(param.Key),
 	}
 	if s.config.SseC != "" {
 		head.SSECustomerAlgorithm = PString("AES256")
@@ -389,7 +398,7 @@ func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 
 	resp, reqId, err := s.ListObjectsV2(&s3.ListObjectsV2Input{
 		Bucket:            &s.bucket,
-		Prefix:            param.Prefix,
+		Prefix:            aws.String(path.Join(s.path, *param.Prefix)),
 		Delimiter:         param.Delimiter,
 		MaxKeys:           maxKeys,
 		StartAfter:        param.StartAfter,
@@ -427,7 +436,7 @@ func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 func (s *S3Backend) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error) {
 	req, _ := s.DeleteObjectRequest(&s3.DeleteObjectInput{
 		Bucket: &s.bucket,
-		Key:    &param.Key,
+		Key:    s.pathedKey(param.Key),
 	})
 	err := req.Send()
 	if err != nil {
@@ -443,7 +452,7 @@ func (s *S3Backend) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, er
 	var objs = make([]*s3.ObjectIdentifier, num_objs)
 
 	for i, _ := range param.Items {
-		objs[i] = &s3.ObjectIdentifier{Key: &param.Items[i]}
+		objs[i] = &s3.ObjectIdentifier{Key: s.pathedKey(param.Items[i])}
 	}
 
 	// Add list of objects to delete to Delete object
@@ -474,7 +483,7 @@ func (s *S3Backend) mpuCopyPart(from string, to string, mpuId string, bytes stri
 	// we are copying from the same object
 	params := &s3.UploadPartCopyInput{
 		Bucket:            &s.bucket,
-		Key:               &to,
+		Key:               s.pathedKey(to),
 		CopySource:        aws.String(pathEscape(from)),
 		UploadId:          &mpuId,
 		CopySourceRange:   &bytes,
@@ -556,7 +565,7 @@ func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuI
 	if mpuId == "" {
 		params := &s3.CreateMultipartUploadInput{
 			Bucket:       &s.bucket,
-			Key:          &to,
+			Key:          s.pathedKey(to),
 			StorageClass: storageClass,
 			ContentType:  s.flags.GetMimeType(to),
 			Metadata:     metadataToLower(metadata),
@@ -600,7 +609,7 @@ func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuI
 
 		params := &s3.CompleteMultipartUploadInput{
 			Bucket:   &s.bucket,
-			Key:      &to,
+			Key:      s.pathedKey(to),
 			UploadId: &mpuId,
 			MultipartUpload: &s3.CompletedMultipartUpload{
 				Parts: parts,
@@ -655,7 +664,7 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 		}
 	}
 
-	from := s.bucket + "/" + param.Source
+	from := s.bucket + "/" + *s.pathedKey(param.Source)
 
 	if !s.gcs && *param.Size > COPY_LIMIT {
 		reqId, err := s.copyObjectMultipart(int64(*param.Size), from, param.Destination, "", param.ETag, param.Metadata, param.StorageClass)
@@ -668,7 +677,7 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 	params := &s3.CopyObjectInput{
 		Bucket:            &s.bucket,
 		CopySource:        aws.String(pathEscape(from)),
-		Key:               &param.Destination,
+		Key:               s.pathedKey(param.Destination),
 		StorageClass:      param.StorageClass,
 		ContentType:       s.flags.GetMimeType(param.Destination),
 		Metadata:          metadataToLower(param.Metadata),
@@ -714,7 +723,7 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 func (s *S3Backend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 	get := s3.GetObjectInput{
 		Bucket: &s.bucket,
-		Key:    &param.Key,
+		Key:    s.pathedKey(param.Key),
 	}
 
 	if s.config.SseC != "" {
@@ -778,7 +787,7 @@ func (s *S3Backend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 
 	put := &s3.PutObjectInput{
 		Bucket:       &s.bucket,
-		Key:          &param.Key,
+		Key:          s.pathedKey(param.Key),
 		Metadata:     metadataToLower(param.Metadata),
 		Body:         param.Body,
 		StorageClass: &storageClass,
@@ -817,7 +826,7 @@ func (s *S3Backend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 func (s *S3Backend) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlobCommitInput, error) {
 	mpu := s3.CreateMultipartUploadInput{
 		Bucket:       &s.bucket,
-		Key:          &param.Key,
+		Key:          s.pathedKey(param.Key),
 		StorageClass: &s.config.StorageClass,
 		ContentType:  param.ContentType,
 	}
@@ -857,7 +866,7 @@ func (s *S3Backend) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBl
 
 	params := s3.UploadPartInput{
 		Bucket:     &s.bucket,
-		Key:        param.Commit.Key,
+		Key:        s.pathedKey(*param.Commit.Key),
 		PartNumber: aws.Int64(int64(param.PartNumber)),
 		UploadId:   param.Commit.UploadId,
 		Body:       param.Body,
@@ -894,7 +903,7 @@ func (s *S3Backend) MultipartBlobCommit(param *MultipartBlobCommitInput) (*Multi
 
 	mpu := s3.CompleteMultipartUploadInput{
 		Bucket:   &s.bucket,
-		Key:      param.Key,
+		Key:      s.pathedKey(*param.Key),
 		UploadId: param.UploadId,
 		MultipartUpload: &s3.CompletedMultipartUpload{
 			Parts: parts,
@@ -921,7 +930,7 @@ func (s *S3Backend) MultipartBlobCommit(param *MultipartBlobCommitInput) (*Multi
 func (s *S3Backend) MultipartBlobAbort(param *MultipartBlobCommitInput) (*MultipartBlobAbortOutput, error) {
 	mpu := s3.AbortMultipartUploadInput{
 		Bucket:   &s.bucket,
-		Key:      param.Key,
+		Key:      s.pathedKey(*param.Key),
 		UploadId: param.UploadId,
 	}
 	req, _ := s.AbortMultipartUploadRequest(&mpu)
@@ -935,6 +944,7 @@ func (s *S3Backend) MultipartBlobAbort(param *MultipartBlobCommitInput) (*Multip
 func (s *S3Backend) MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error) {
 	mpu, err := s.ListMultipartUploads(&s3.ListMultipartUploadsInput{
 		Bucket: &s.bucket,
+		Prefix: aws.String(s.path),
 	})
 	if err != nil {
 		return nil, mapAwsError(err)
@@ -948,7 +958,7 @@ func (s *S3Backend) MultipartExpire(param *MultipartExpireInput) (*MultipartExpi
 		if !expireTime.After(now) {
 			params := &s3.AbortMultipartUploadInput{
 				Bucket:   &s.bucket,
-				Key:      upload.Key,
+				Key:      s.pathedKey(*upload.Key),
 				UploadId: upload.UploadId,
 			}
 			resp, err := s.AbortMultipartUpload(params)
@@ -966,6 +976,10 @@ func (s *S3Backend) MultipartExpire(param *MultipartExpireInput) (*MultipartExpi
 }
 
 func (s *S3Backend) RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput, error) {
+	if s.path != "" {
+		return nil, errors.New("cannot remove bucket with path specified")
+	}
+
 	_, err := s.DeleteBucket(&s3.DeleteBucketInput{Bucket: &s.bucket})
 	if err != nil {
 		return nil, mapAwsError(err)
@@ -974,6 +988,10 @@ func (s *S3Backend) RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput,
 }
 
 func (s *S3Backend) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error) {
+	if s.path != "" {
+		return nil, errors.New("unable to create bucket with path specified")
+	}
+
 	_, err := s.CreateBucket(&s3.CreateBucketInput{
 		Bucket: &s.bucket,
 		ACL:    &s.config.ACL,

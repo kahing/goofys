@@ -40,8 +40,8 @@ type GCS3MultipartBlobCommitInput struct {
 	Prev *MultipartBlobAddInput
 }
 
-func NewGCS3(bucket string, flags *FlagStorage, config *S3Config) (*GCS3, error) {
-	s3Backend, err := NewS3(bucket, flags, config)
+func NewGCS3(bucket, path string, flags *FlagStorage, config *S3Config) (*GCS3, error) {
+	s3Backend, err := NewS3(bucket, path, flags, config)
 	if err != nil {
 		return nil, err
 	}

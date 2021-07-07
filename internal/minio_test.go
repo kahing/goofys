@@ -44,7 +44,7 @@ func (s *MinioTest) SetUpSuite(t *C) {
 	}
 
 	var err error
-	s.s3, err = NewS3("", &s.flags, conf)
+	s.s3, err = NewS3("", "", &s.flags, conf)
 	t.Assert(err, IsNil)
 
 	_, err = s.s3.ListBuckets(nil)
@@ -59,7 +59,7 @@ func (s *MinioTest) SetUpTest(t *C) {
 	})
 	t.Assert(err, IsNil)
 
-	s.fs = NewGoofys(context.Background(), bucket, &s.flags)
+	s.fs = NewGoofys(context.Background(), bucket, "", &s.flags)
 	t.Assert(s.fs, NotNil)
 }
 

@@ -34,8 +34,9 @@ import (
 	"github.com/jacobsa/fuse/fuseops"
 	"github.com/jacobsa/fuse/fuseutil"
 
-	"github.com/sirupsen/logrus"
 	"net/http"
+
+	"github.com/sirupsen/logrus"
 )
 
 // goofys is a Filey System written in Go. All the backend data is
@@ -50,6 +51,8 @@ import (
 type Goofys struct {
 	fuseutil.NotImplementedFileSystem
 	bucket string
+	// Sub path in the cloud bucket to mount from
+	path string
 
 	flags *FlagStorage
 
@@ -97,7 +100,7 @@ var s3Log = GetLogger("s3")
 var log = GetLogger("main")
 var fuseLog = GetLogger("fuse")
 
-func NewBackend(bucket string, flags *FlagStorage) (cloud StorageBackend, err error) {
+func NewBackend(bucket, path string, flags *FlagStorage) (cloud StorageBackend, err error) {
 	if flags.Backend == nil {
 		flags.Backend = (&S3Config{}).Init()
 	}
@@ -110,9 +113,9 @@ func NewBackend(bucket string, flags *FlagStorage) (cloud StorageBackend, err er
 		cloud, err = NewADLv2(bucket, flags, config)
 	} else if config, ok := flags.Backend.(*S3Config); ok {
 		if strings.HasSuffix(flags.Endpoint, "/storage.googleapis.com") {
-			cloud, err = NewGCS3(bucket, flags, config)
+			cloud, err = NewGCS3(bucket, path, flags, config)
 		} else {
-			cloud, err = NewS3(bucket, flags, config)
+			cloud, err = NewS3(bucket, path, flags, config)
 		}
 	} else if config, ok := flags.Backend.(*GCSConfig); ok {
 		cloud, err = NewGCS(bucket, config)
@@ -164,15 +167,16 @@ func ParseBucketSpec(bucket string) (spec BucketSpec, err error) {
 	return
 }
 
-func NewGoofys(ctx context.Context, bucket string, flags *FlagStorage) *Goofys {
-	return newGoofys(ctx, bucket, flags, NewBackend)
+func NewGoofys(ctx context.Context, bucket string, path string, flags *FlagStorage) *Goofys {
+	return newGoofys(ctx, bucket, path, flags, NewBackend)
 }
 
-func newGoofys(ctx context.Context, bucket string, flags *FlagStorage,
-	newBackend func(string, *FlagStorage) (StorageBackend, error)) *Goofys {
+func newGoofys(ctx context.Context, bucket, path string, flags *FlagStorage,
+	newBackend func(string, string, *FlagStorage) (StorageBackend, error)) *Goofys {
 	// Set up the basic struct.
 	fs := &Goofys{
 		bucket: bucket,
+		path:   path,
 		flags:  flags,
 		umask:  0122,
 	}
@@ -194,7 +198,7 @@ func newGoofys(ctx context.Context, bucket string, flags *FlagStorage,
 		s3Log.Level = logrus.DebugLevel
 	}
 
-	cloud, err := newBackend(bucket, flags)
+	cloud, err := newBackend(bucket, path, flags)
 	if err != nil {
 		log.Errorf("Unable to setup backend: %v", err)
 		return nil
