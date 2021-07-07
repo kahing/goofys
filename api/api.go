@@ -113,7 +113,6 @@ func Mount(
 				flags.Backend = config
 			case "s3":
 				bucketName = spec.Bucket
-				rootPath = spec.Prefix
 			}
 
 		}

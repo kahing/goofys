@@ -166,12 +166,11 @@ func main() {
 			return
 		}
 
-		scheme := u.Scheme
-		if scheme == "" {
-			scheme = "s3"
+		bucketName := u.Host
+		bucketPath := strings.TrimPrefix(u.Path, "/")
+		if !strings.HasSuffix(bucketPath, "/") {
+			bucketPath += "/"
 		}
-		bucketName := fmt.Sprintf("%s://%s", scheme, u.Host)
-		bucketPath := u.Path
 
 		flags = PopulateFlags(c)
 		if flags == nil {
