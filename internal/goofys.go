@@ -15,6 +15,8 @@
 package internal
 
 import (
+	"path"
+
 	. "github.com/kahing/goofys/api/common"
 
 	"context"
@@ -120,7 +122,7 @@ func NewBackend(bucket, path string, flags *FlagStorage) (cloud StorageBackend, 
 	} else if config, ok := flags.Backend.(*GCSConfig); ok {
 		cloud, err = NewGCS(bucket, config)
 	} else {
-		err = fmt.Errorf("Unknown backend config: %T", flags.Backend)
+		err = fmt.Errorf("unknown backend config: %T", flags.Backend)
 	}
 
 	return
@@ -133,7 +135,7 @@ type BucketSpec struct {
 }
 
 func ParseBucketSpec(bucket string) (spec BucketSpec, err error) {
-	if strings.Index(bucket, "://") != -1 {
+	if strings.Contains(bucket, "://") {
 		var u *url.URL
 		u, err = url.Parse(bucket)
 		if err != nil {
@@ -171,12 +173,12 @@ func NewGoofys(ctx context.Context, bucket string, path string, flags *FlagStora
 	return newGoofys(ctx, bucket, path, flags, NewBackend)
 }
 
-func newGoofys(ctx context.Context, bucket, path string, flags *FlagStorage,
+func newGoofys(ctx context.Context, bucket, rootPath string, flags *FlagStorage,
 	newBackend func(string, string, *FlagStorage) (StorageBackend, error)) *Goofys {
 	// Set up the basic struct.
 	fs := &Goofys{
 		bucket: bucket,
-		path:   path,
+		path:   rootPath,
 		flags:  flags,
 		umask:  0122,
 	}
@@ -198,14 +200,14 @@ func newGoofys(ctx context.Context, bucket, path string, flags *FlagStorage,
 		s3Log.Level = logrus.DebugLevel
 	}
 
-	cloud, err := newBackend(bucket, path, flags)
+	cloud, err := newBackend(bucket, rootPath, flags)
 	if err != nil {
 		log.Errorf("Unable to setup backend: %v", err)
 		return nil
 	}
 	_, fs.gcsS3 = cloud.Delegate().(*GCS3)
 
-	randomObjectName := prefix + (RandStringBytesMaskImprSrc(32))
+	randomObjectName := path.Join(rootPath, prefix+(RandStringBytesMaskImprSrc(32)))
 	err = cloud.Init(randomObjectName)
 	if err != nil {
 		log.Errorf("Unable to access '%v': %v", bucket, err)

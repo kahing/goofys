@@ -20,13 +20,12 @@ var log = GetLogger("main")
 func Mount(
 	ctx context.Context,
 	bucketName string,
-	bucketPath string,
+	rootPath string,
 	flags *FlagStorage) (fs *Goofys, mfs *fuse.MountedFileSystem, err error) {
 
 	if flags.DebugS3 {
 		SetCloudLogLevel(logrus.DebugLevel)
 	}
-
 	// Mount the file system.
 	mountCfg := &fuse.MountConfig{
 		FSName:                  bucketName,
@@ -112,11 +111,15 @@ func Mount(
 				config := NewGCSConfig()
 				bucketName = spec.Bucket
 				flags.Backend = config
+			case "s3":
+				bucketName = spec.Bucket
+				rootPath = spec.Prefix
 			}
+
 		}
 	}
 
-	fs = NewGoofys(ctx, bucketName, bucketPath, flags)
+	fs = NewGoofys(ctx, bucketName, rootPath, flags)
 	if fs == nil {
 		err = fmt.Errorf("Mount: initialization failed")
 		return
