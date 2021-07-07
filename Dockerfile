@@ -14,15 +14,16 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 # COPY the source code as the last step
 COPY api api
-COPY internal
+COPY internal internal
+COPY *.go .
 
 ARG LDFLAGS
 
-RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=0 go build -ldflags "${LDFLAGS}" -o goofys .
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=0 go build -ldflags "${LDFLAGS}" 
 
 FROM alpine
 
 RUN apk add --no-cache ca-certificates
-COPY --from=build-stage /go/src/app /bin/app
+COPY --from=build-stage /go/src/goofys /bin/goofys
 
-ENTRYPOINT ["/bin/app"]
+ENTRYPOINT ["/bin/goofys"]

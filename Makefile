@@ -14,3 +14,6 @@ build:
 
 install:
 	go install -ldflags "-X main.Version=`git rev-parse HEAD`"
+
+docker:
+	DOCKER_BUILDKIT=1 docker build . -t tnachen/goofys
