@@ -19,6 +19,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/client"
@@ -150,6 +151,7 @@ func (c stsConfigProvider) ClientConfig(serviceName string, cfgs ...*aws.Config)
 	}
 	if c.StsEndpoint != "" {
 		config.Endpoint = c.StsEndpoint
+		config.SigningRegion = os.Getenv("AWS_REGION")
 	}
 
 	return config
