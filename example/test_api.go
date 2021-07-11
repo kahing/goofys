@@ -4,8 +4,8 @@ import (
 	goofys "github.com/kahing/goofys/api"
 	common "github.com/kahing/goofys/api/common"
 
-	"fmt"
 	"context"
+	"fmt"
 )
 
 func main() {
@@ -15,7 +15,7 @@ func main() {
 		FileMode:   0644,
 	}
 
-	_, mp, err := goofys.Mount(context.Background(), "goofys", &config)
+	_, mp, err := goofys.Mount(context.Background(), "goofys", "", &config)
 	if err != nil {
 		panic(fmt.Sprintf("Unable to mount %v: %v", config.MountPoint, err))
 	} else {
