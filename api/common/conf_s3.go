@@ -55,6 +55,7 @@ type S3Config struct {
 	Session     *session.Session
 
 	BucketOwner string
+	IsAws       bool
 }
 
 var s3Session *session.Session

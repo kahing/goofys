@@ -175,7 +175,7 @@ func (s *S3Backend) detectBucketLocationByHEAD() (err error, isAws bool) {
 			s3Log.Debugf("%v = %v", k, v)
 		}
 	}
-	if server != nil && server[0] == "AmazonS3" {
+	if s.flags.IsAws || (server != nil && server[0] == "AmazonS3") {
 		isAws = true
 	}
 

@@ -180,6 +180,11 @@ func NewApp() (app *cli.App) {
 				Usage: "Set Content-Type according to file extension and /etc/mime.types (default: off)",
 			},
 
+			cli.BoolFlag{
+				Name:  "isAws",
+				Usage: "Enable v2 aws api (default: off)",
+			},
+
 			/// http://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectPUT.html
 			/// See http://docs.aws.amazon.com/AmazonS3/latest/dev/UsingServerSideEncryption.html
 			cli.BoolFlag{
@@ -335,6 +340,7 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 
 		// Common Backend Config
 		Endpoint:       c.String("endpoint"),
+		IsAws:          c.Bool("isAws"),
 		UseContentType: c.Bool("use-content-type"),
 
 		// Debugging,
