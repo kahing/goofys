@@ -275,6 +275,7 @@ func (s *S3Backend) Init(key string) error {
 				if err != nil {
 					return err
 				}
+				s3Log.Infof("Testing bucket with fell back signer %s", key)
 				err = s.testBucket(key)
 			}
 		}
@@ -366,8 +367,10 @@ func (s *S3Backend) getRequestId(r *request.Request) string {
 }
 
 func (s *S3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
+	key := s.pathedKey(param.Key, false)
+	s3Log.Info("Head blob with bucket %s, key %s", s.bucket, *key)
 	head := s3.HeadObjectInput{Bucket: &s.bucket,
-		Key: s.pathedKey(param.Key, false),
+		Key: key,
 	}
 	if s.config.SseC != "" {
 		head.SSECustomerAlgorithm = PString("AES256")
@@ -521,7 +524,6 @@ func (s *S3Backend) mpuCopyPart(from string, to string, mpuId string, bytes stri
 	}
 
 	*etag = resp.CopyPartResult.ETag
-	return
 }
 
 func sizeToParts(size int64) (int, int64) {
