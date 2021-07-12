@@ -1,0 +1,27 @@
+---
+version: "2"
+services:
+  goofys:
+    image: "camptocamp/goofys"
+    cap_add:
+      - SYS_ADMIN
+      - MKNOD
+    privileged: true
+    devices:
+      - "/dev/fuse"
+    environment:
+      BUCKETNAME: "<BUCKETNAME>"
+      AWS_ACCESS_KEY_ID: "<AWS_ACCESS_KEY_ID>"
+      AWS_SECRET_ACCESS_KEY: "<AWS_SECRET_ACCESS_KEY>"
+      GOOFYS_UID: "1000"
+      GOOFYS_GID: "1000"
+    volumes:
+      - "/var/lib/goofys/titi:/var/lib/goofys:shared"
+    tty: true
+  
+  web:
+    image: nginx
+    ports:
+      - 8080:80
+    volumes:
+      - "/var/lib/goofys/titi:/usr/share/nginx/html:shared,ro"
