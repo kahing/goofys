@@ -15,8 +15,6 @@
 package internal
 
 import (
-	"path"
-
 	. "github.com/kahing/goofys/api/common"
 
 	"context"
@@ -207,7 +205,7 @@ func newGoofys(ctx context.Context, bucket, rootPath string, flags *FlagStorage,
 	}
 	_, fs.gcsS3 = cloud.Delegate().(*GCS3)
 
-	randomObjectName := path.Join(rootPath, prefix+(RandStringBytesMaskImprSrc(32)))
+	randomObjectName := prefix + RandStringBytesMaskImprSrc(32)
 	err = cloud.Init(randomObjectName)
 	if err != nil {
 		log.Errorf("Unable to access '%v': %v", bucket, err)
