@@ -399,8 +399,8 @@ func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		return nil, mapAwsError(err)
 	}
 
-	prefixes := make([]BlobPrefixOutput, len(resp.CommonPrefixes))
-	items := make([]BlobItemOutput, len(resp.Contents))
+	prefixes := make([]BlobPrefixOutput, 0)
+	items := make([]BlobItemOutput, 0)
 
 	for _, p := range resp.CommonPrefixes {
 		if s.path != "" {
