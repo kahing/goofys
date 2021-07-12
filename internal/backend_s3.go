@@ -15,10 +15,10 @@
 package internal
 
 import (
-	"errors"
 	"path"
 
 	. "github.com/kahing/goofys/api/common"
+	"github.com/pkg/errors"
 
 	"fmt"
 	"net/http"
@@ -244,6 +244,7 @@ func (s *S3Backend) Init(key string) error {
 	var err error
 
 	if !s.config.RegionSet {
+		s3Log.Infoln("Detecting region from bucket")
 		err, isAws = s.detectBucketLocationByHEAD()
 		if err == nil {
 			// we detected a region header, this is probably AWS S3,
@@ -262,6 +263,7 @@ func (s *S3Backend) Init(key string) error {
 	}
 
 	// try again with the credential to make sure
+	s3Log.Infof("Testing bucket with key %s", key)
 	err = s.testBucket(key)
 	if err != nil {
 		if !isAws {
@@ -278,7 +280,7 @@ func (s *S3Backend) Init(key string) error {
 		}
 
 		if err != nil {
-			return err
+			return errors.Wrap(err, "test bucket")
 		}
 	}
 
