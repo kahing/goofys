@@ -21,9 +21,7 @@ import (
 	"net/http"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
 	"github.com/aws/aws-sdk-go/aws/session"
 )
 
@@ -77,6 +75,7 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 		Transport: &defaultHTTPTransport,
 		Timeout:   flags.HTTPTimeout,
 	})
+
 	if flags.DebugS3 {
 		awsConfig.LogLevel = aws.LogLevel(aws.LogDebug | aws.LogDebugWithRequestErrors)
 	}
@@ -95,29 +94,16 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 	if c.Session == nil {
 		if s3Session == nil {
 			var err error
-			s3Session, err = session.NewSessionWithOptions(session.Options{
-				Profile:           c.Profile,
+			options := session.Options{
 				SharedConfigState: session.SharedConfigEnable,
-			})
+			}
+			options.Config.MergeIn(awsConfig)
+			s3Session, err = session.NewSessionWithOptions(options)
 			if err != nil {
 				return nil, err
 			}
 		}
 		c.Session = s3Session
-	}
-
-	if c.RoleArn != "" {
-		c.Credentials = stscreds.NewCredentials(stsConfigProvider{c}, c.RoleArn,
-			func(p *stscreds.AssumeRoleProvider) {
-				if c.RoleExternalId != "" {
-					p.ExternalID = &c.RoleExternalId
-				}
-				p.RoleSessionName = c.RoleSessionName
-			})
-	}
-
-	if c.Credentials != nil {
-		awsConfig.Credentials = c.Credentials
 	}
 
 	if c.SseC != "" {
@@ -132,20 +118,4 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 	}
 
 	return awsConfig, nil
-}
-
-type stsConfigProvider struct {
-	*S3Config
-}
-
-func (c stsConfigProvider) ClientConfig(serviceName string, cfgs ...*aws.Config) client.Config {
-	config := c.Session.ClientConfig(serviceName, cfgs...)
-	if c.Credentials != nil {
-		config.Config.Credentials = c.Credentials
-	}
-	if c.StsEndpoint != "" {
-		config.Endpoint = c.StsEndpoint
-	}
-
-	return config
 }

@@ -369,6 +369,11 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		if config.UseKMS {
 			config.UseSSE = true
 		}
+
+		roleArn := os.Getenv("AWS_ROLE_ARN")
+		if roleArn != "" {
+			config.RoleArn = roleArn
+		}
 	}
 
 	// Handle the repeated "-o" flag.

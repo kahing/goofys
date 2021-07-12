@@ -262,28 +262,8 @@ func (s *S3Backend) Init(key string) error {
 		}
 	}
 
-	// try again with the credential to make sure
-	s3Log.Infof("Testing bucket with key %s", key)
-	err = s.testBucket(key)
-	if err != nil {
-		if !isAws {
-			// EMC returns 403 because it doesn't support v4 signing
-			// swift3, ceph-s3 returns 400
-			// Amplidata just gives up and return 500
-			if err == syscall.EACCES || err == fuse.EINVAL || err == syscall.EAGAIN {
-				err = s.fallbackV2Signer()
-				if err != nil {
-					return err
-				}
-				s3Log.Infof("Testing bucket with fell back signer %s", key)
-				err = s.testBucket(key)
-			}
-		}
-
-		if err != nil {
-			return errors.Wrap(err, "test bucket")
-		}
-	}
+	// Overriding aws flag to be true as we are not using anonymous access
+	s.aws = true
 
 	return nil
 }
@@ -405,9 +385,11 @@ func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		maxKeys = aws.Int64(int64(*param.MaxKeys))
 	}
 
+	prefix := s.pathedKey(*param.Prefix, true)
+
 	resp, reqId, err := s.ListObjectsV2(&s3.ListObjectsV2Input{
 		Bucket:            &s.bucket,
-		Prefix:            s.pathedKey(*param.Prefix, true),
+		Prefix:            prefix,
 		Delimiter:         param.Delimiter,
 		MaxKeys:           maxKeys,
 		StartAfter:        param.StartAfter,
@@ -417,8 +399,8 @@ func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		return nil, mapAwsError(err)
 	}
 
-	prefixes := make([]BlobPrefixOutput, 0)
-	items := make([]BlobItemOutput, 0)
+	prefixes := make([]BlobPrefixOutput, len(resp.CommonPrefixes))
+	items := make([]BlobItemOutput, len(resp.Contents))
 
 	for _, p := range resp.CommonPrefixes {
 		if s.path != "" {
