@@ -905,9 +905,6 @@ func (parent *Inode) Create(
 
 	fs := parent.fs
 
-	parent.mu.Lock()
-	defer parent.mu.Unlock()
-
 	now := time.Now()
 	inode = NewInode(fs, parent, &name)
 	inode.Attributes = InodeAttributes{
@@ -947,9 +944,6 @@ func (parent *Inode) MkDir(
 	if err != nil {
 		return
 	}
-
-	parent.mu.Lock()
-	defer parent.mu.Unlock()
 
 	inode = NewInode(fs, parent, &name)
 	inode.ToDir()
