@@ -67,7 +67,6 @@ type FileHandle struct {
 }
 
 const MAX_READAHEAD = uint32(400 * 1024 * 1024)
-const READAHEAD_CHUNK = uint32(20 * 1024 * 1024)
 
 // NewFileHandle returns a new file handle for the given `inode` triggered by fuse
 // operation with the given `opMetadata`
@@ -421,24 +420,27 @@ func (fh *FileHandle) readFromReadAhead(offset uint64, buf []byte) (bytesRead in
 }
 
 func (fh *FileHandle) readAhead(offset uint64, needAtLeast int) (err error) {
+	fs := fh.inode.fs
 	existingReadahead := uint32(0)
 	for _, b := range fh.buffers {
 		existingReadahead += b.size
 	}
 
 	readAheadAmount := MAX_READAHEAD
+	readAheadChunk := fs.flags.ReadAheadChunk * 1024 * 1024
 
-	for readAheadAmount-existingReadahead >= READAHEAD_CHUNK {
+
+	for readAheadAmount-existingReadahead >= readAheadChunk {
 		off := offset + uint64(existingReadahead)
 		remaining := fh.inode.Attributes.Size - off
 
 		// only read up to readahead chunk each time
-		size := MinUInt32(readAheadAmount-existingReadahead, READAHEAD_CHUNK)
+		size := MinUInt32(readAheadAmount-existingReadahead, readAheadChunk)
 		// but don't read past the file
 		size = uint32(MinUInt64(uint64(size), remaining))
 
 		if size != 0 {
-			fh.inode.logFuse("readahead", off, size, existingReadahead)
+			fh.inode.logFuse("readahead", off, size, existingReadahead, readAheadChunk)
 
 			readAheadBuf := S3ReadBuffer{}.Init(fh, off, size)
 			if readAheadBuf != nil {
@@ -456,7 +458,7 @@ func (fh *FileHandle) readAhead(offset uint64, needAtLeast int) (err error) {
 			}
 		}
 
-		if size != READAHEAD_CHUNK {
+		if size != readAheadChunk {
 			// that was the last remaining chunk to readahead
 			break
 		}
@@ -543,7 +545,9 @@ func (fh *FileHandle) readFile(offset int64, buf []byte) (bytesRead int, err err
 		fh.buffers = nil
 	}
 
-	if !fs.flags.Cheap && fh.seqReadAmount >= uint64(READAHEAD_CHUNK) && fh.numOOORead < 3 {
+	readAheadChunk := fs.flags.ReadAheadChunk * 1024 * 1024
+
+	if !fs.flags.Cheap && fh.seqReadAmount >= uint64(readAheadChunk) && fh.numOOORead < 3 {
 		if fh.reader != nil {
 			fh.inode.logFuse("cutover to the parallel algorithm")
 			fh.reader.Close()
