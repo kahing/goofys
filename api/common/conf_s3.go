@@ -19,6 +19,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/client"
@@ -55,6 +57,7 @@ type S3Config struct {
 	Session     *session.Session
 
 	BucketOwner string
+	MaxRetries  int
 }
 
 var s3Session *session.Session
@@ -65,6 +68,13 @@ func (c *S3Config) Init() *S3Config {
 	}
 	if c.StorageClass == "" {
 		c.StorageClass = "STANDARD"
+	}
+
+	c.MaxRetries = 4 // Default AWS value
+	if valueStr, ok := os.LookupEnv("AWS_MAX_ATTEMPTS"); ok {
+		if valueInt, err := strconv.Atoi(valueStr); err == nil {
+			c.MaxRetries = valueInt
+		}
 	}
 	return c
 }
@@ -130,6 +140,8 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 		m := md5.Sum(key)
 		c.SseCDigest = base64.StdEncoding.EncodeToString(m[:])
 	}
+
+	awsConfig.MaxRetries = &c.MaxRetries
 
 	return awsConfig, nil
 }
