@@ -261,6 +261,11 @@ func NewApp() (app *cli.App) {
 				Name:  "f",
 				Usage: "Run goofys in foreground.",
 			},
+
+			cli.StringFlag{
+				Name: "logfile",
+				Usage: "Write logs to log file",
+			},
 		},
 	}
 
