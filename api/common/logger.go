@@ -17,13 +17,11 @@ package common
 import (
 	"fmt"
 	glog "log"
-	"log/syslog"
 	"os"
 	"strings"
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	logrus_syslog "github.com/sirupsen/logrus/hooks/syslog"
 )
 
 var mu sync.Mutex
@@ -31,14 +29,14 @@ var loggers = make(map[string]*LogHandle)
 
 var log = GetLogger("main")
 var cloudLogLevel = logrus.InfoLevel
+var logFileHandle *os.File
 
-var syslogHook *logrus_syslog.SyslogHook
-
-func InitLoggers(logToSyslog bool) {
-	if logToSyslog {
+func InitLoggers(logFileName string) {
+	if logFileName != "" {
 		var err error
-		syslogHook, err = logrus_syslog.NewSyslogHook("", "", syslog.LOG_DEBUG, "")
+		logFileHandle, err = os.OpenFile(logFileName, os.O_WRONLY | os.O_APPEND | os.O_CREATE, 0644)
 		if err != nil {
+			fmt.Printf("unable to open log file handle %s: %s\n", logFileName, err.Error())
 			// we are the child process and we cannot connect to syslog,
 			// probably because we are in a container without syslog
 			// nothing much we can do here, printing to stderr doesn't work
@@ -46,7 +44,7 @@ func InitLoggers(logToSyslog bool) {
 		}
 
 		for _, l := range loggers {
-			l.Hooks.Add(syslogHook)
+			l.SetOutput(logFileHandle)
 		}
 	}
 }
@@ -76,12 +74,6 @@ func (l *LogHandle) Format(e *logrus.Entry) ([]byte, error) {
 		lvl = *l.Lvl
 	}
 
-	if syslogHook == nil {
-		const timeFormat = "2006/01/02 15:04:05.000000"
-
-		timestamp = e.Time.Format(timeFormat) + " "
-	}
-
 	str := fmt.Sprintf("%v%v.%v %v",
 		timestamp,
 		l.name,
@@ -107,8 +99,8 @@ func NewLogger(name string) *LogHandle {
 	l.Formatter = l
 	l.Level = logrus.InfoLevel
 	l.Hooks = make(logrus.LevelHooks)
-	if syslogHook != nil {
-		l.Hooks.Add(syslogHook)
+	if logFileHandle != nil {
+		l.SetOutput(logFileHandle)
 	}
 	return l
 }

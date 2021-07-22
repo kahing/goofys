@@ -323,6 +323,7 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		MountOptions: make(map[string]string),
 		DirMode:      os.FileMode(c.Int("dir-mode")),
 		FileMode:     os.FileMode(c.Int("file-mode")),
+		Logfile:      c.String("logfile"),
 		Uid:          uint32(c.Int("uid")),
 		Gid:          uint32(c.Int("gid")),
 
