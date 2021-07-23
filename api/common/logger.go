@@ -18,6 +18,7 @@ import (
 	"fmt"
 	glog "log"
 	"os"
+	"path"
 	"strings"
 	"sync"
 
@@ -34,6 +35,7 @@ var logFileHandle *os.File
 func InitLoggers(logFileName string) {
 	if logFileName != "" {
 		var err error
+		os.Mkdir(path.Dir(logFileName), 0644)
 		logFileHandle, err = os.OpenFile(logFileName, os.O_WRONLY | os.O_APPEND | os.O_CREATE, 0644)
 		if err != nil {
 			fmt.Printf("unable to open log file handle %s: %s\n", logFileName, err.Error())
