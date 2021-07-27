@@ -46,11 +46,8 @@ func (fs *LazyInitFileSystem) Init() error {
 }
 
 func (fs *LazyInitFileSystem) StatFS(ctx context.Context, op *fuseops.StatFSOp) (err error) {
-	err = fs.Init()
-	if err != nil {
-		return
-	}
-
+	// don't need to init filesystem to do statfs() since we
+	// return fake data anyway
 	return fs.Fs.StatFS(ctx, op)
 }
 
@@ -64,9 +61,14 @@ func (fs *LazyInitFileSystem) LookUpInode(ctx context.Context, op *fuseops.LookU
 }
 
 func (fs *LazyInitFileSystem) GetInodeAttributes(ctx context.Context, op *fuseops.GetInodeAttributesOp) (err error) {
-	err = fs.Init()
-	if err != nil {
-		return
+	// don't need to init filesystem if we are checking the root
+	// inode since we return fake data anyway. Also this is used
+	// by mountpoint(1) and we don't want that to block
+	if op.Inode != fuseops.RootInodeID {
+		err = fs.Init()
+		if err != nil {
+			return
+		}
 	}
 
 	return fs.Fs.GetInodeAttributes(ctx, op)

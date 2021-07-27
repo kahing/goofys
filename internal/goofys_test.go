@@ -1719,7 +1719,14 @@ func (s *GoofysTest) mount(t *C, mountPoint string) {
 	err := os.MkdirAll(mountPoint, 0700)
 	t.Assert(err, IsNil)
 
-	server := fuseutil.NewFileSystemServer(s.fs)
+	var fs InitFileSystem
+	fs = s.fs
+	if s.fs.flags.BgInit {
+		fs = &LazyInitFileSystem{
+			Fs: fs,
+		}
+	}
+	server := fuseutil.NewFileSystemServer(fs)
 
 	if isCatfs() {
 		s.fs.flags.MountOptions = make(map[string]string)
@@ -4418,4 +4425,39 @@ func (s *GoofysTest) TestBgSlowMount(t *C) {
 
 	err := fs.LookUpInode(nil, &lookup)
 	t.Assert(err, IsNil)
+}
+
+func (s *GoofysTest) TestBgSlowMountPoint(t *C) {
+	start := time.Now()
+	s.fs.flags.BgInit = true
+
+	s.fs = newGoofys(context.Background(), s.fs.bucket, s.fs.flags,
+		func(bucket string, flags *FlagStorage) (StorageBackend, error) {
+			cloud, err := NewBackend(bucket, flags)
+			if err != nil {
+				return nil, err
+			}
+
+			time.Sleep(2 * time.Second)
+
+			return cloud, nil
+		})
+
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+	defer s.umount(t, mountPoint)
+	s.runFuseTest(t, mountPoint, false, "/bin/mountpoint", mountPoint)
+
+	now := time.Now()
+	// check that this takes less than 1 second even though we are
+	// sleeping for 2
+	t.Assert(now.Before(start.Add(1*time.Second)), Equals, true,
+		Commentf("start %v now %v", start, now))
+
+	// double check that we eventually worked
+	file := "file1"
+	filePath := mountPoint + "/file1"
+
+	buf, err := ioutil.ReadFile(filePath)
+	t.Assert(err, IsNil)
+	t.Assert(string(buf), Equals, file)
 }
