@@ -189,7 +189,7 @@ func (s *S3Backend) detectBucketLocationByHEAD() (err error, isAws bool) {
 		// note that this only happen if the bucket is in us-east-1
 		if len(s.config.Profile) == 0 {
 			s.awsConfig.Credentials = credentials.AnonymousCredentials
-			s3Log.Infof("anonymous bucket detected")
+			s3Log.Info("anonymous bucket detected")
 		}
 	case 400:
 		err = fuse.EINVAL
@@ -318,7 +318,7 @@ func (s *S3Backend) ListObjectsV2(params *s3.ListObjectsV2Input) (*s3.ListObject
 
 func (s *S3Backend) pathedKey(key string, appendTrailingSlash bool) *string {
 	joinedKey := path.Join(s.path, key)
-	if appendTrailingSlash {
+	if appendTrailingSlash || strings.HasSuffix(key, "/") {
 		joinedKey += "/"
 	}
 	return aws.String(joinedKey)
@@ -348,7 +348,7 @@ func (s *S3Backend) getRequestId(r *request.Request) string {
 
 func (s *S3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	key := s.pathedKey(param.Key, false)
-	s3Log.Info("Head blob with bucket %s, key %s", s.bucket, *key)
+	s3Log.Infof("Head blob with bucket %s, key %s", s.bucket, *key)
 	head := s3.HeadObjectInput{Bucket: &s.bucket,
 		Key: key,
 	}
@@ -1015,7 +1015,7 @@ func (s *S3Backend) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error
 			case nil:
 				break
 			case syscall.ENXIO, syscall.EINTR:
-				s3Log.Infof("waiting for bucket")
+				s3Log.Info("waiting for bucket")
 				time.Sleep((time.Duration(i) + 1) * 2 * time.Second)
 			default:
 				s3Log.Errorf("Failed to tag bucket %v: %v", s.bucket, err)
