@@ -1072,8 +1072,8 @@ func (parent *Inode) Rename(from string, newParent *Inode, to string) (err error
 
 	toFullName := appendChildName(toPath, to)
 
-	toIsDir, err = parent.isEmptyDir(fs, to)
-	if err != nil {
+	toIsDir, err = newParent.isEmptyDir(fs, to)
+	if err != nil && err != fuse.ENOENT {
 		return
 	}
 
