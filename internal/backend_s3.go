@@ -17,7 +17,7 @@ package internal
 import (
 	"path"
 
-	. "github.com/kahing/goofys/api/common"
+	"github.com/kahing/goofys/api/common"
 	"github.com/pkg/errors"
 
 	"fmt"
@@ -46,8 +46,8 @@ type S3Backend struct {
 	bucket    string
 	path      string
 	awsConfig *aws.Config
-	flags     *FlagStorage
-	config    *S3Config
+	flags     *common.FlagStorage
+	config    *common.S3Config
 	sseType   string
 
 	aws      bool
@@ -55,7 +55,7 @@ type S3Backend struct {
 	v2Signer bool
 }
 
-func NewS3(bucket, path string, flags *FlagStorage, config *S3Config) (*S3Backend, error) {
+func NewS3(bucket, path string, flags *common.FlagStorage, config *common.S3Config) (*S3Backend, error) {
 	awsConfig, err := config.ToAwsConfig(flags)
 	if err != nil {
 		return nil, err
