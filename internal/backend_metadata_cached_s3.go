@@ -2,10 +2,13 @@ package internal
 
 import (
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/jacobsa/fuse"
 	"github.com/kahing/goofys/api/common"
-	"github.com/kahing/goofys/proto"
+	gproto "github.com/kahing/goofys/proto"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
+	"net/url"
 	"path"
 	"strings"
 )
@@ -18,22 +21,48 @@ type MetadataCachedS3Backend struct {
 	s3Backend *S3Backend
 
 	// Root directory node of filesystem metadata cache
-	rootCache *proto.NodeMetadata
+	rootCache *gproto.NodeMetadata
 }
 
 var _ StorageBackend = &MetadataCachedS3Backend{}
 
-func NewMetadataCachedS3(bucket, path, cachePath string, flags *common.FlagStorage, config *common.S3Config) (*MetadataCachedS3Backend, error) { //nolint:lll
+func NewMetadataCachedS3(bucket, path string, flags *common.FlagStorage, config *common.S3Config) (*MetadataCachedS3Backend, error) { //nolint:lll
 	s3Backend, err := NewS3(bucket, path, flags, config)
 	if err != nil {
 		return nil, err
 	}
 
+	parsedUrl, err := url.Parse(flags.MetadataCacheFile)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse cache file url")
+	}
+
+	if parsedUrl.Scheme != "s3" {
+		return nil, errors.New("unsupported metadata url scheme")
+	}
+
 	// Read the cache from s3 cache path
+	output, err := s3Backend.S3.GetObject(&s3.GetObjectInput{
+		Bucket: aws.String(parsedUrl.Host),
+		Key:    aws.String(parsedUrl.Path),
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "read metadata s3 file")
+	}
+
+	cache := &gproto.NodeMetadata{}
+	body := make([]byte, *output.ContentLength)
+	_, err = output.Body.Read(body)
+	if err != nil {
+		return nil, errors.Wrap(err, "read metadata body")
+	}
+	if err := proto.Unmarshal(body, cache); err != nil {
+		return nil, errors.Wrap(err, "unmarshal metadata proto")
+	}
 
 	return &MetadataCachedS3Backend{
 		s3Backend: s3Backend,
-		rootCache: nil,
+		rootCache: cache,
 	}, nil
 }
 
@@ -50,7 +79,7 @@ func (m MetadataCachedS3Backend) Bucket() string {
 }
 
 // findKey recursively finds the metadata key in the cache based on the paths
-func (m *MetadataCachedS3Backend) findKey(node *proto.NodeMetadata, paths []string, level int) *proto.NodeMetadata {
+func (m *MetadataCachedS3Backend) findKey(node *gproto.NodeMetadata, paths []string, level int) *gproto.NodeMetadata {
 	// If listing the root path, return the root cache
 	if level == 1 && len(paths) == 1 && paths[0] == "" {
 		return node

@@ -20,7 +20,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   syntax='proto3',
   serialized_options=b'Z\037github.com/kashing/goofys/proto',
   create_key=_descriptor._internal_create_key,
-  serialized_pb=b'\n\x0emetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf0\x01\n\x0cNodeMetadata\x12-\n\x08\x63hildren\x18\x01 \x03(\x0b\x32\x1b.NodeMetadata.ChildrenEntry\x12\x0c\n\x04size\x18\x02 \x01(\x03\x12\x34\n\x10last_modified_at\x18\x03 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x0c\n\x04name\x18\x04 \x01(\t\x12\x11\n\tdirectory\x18\x05 \x01(\x08\x12\x0c\n\x04root\x18\x06 \x01(\x08\x1a>\n\rChildrenEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\x1c\n\x05value\x18\x02 \x01(\x0b\x32\r.NodeMetadata:\x02\x38\x01\x42!Z\x1fgithub.com/kashing/goofys/protob\x06proto3'
+  serialized_pb=b'\n\x0emetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf0\x01\n\x0cNodeMetadata\x12-\n\x08\x63hildren\x18\x01 \x03(\x0b\x32\x1b.NodeMetadata.ChildrenEntry\x12\x0c\n\x04size\x18\x02 \x01(\x04\x12\x34\n\x10last_modified_at\x18\x03 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x0c\n\x04name\x18\x04 \x01(\t\x12\x11\n\tdirectory\x18\x05 \x01(\x08\x12\x0c\n\x04root\x18\x06 \x01(\x08\x1a>\n\rChildrenEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\x1c\n\x05value\x18\x02 \x01(\x0b\x32\r.NodeMetadata:\x02\x38\x01\x42!Z\x1fgithub.com/kashing/goofys/protob\x06proto3'
   ,
   dependencies=[google_dot_protobuf_dot_timestamp__pb2.DESCRIPTOR,])
 
@@ -82,7 +82,7 @@ _NODEMETADATA = _descriptor.Descriptor(
       serialized_options=None, file=DESCRIPTOR,  create_key=_descriptor._internal_create_key),
     _descriptor.FieldDescriptor(
       name='size', full_name='NodeMetadata.size', index=1,
-      number=2, type=3, cpp_type=2, label=1,
+      number=2, type=4, cpp_type=4, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,

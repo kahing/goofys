@@ -114,6 +114,8 @@ func NewBackend(bucket, path string, flags *FlagStorage) (cloud StorageBackend, 
 	} else if config, ok := flags.Backend.(*S3Config); ok {
 		if strings.HasSuffix(flags.Endpoint, "/storage.googleapis.com") {
 			cloud, err = NewGCS3(bucket, path, flags, config)
+		} else if flags.MetadataCacheFile != "" {
+			cloud, err = NewMetadataCachedS3(bucket, path, flags, config)
 		} else {
 			cloud, err = NewS3(bucket, path, flags, config)
 		}

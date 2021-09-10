@@ -347,6 +347,9 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		DebugFuse:  c.Bool("debug_fuse"),
 		DebugS3:    c.Bool("debug_s3"),
 		Foreground: c.Bool("f"),
+
+		// Metadata Cache options
+		MetadataCacheFile: c.String("metadata_cache_file"),
 	}
 
 	// S3

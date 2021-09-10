@@ -42,7 +42,7 @@ type BlobItemOutput struct {
 	Key          *string
 	ETag         *string
 	LastModified *time.Time
-	Size         int64
+	Size         uint64
 	StorageClass *string
 }
 
