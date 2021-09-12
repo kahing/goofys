@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/jacobsa/fuse"
@@ -8,6 +9,7 @@ import (
 	gproto "github.com/kahing/goofys/proto"
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/proto"
+	"io/ioutil"
 	"net/url"
 	"path"
 	"strings"
@@ -37,27 +39,39 @@ func NewMetadataCachedS3(bucket, path string, flags *common.FlagStorage, config 
 		return nil, errors.Wrap(err, "parse cache file url")
 	}
 
-	if parsedUrl.Scheme != "s3" {
-		return nil, errors.New("unsupported metadata url scheme")
-	}
-
-	// Read the cache from s3 cache path
-	output, err := s3Backend.S3.GetObject(&s3.GetObjectInput{
-		Bucket: aws.String(parsedUrl.Host),
-		Key:    aws.String(parsedUrl.Path),
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "read metadata s3 file")
-	}
-
 	cache := &gproto.NodeMetadata{}
-	body := make([]byte, *output.ContentLength)
-	_, err = output.Body.Read(body)
-	if err != nil {
-		return nil, errors.Wrap(err, "read metadata body")
-	}
-	if err := proto.Unmarshal(body, cache); err != nil {
-		return nil, errors.Wrap(err, "unmarshal metadata proto")
+	if parsedUrl.Scheme == "s3" {
+		// Read the cache from s3 cache path
+		output, err := s3Backend.S3.GetObject(&s3.GetObjectInput{
+			Bucket: aws.String(parsedUrl.Host),
+			Key:    aws.String(parsedUrl.Path),
+		})
+		if err != nil {
+			return nil, errors.Wrap(err, "read metadata s3 file")
+		}
+
+		body := make([]byte, *output.ContentLength)
+		_, err = output.Body.Read(body)
+		if err != nil {
+			return nil, errors.Wrap(err, "read metadata body")
+		}
+
+		if err := proto.Unmarshal(body, cache); err != nil {
+			return nil, errors.Wrap(err, "unmarshal metadata proto")
+		}
+	} else {
+		if parsedUrl.Scheme != "" {
+			return nil, fmt.Errorf("unsupported metadata url scheme: %s", parsedUrl.Scheme)
+		}
+
+		body, err := ioutil.ReadFile(flags.MetadataCacheFile)
+		if err != nil {
+			return nil, errors.Wrap(err, "read metadata local file")
+		}
+
+		if err := proto.Unmarshal(body, cache); err != nil {
+			return nil, errors.Wrap(err, "unmarshal metadata proto")
+		}
 	}
 
 	return &MetadataCachedS3Backend{
