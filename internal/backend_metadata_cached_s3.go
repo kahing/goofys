@@ -140,11 +140,10 @@ func (m MetadataCachedS3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput
 func (m MetadataCachedS3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 	s3Log.Infof("List blobs with cached called with %+v", param)
 	var paths []string
-	rootPath := false
 	expectDir := true
 	if param.Prefix == nil {
 		paths = []string{""}
-		rootPath = true
+
 	} else {
 		expectDir = strings.HasSuffix(*param.Prefix, "/")
 		paths = strings.Split(*param.Prefix, "/")
@@ -181,19 +180,19 @@ func (m MetadataCachedS3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOut
 	}, nil
 }
 
-func (m MetadataCachedS3Backend) DeleteBlob(param *DeleteBlobInput) (*DeleteBlobOutput, error) {
+func (m MetadataCachedS3Backend) DeleteBlob(*DeleteBlobInput) (*DeleteBlobOutput, error) {
 	return nil, errors.New("delete blob is not supported in cached backend")
 }
 
-func (m MetadataCachedS3Backend) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, error) {
+func (m MetadataCachedS3Backend) DeleteBlobs(*DeleteBlobsInput) (*DeleteBlobsOutput, error) {
 	return nil, errors.New("delete blobs is not supported in cached backend")
 }
 
-func (m MetadataCachedS3Backend) RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error) {
+func (m MetadataCachedS3Backend) RenameBlob(*RenameBlobInput) (*RenameBlobOutput, error) {
 	return nil, errors.New("rename blob is not supported in cached backend")
 }
 
-func (m MetadataCachedS3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
+func (m MetadataCachedS3Backend) CopyBlob(*CopyBlobInput) (*CopyBlobOutput, error) {
 	return nil, errors.New("copy blob is not supported in cached backend")
 }
 
@@ -201,35 +200,35 @@ func (m MetadataCachedS3Backend) GetBlob(param *GetBlobInput) (*GetBlobOutput, e
 	return m.s3Backend.GetBlob(param)
 }
 
-func (m MetadataCachedS3Backend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
+func (m MetadataCachedS3Backend) PutBlob(*PutBlobInput) (*PutBlobOutput, error) {
 	return nil, errors.New("put blob is not supported in cached backend")
 }
 
-func (m MetadataCachedS3Backend) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlobCommitInput, error) {
+func (m MetadataCachedS3Backend) MultipartBlobBegin(*MultipartBlobBeginInput) (*MultipartBlobCommitInput, error) {
 	return nil, errors.New("multi part blob begin is not supported in cached backend")
 }
 
-func (m MetadataCachedS3Backend) MultipartBlobAdd(param *MultipartBlobAddInput) (*MultipartBlobAddOutput, error) {
+func (m MetadataCachedS3Backend) MultipartBlobAdd(*MultipartBlobAddInput) (*MultipartBlobAddOutput, error) {
 	return nil, errors.New("multi part blob add is not supported in cached backend")
 }
 
-func (m MetadataCachedS3Backend) MultipartBlobAbort(param *MultipartBlobCommitInput) (*MultipartBlobAbortOutput, error) { //nolint:lll
+func (m MetadataCachedS3Backend) MultipartBlobAbort(*MultipartBlobCommitInput) (*MultipartBlobAbortOutput, error) { //nolint:lll
 	return nil, errors.New("multi part blob abort is not supported in cached backend")
 }
 
-func (m MetadataCachedS3Backend) MultipartBlobCommit(param *MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error) { //nolint:lll
+func (m MetadataCachedS3Backend) MultipartBlobCommit(*MultipartBlobCommitInput) (*MultipartBlobCommitOutput, error) { //nolint:lll
 	return nil, errors.New("multi part blob commit is not supported in cached backend")
 }
 
-func (m MetadataCachedS3Backend) MultipartExpire(param *MultipartExpireInput) (*MultipartExpireOutput, error) {
+func (m MetadataCachedS3Backend) MultipartExpire(*MultipartExpireInput) (*MultipartExpireOutput, error) {
 	return nil, errors.New("multi part blob expire is not supported in cached backend")
 }
 
-func (m MetadataCachedS3Backend) RemoveBucket(param *RemoveBucketInput) (*RemoveBucketOutput, error) {
+func (m MetadataCachedS3Backend) RemoveBucket(*RemoveBucketInput) (*RemoveBucketOutput, error) {
 	return nil, errors.New("remove bucket is not supported in cached backend")
 }
 
-func (m MetadataCachedS3Backend) MakeBucket(param *MakeBucketInput) (*MakeBucketOutput, error) {
+func (m MetadataCachedS3Backend) MakeBucket(*MakeBucketInput) (*MakeBucketOutput, error) {
 	return nil, errors.New("make bucket is not supported in cached backend")
 }
 
