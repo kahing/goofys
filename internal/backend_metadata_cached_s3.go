@@ -74,6 +74,8 @@ func NewMetadataCachedS3(bucket, path string, flags *common.FlagStorage, config 
 		}
 	}
 
+	s3Log.Infof("Initialized cached s3 fs using cache data from %s", flags.MetadataCacheFile)
+
 	return &MetadataCachedS3Backend{
 		s3Backend: s3Backend,
 		rootCache: cache,
