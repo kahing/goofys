@@ -120,6 +120,7 @@ func (m *MetadataCachedS3Backend) findKey(node *gproto.NodeMetadata, paths []str
 }
 
 func (m MetadataCachedS3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
+	s3Log.Infof("Head blob with cached called with %s", param.Key)
 	paths := strings.Split(param.Key, "/")
 	cachedMetadata := m.findKey(m.rootCache, paths, 1)
 	if cachedMetadata == nil {
@@ -137,6 +138,7 @@ func (m MetadataCachedS3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput
 }
 
 func (m MetadataCachedS3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
+	s3Log.Infof("List blobs with cached called with %+v", param)
 	var paths []string
 	rootPath := false
 	expectDir := true
@@ -158,17 +160,13 @@ func (m MetadataCachedS3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOut
 	}
 
 	var prefixes []BlobPrefixOutput
-	if !rootPath {
-		for _, part := range paths {
-			prefixes = append(prefixes, BlobPrefixOutput{
-				Prefix: aws.String(part + "/"),
-			})
-		}
-	}
-
 	var items []BlobItemOutput
-	if cachedMetadata.GetDirectory() {
-		for name, child := range cachedMetadata.GetChildren() {
+	for name, child := range cachedMetadata.GetChildren() {
+		if child.GetDirectory() {
+			prefixes = append(prefixes, BlobPrefixOutput{
+				Prefix: aws.String(path.Join(*param.Prefix, child.Name) + "/"),
+			})
+		} else {
 			items = append(items, BlobItemOutput{
 				Key:          aws.String(path.Join(*param.Prefix, name)),
 				LastModified: aws.Time(child.GetLastModifiedAt().AsTime()),
