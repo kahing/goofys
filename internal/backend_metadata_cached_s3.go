@@ -140,14 +140,20 @@ func (m MetadataCachedS3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput
 func (m MetadataCachedS3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 	s3Log.Infof("List blobs with cached called with %+v", param)
 	var paths []string
-	expectDir := true
+	expectDir := false
 	if param.Prefix == nil {
 		paths = []string{""}
 
 	} else {
-		expectDir = strings.HasSuffix(*param.Prefix, "/")
-		paths = strings.Split(*param.Prefix, "/")
+		prefix := *param.Prefix
+		if strings.HasSuffix(prefix, "/") {
+			expectDir = true
+			prefix = strings.TrimSuffix(prefix, "/")
+
+		}
+		paths = strings.Split(prefix, "/")
 	}
+
 	cachedMetadata := m.findKey(m.rootCache, paths, 1)
 	if cachedMetadata == nil {
 		return &ListBlobsOutput{}, nil
