@@ -74,6 +74,9 @@ func NewMetadataCachedS3(bucket, path string, flags *common.FlagStorage, config 
 		}
 	}
 
+	// Change TTL to be 0 to avoid slurping and causing confused results
+	flags.TypeCacheTTL = 0
+
 	s3Log.Infof("Initialized cached s3 fs using cache data from %s", flags.MetadataCacheFile)
 
 	return &MetadataCachedS3Backend{
@@ -120,46 +123,47 @@ func (m *MetadataCachedS3Backend) findKey(node *gproto.NodeMetadata, paths []str
 }
 
 func (m MetadataCachedS3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
-	s3Log.Infof("Head blob with cached called with %s", param.Key)
 	paths := strings.Split(param.Key, "/")
 	cachedMetadata := m.findKey(m.rootCache, paths, 1)
 	if cachedMetadata == nil {
 		return nil, fuse.ENOENT
 	}
 
-	return &HeadBlobOutput{
+	output := &HeadBlobOutput{
 		BlobItemOutput: BlobItemOutput{
 			Key:          &param.Key,
 			LastModified: aws.Time(cachedMetadata.GetLastModifiedAt().AsTime()),
 			Size:         cachedMetadata.GetSize(),
 		},
 		IsDirBlob: cachedMetadata.GetDirectory(),
-	}, nil
+	}
+
+	s3Log.Debugf("Head blob returned from cache. request: %+v, response: %+v", param, output)
+	return output, nil
 }
 
 func (m MetadataCachedS3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
-	s3Log.Infof("List blobs with cached called with %+v", param)
 	var paths []string
 	expectDir := false
 	if param.Prefix == nil {
 		paths = []string{""}
-
 	} else {
 		prefix := *param.Prefix
 		if strings.HasSuffix(prefix, "/") {
 			expectDir = true
 			prefix = strings.TrimSuffix(prefix, "/")
-
 		}
 		paths = strings.Split(prefix, "/")
 	}
 
 	cachedMetadata := m.findKey(m.rootCache, paths, 1)
 	if cachedMetadata == nil {
+		s3Log.Debugf("List blobs cache miss. request: %+v", param)
 		return &ListBlobsOutput{}, nil
 	}
 
 	if expectDir && !cachedMetadata.GetDirectory() {
+		s3Log.Debugf("List blobs expected dir but found file. request: %+v", param)
 		// We are specifically looking for a directory, and if it wasn't we should return
 		return &ListBlobsOutput{}, nil
 	}
@@ -180,10 +184,14 @@ func (m MetadataCachedS3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOut
 		}
 	}
 
-	return &ListBlobsOutput{
+	output := &ListBlobsOutput{
 		Prefixes: prefixes,
 		Items:    items,
-	}, nil
+	}
+
+	s3Log.Debugf("List blobs returned from cache. request: %+v, response: %+v", param, output)
+
+	return output, nil
 }
 
 func (m MetadataCachedS3Backend) DeleteBlob(*DeleteBlobInput) (*DeleteBlobOutput, error) {
