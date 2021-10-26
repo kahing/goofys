@@ -112,6 +112,7 @@ goofys has been tested with the following non-AWS S3 providers:
 * EdgeFS
 * EMC Atmos
 * Google Cloud Storage
+* Linode Object Storage
 * Minio (limited)
 * OpenStack Swift
 * S3Proxy
