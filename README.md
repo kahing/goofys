@@ -23,7 +23,7 @@ close-to-open.
 * On macOS, install via [Homebrew](https://brew.sh/):
 
 ```ShellSession
-$ brew install --cask osxfuse
+$ brew install --cask macfuse
 $ brew install goofys
 ```
 
