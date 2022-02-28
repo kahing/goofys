@@ -269,7 +269,7 @@ func azureFindAccount(client azblob.AccountsClient, account string) (*azblob.End
 		return nil, "", err
 	}
 
-	for _, acc := range *accountsRes.Value {
+	for _, acc := range accountsRes.Values() {
 		if *acc.Name == account {
 			// /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/...
 			parts := strings.SplitN(*acc.ID, "/", 6)
@@ -370,7 +370,7 @@ func AzureBlobConfig(endpoint string, location string, storageType string) (conf
 
 			if key == "" {
 				var keysRes azblob.AccountListKeysResult
-				keysRes, err = client.ListKeys(context.TODO(), resourceGroup, account)
+				keysRes, err = client.ListKeys(context.TODO(), resourceGroup, account, azblob.Kerb)
 				if err != nil || len(*keysRes.Keys) == 0 {
 					err = fmt.Errorf("Missing key: configure via AZURE_STORAGE_KEY "+
 						"or %v/config", configDir)
