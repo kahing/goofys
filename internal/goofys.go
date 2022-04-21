@@ -34,8 +34,9 @@ import (
 	"github.com/jacobsa/fuse/fuseops"
 	"github.com/jacobsa/fuse/fuseutil"
 
-	"github.com/sirupsen/logrus"
 	"net/http"
+
+	"github.com/sirupsen/logrus"
 )
 
 // goofys is a Filey System written in Go. All the backend data is
@@ -882,7 +883,7 @@ func (fs *Goofys) OpenFile(
 	in := fs.getInodeOrDie(op.Inode)
 	fs.mu.RUnlock()
 
-	fh, err := in.OpenFile(op.Metadata)
+	fh, err := in.OpenFile(op.OpContext)
 	if err != nil {
 		return
 	}
@@ -955,7 +956,7 @@ func (fs *Goofys) FlushFile(
 	// This check helps us with scenarios like https://github.com/kahing/goofys/issues/273
 	// Also see goofys_test.go:TestClientForkExec.
 	if fh.Tgid != nil {
-		tgid, err := GetTgid(op.Metadata.Pid)
+		tgid, err := GetTgid(op.OpContext.Pid)
 		if err != nil {
 			fh.inode.logFuse("<-- FlushFile",
 				fmt.Sprintf("Failed to retrieve tgid from op.Metadata.Pid. FlushFileOp:%#v, err:%v",
@@ -1015,7 +1016,7 @@ func (fs *Goofys) CreateFile(
 	parent := fs.getInodeOrDie(op.Parent)
 	fs.mu.RUnlock()
 
-	inode, fh := parent.Create(op.Name, op.Metadata)
+	inode, fh := parent.Create(op.Name, op.OpContext)
 
 	parent.mu.Lock()
 

@@ -899,7 +899,7 @@ func (parent *Inode) Unlink(name string) (err error) {
 }
 
 func (parent *Inode) Create(
-	name string, metadata fuseops.OpMetadata) (inode *Inode, fh *FileHandle) {
+	name string, metadata fuseops.OpContext) (inode *Inode, fh *FileHandle) {
 
 	parent.logFuse("Create", name)
 
