@@ -518,7 +518,7 @@ func (inode *Inode) ListXattr() ([]string, error) {
 	return xattrs, nil
 }
 
-func (inode *Inode) OpenFile(metadata fuseops.OpMetadata) (fh *FileHandle, err error) {
+func (inode *Inode) OpenFile(metadata fuseops.OpContext) (fh *FileHandle, err error) {
 	inode.logFuse("OpenFile")
 
 	inode.mu.Lock()
