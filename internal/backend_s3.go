@@ -124,6 +124,10 @@ func (s *S3Backend) newS3() {
 		s.setV2Signer(&s.S3.Handlers)
 	}
 	s.S3.Handlers.Sign.PushBack(addAcceptEncoding)
+	s.S3.Handlers.Build.PushFrontNamed(request.NamedHandler{
+		Name: "UserAgentHandler",
+		Fn:   request.MakeAddToUserAgentHandler("Goofys", VersionNumber+"-"+VersionHash),
+	})
 }
 
 func (s *S3Backend) detectBucketLocationByHEAD() (err error, isAws bool) {
