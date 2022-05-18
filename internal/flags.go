@@ -86,7 +86,7 @@ func NewApp() (app *cli.App) {
 
 	app = &cli.App{
 		Name:     "goofys",
-		Version:  "0.24.0-" + VersionHash,
+		Version:  "0.24.1-rc1-" + VersionHash,
 		Usage:    "Mount an S3 bucket locally",
 		HideHelp: true,
 		Writer:   os.Stderr,
@@ -237,10 +237,17 @@ func NewApp() (app *cli.App) {
 				Usage: "How long to cache name -> file/dir mappings in directory " +
 					"inodes.",
 			},
+
 			cli.DurationFlag{
 				Name:  "http-timeout",
 				Value: 30 * time.Second,
 				Usage: "Set the timeout on HTTP requests to S3",
+			},
+
+			cli.IntFlag{
+				Name:  "read-ahead-chunk",
+				Value: 20,
+				Usage: "Read ahead size in MiB for S3 range requests.",
 			},
 
 			/////////////////////////
@@ -261,6 +268,7 @@ func NewApp() (app *cli.App) {
 				Name:  "f",
 				Usage: "Run goofys in foreground.",
 			},
+
 		},
 	}
 
@@ -275,7 +283,7 @@ func NewApp() (app *cli.App) {
 		flagCategories[f] = "aws"
 	}
 
-	for _, f := range []string{"cheap", "no-implicit-dir", "stat-cache-ttl", "type-cache-ttl", "http-timeout"} {
+	for _, f := range []string{"cheap", "no-implicit-dir", "stat-cache-ttl", "type-cache-ttl", "http-timeout", "read-ahead-chunk"} {
 		flagCategories[f] = "tuning"
 	}
 
@@ -327,11 +335,12 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		Gid:          uint32(c.Int("gid")),
 
 		// Tuning,
-		Cheap:        c.Bool("cheap"),
-		ExplicitDir:  c.Bool("no-implicit-dir"),
-		StatCacheTTL: c.Duration("stat-cache-ttl"),
-		TypeCacheTTL: c.Duration("type-cache-ttl"),
-		HTTPTimeout:  c.Duration("http-timeout"),
+		Cheap:          c.Bool("cheap"),
+		ExplicitDir:    c.Bool("no-implicit-dir"),
+		StatCacheTTL:   c.Duration("stat-cache-ttl"),
+		TypeCacheTTL:   c.Duration("type-cache-ttl"),
+		HTTPTimeout:    c.Duration("http-timeout"),
+		ReadAheadChunk: uint32(c.Int("read-ahead-chunk")),
 
 		// Common Backend Config
 		Endpoint:       c.String("endpoint"),
