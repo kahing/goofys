@@ -126,7 +126,7 @@ func (s *S3Backend) newS3() {
 	s.S3.Handlers.Sign.PushBack(addAcceptEncoding)
 	s.S3.Handlers.Build.PushFrontNamed(request.NamedHandler{
 		Name: "UserAgentHandler",
-		Fn:   request.MakeAddToUserAgentHandler("Goofys", VersionNumber+"-"+VersionHash),
+		Fn:   request.MakeAddToUserAgentHandler("goofys", VersionNumber+"-"+VersionHash),
 	})
 }
 
