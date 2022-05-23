@@ -138,6 +138,11 @@ func NewApp() (app *cli.App) {
 				Usage: "GID owner of all inodes.",
 			},
 
+			cli.IntFlag{
+				Name:  "MPUPartSize",
+				Value: 5 * 1024 * 1024,
+				Usage: "MPU part size.",
+			},
 			/////////////////////////
 			// S3
 			/////////////////////////
@@ -341,6 +346,9 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		DebugFuse:  c.Bool("debug_fuse"),
 		DebugS3:    c.Bool("debug_s3"),
 		Foreground: c.Bool("f"),
+
+		// MPU
+		MPUPartSize: uint64(c.Int("MPUPartSize")),
 	}
 
 	// S3
