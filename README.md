@@ -18,14 +18,18 @@ close-to-open.
 
 # Installation
 
-* On Linux, install via [pre-built binaries](https://github.com/kahing/goofys/releases/latest/download/goofys). You may also need to install fuse-utils first.
+Ensure you have FUSE available on your system.
 
-* On macOS, install via [Homebrew](https://brew.sh/):
+* For Linux, you may need to install fuse-utils.
+* For macOS, you may need to install [macFUSE](https://osxfuse.github.io/) (prev. OSXFUSE).
+  This can be installed via the [macfuse Homebrew Cask](https://formulae.brew.sh/cask/macfuse).
 
-```ShellSession
-$ brew cask install osxfuse
-$ brew install goofys
-```
+You have the following options for installation.
+
+## Pre-built binaries
+
+You can [download pre-built goofys binaries](https://github.com/kahing/goofys/releases/latest/download/goofys) available on GitHub.
+Move these to a location in your PATH variable if you prefer to run without specifying a path to goofys.
 
 # Usage
 
