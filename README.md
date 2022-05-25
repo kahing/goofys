@@ -27,14 +27,6 @@ $ brew cask install osxfuse
 $ brew install goofys
 ```
 
-* Or build from source with Go 1.10 or later:
-
-```ShellSession
-$ export GOPATH=$HOME/work
-$ go get github.com/kahing/goofys
-$ go install github.com/kahing/goofys
-```
-
 # Usage
 
 ```ShellSession
