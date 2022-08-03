@@ -3,7 +3,7 @@ module github.com/kahing/goofys
 go 1.14
 
 require (
-	cloud.google.com/go/storage v1.14.0
+	cloud.google.com/go/storage v1.24.0
 	github.com/Azure/azure-pipeline-go v0.2.2
 	github.com/Azure/azure-sdk-for-go v32.1.0+incompatible
 	github.com/Azure/azure-storage-blob-go v0.7.1-0.20190724222048-33c102d4ffd2
@@ -16,7 +16,7 @@ require (
 	github.com/StackExchange/wmi v0.0.0-20210224194228-fe8f1750fd46 // indirect
 	github.com/aws/aws-sdk-go v1.38.7
 	github.com/go-ole/go-ole v1.2.5 // indirect
-	github.com/google/uuid v1.1.2
+	github.com/google/uuid v1.3.0
 	github.com/gopherjs/gopherjs v0.0.0-20210413103415-7d3cbed7d026 // indirect
 	github.com/jacobsa/fuse v0.0.0-20220303082815-1c9fe7bc84a5
 	github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0
@@ -27,10 +27,10 @@ require (
 	github.com/sirupsen/logrus v1.4.3-0.20190807103436-de736cf91b92
 	github.com/smartystreets/assertions v1.2.0 // indirect
 	github.com/urfave/cli v1.21.1-0.20190807111034-521735b7608a
-	golang.org/x/oauth2 v0.0.0-20210323180902-22b0adad7558
-	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-	golang.org/x/sys v0.0.0-20210403161142-5e06dd20ab57
-	google.golang.org/api v0.43.0
+	golang.org/x/oauth2 v0.0.0-20220622183110-fd043fe589d2
+	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f
+	golang.org/x/sys v0.0.0-20220615213510-4f61da869c0c
+	google.golang.org/api v0.85.0
 	gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127
 	gopkg.in/ini.v1 v1.51.0
 )
