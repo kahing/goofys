@@ -100,9 +100,6 @@ List of non-POSIX behaviors/limitations:
   * `unlink` returns success even if file is not present
   * `fsync` is ignored, files are only flushed on `close`
 
-In addition to the items above, the following are supportable but not yet implemented:
-  * creating files larger than 1TB
-
 ## Compatibility with non-AWS S3
 
 goofys has been tested with the following non-AWS S3 providers:
