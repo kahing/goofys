@@ -1,7 +1,7 @@
 package internal
 
 import (
-	"github.com/dale0525/api/common"
+	"github.com/dale0525/goofys/api/common"
 
 	"bytes"
 	"context"
