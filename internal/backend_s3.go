@@ -504,7 +504,7 @@ func (s *S3Backend) mpuCopyPart(from string, to string, mpuId string, bytes stri
 }
 
 func sizeToParts(size int64) (int, int64) {
-	const MAX_S3_MPU_SIZE = 5 * 1024 * 1024 * 1024 * 1024
+	const MAX_S3_MPU_SIZE int64 = 5 * 1024 * 1024 * 1024 * 1024
 	if size > MAX_S3_MPU_SIZE {
 		panic(fmt.Sprintf("object size: %v exceeds maximum S3 MPU size: %v", size, MAX_S3_MPU_SIZE))
 	}
