@@ -410,7 +410,7 @@ func (fs *Goofys) StatFS(
 	op *fuseops.StatFSOp) (err error) {
 
 	const BLOCK_SIZE = 4096
-	const TOTAL_SPACE = 1 * 1024 * 1024 * 1024 * 1024 * 1024 // 1PB
+	const TOTAL_SPACE = 999 * 1024 * 1024 * 1024 * 1024 // 999TB
 	const TOTAL_BLOCKS = TOTAL_SPACE / BLOCK_SIZE
 	const INODES = 1 * 1000 * 1000 * 1000 // 1 billion
 	op.BlockSize = BLOCK_SIZE
