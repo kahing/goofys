@@ -2,6 +2,8 @@ module github.com/dale0525/goofys
 
 go 1.19
 
+replace github.com/jacobsa/fuse v0.0.0-20200706075950-f8927095af03 => github.com/kahing/fusego v0.0.0-20200327063725-ca77844c7bcc
+
 require (
 	cloud.google.com/go/storage v1.14.0
 	github.com/Azure/azure-pipeline-go v0.2.2
@@ -33,5 +35,4 @@ require (
 	google.golang.org/api v0.43.0
 	gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127
 	gopkg.in/ini.v1 v1.51.0
-	replace github.com/jacobsa/fuse v0.0.0-20200706075950-f8927095af03 => github.com/kahing/fusego v0.0.0-20200327063725-ca77844c7bcc
 )
