@@ -1,4 +1,4 @@
-module github.com/kahing/goofys
+module github.com/dale0525/goofys
 
 go 1.19
 
