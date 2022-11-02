@@ -4,9 +4,9 @@ go 1.14
 
 require (
 	cloud.google.com/go/storage v1.14.0
-	github.com/Azure/azure-pipeline-go v0.2.2
-	github.com/Azure/azure-sdk-for-go v32.1.0+incompatible
-	github.com/Azure/azure-storage-blob-go v0.7.1-0.20190724222048-33c102d4ffd2
+	github.com/Azure/azure-pipeline-go v0.2.3
+	github.com/Azure/azure-sdk-for-go v61.4.0+incompatible
+	github.com/Azure/azure-storage-blob-go v0.14.0
 	github.com/Azure/go-autorest/autorest v0.11.18
 	github.com/Azure/go-autorest/autorest/adal v0.9.13
 	github.com/Azure/go-autorest/autorest/azure/auth v0.5.7
@@ -16,7 +16,8 @@ require (
 	github.com/StackExchange/wmi v0.0.0-20210224194228-fe8f1750fd46 // indirect
 	github.com/aws/aws-sdk-go v1.44.37
 	github.com/go-ole/go-ole v1.2.5 // indirect
-	github.com/google/uuid v1.1.2
+	github.com/gofrs/uuid v4.2.0+incompatible
+	github.com/google/uuid v1.2.0
 	github.com/gopherjs/gopherjs v0.0.0-20210413103415-7d3cbed7d026 // indirect
 	github.com/jacobsa/fuse v0.0.0-20220303082815-1c9fe7bc84a5
 	github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0
@@ -31,6 +32,6 @@ require (
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/sys v0.0.0-20211216021012-1d35b9e2eb4e
 	google.golang.org/api v0.43.0
-	gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127
+	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c
 	gopkg.in/ini.v1 v1.51.0
 )
