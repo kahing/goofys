@@ -479,7 +479,7 @@ func (s *S3Backend) mpuCopyPart(from string, to string, mpuId string, bytes stri
 	params := &s3.UploadPartCopyInput{
 		Bucket:            &s.bucket,
 		Key:               &to,
-		CopySource:        aws.String(pathEscape(from)),
+		CopySource:        aws.String(url.QueryEscape(from)),
 		UploadId:          &mpuId,
 		CopySourceRange:   &bytes,
 		CopySourceIfMatch: srcEtag,
@@ -671,7 +671,7 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 
 	params := &s3.CopyObjectInput{
 		Bucket:            &s.bucket,
-		CopySource:        aws.String(pathEscape(from)),
+		CopySource:        aws.String(url.QueryEscape(from)),
 		Key:               &param.Destination,
 		StorageClass:      param.StorageClass,
 		ContentType:       s.flags.GetMimeType(param.Destination),

@@ -999,6 +999,32 @@ func (s *GoofysTest) TestCreateFiles(t *C) {
 	defer resp.Body.Close()
 }
 
+func (s *GoofysTest) TestRenameWithSpecialChar(t *C) {
+	fileName := "foo+"
+	s.testWriteFile(t, fileName, 1, 128*1024)
+
+	inode, err := s.getRoot(t).LookUp(fileName)
+	t.Assert(err, IsNil)
+
+	fh, err := inode.OpenFile(fuseops.OpMetadata{uint32(os.Getpid())})
+	t.Assert(err, IsNil)
+
+	err = fh.FlushFile()
+	t.Assert(err, IsNil)
+
+	resp, err := s.cloud.GetBlob(&GetBlobInput{Key: fileName})
+	t.Assert(err, IsNil)
+	// ADLv1 doesn't return size when we do a GET
+	if _, adlv1 := s.cloud.(*ADLv1); !adlv1 {
+		t.Assert(resp.HeadBlobOutput.Size, Equals, uint64(1))
+	}
+	defer resp.Body.Close()
+
+	root := s.getRoot(t)
+	err = root.Rename(fileName, root, "foo")
+	t.Assert(err, IsNil)
+}
+
 func (s *GoofysTest) TestUnlink(t *C) {
 	fileName := "file1"
 
