@@ -1006,7 +1006,7 @@ func (s *GoofysTest) TestRenameWithSpecialChar(t *C) {
 	inode, err := s.getRoot(t).LookUp(fileName)
 	t.Assert(err, IsNil)
 
-	fh, err := inode.OpenFile(fuseops.OpMetadata{uint32(os.Getpid())})
+	fh, err := inode.OpenFile(fuseops.OpContext{uint32(os.Getpid())})
 	t.Assert(err, IsNil)
 
 	err = fh.FlushFile()
