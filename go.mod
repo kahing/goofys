@@ -19,7 +19,7 @@ require (
 	github.com/gofrs/uuid v4.2.0+incompatible
 	github.com/google/uuid v1.2.0
 	github.com/gopherjs/gopherjs v0.0.0-20210413103415-7d3cbed7d026 // indirect
-	github.com/jacobsa/fuse v0.0.0-20220303082815-1c9fe7bc84a5
+	github.com/jacobsa/fuse v0.0.0-20221016084658-a4cd154343d8
 	github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/satori/go.uuid v1.2.1-0.20181028125025-b2ce2384e17b
@@ -30,7 +30,7 @@ require (
 	github.com/urfave/cli v1.21.1-0.20190807111034-521735b7608a
 	golang.org/x/oauth2 v0.0.0-20210323180902-22b0adad7558
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-	golang.org/x/sys v0.0.0-20211216021012-1d35b9e2eb4e
+	golang.org/x/sys v0.2.0
 	google.golang.org/api v0.43.0
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c
 	gopkg.in/ini.v1 v1.51.0
