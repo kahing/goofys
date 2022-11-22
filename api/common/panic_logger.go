@@ -27,6 +27,8 @@ type FusePanicLogger struct {
 	Fs fuseutil.FileSystem
 }
 
+var _ fuseutil.FileSystem = FusePanicLogger{}
+
 func LogPanic(err *error) {
 	if e := recover(); e != nil {
 		log.Errorf("stacktrace from panic: %v \n"+string(debug.Stack()), e)
@@ -34,6 +36,11 @@ func LogPanic(err *error) {
 			*err = fuse.EIO
 		}
 	}
+}
+
+func (fs FusePanicLogger) BatchForget(ctx context.Context, op *fuseops.BatchForgetOp) (err error) {
+	defer LogPanic(&err)
+	return fs.Fs.BatchForget(ctx, op)
 }
 
 func (fs FusePanicLogger) StatFS(ctx context.Context, op *fuseops.StatFSOp) (err error) {

@@ -45,7 +45,7 @@ func getCgroupAvailableMem() (retVal uint64, err error) {
 
 	// newer version of docker mounts the cgroup memory limit/usage files directly under
 	// /sys/fs/cgroup/memory/ rather than /sys/fs/cgroup/memory/docker/$container_id/
-	if _, err := os.Stat(filepath.Join(CGROUP_FOLDER_PREFIX, path)); os.IsExist(err) {
+	if _, err := os.Stat(filepath.Join(CGROUP_FOLDER_PREFIX, path)); err == nil {
 		path = filepath.Join(CGROUP_FOLDER_PREFIX, path)
 	} else {
 		path = filepath.Join(CGROUP_FOLDER_PREFIX)
