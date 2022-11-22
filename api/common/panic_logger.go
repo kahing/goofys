@@ -42,7 +42,6 @@ func (fs FusePanicLogger) BatchForget(ctx context.Context, op *fuseops.BatchForg
 	defer LogPanic(&err)
 	return fs.Fs.BatchForget(ctx, op)
 }
-
 func (fs FusePanicLogger) StatFS(ctx context.Context, op *fuseops.StatFSOp) (err error) {
 	defer LogPanic(&err)
 	return fs.Fs.StatFS(ctx, op)
