@@ -66,10 +66,6 @@ func (fs FusePanicLogger) ForgetInode(ctx context.Context, op *fuseops.ForgetIno
 	defer LogPanic(&err)
 	return fs.Fs.ForgetInode(ctx, op)
 }
-func (fs FusePanicLogger) BatchForget(ctx context.Context, op *fuseops.BatchForgetOp) (err error) {
-	defer LogPanic(&err)
-	return fs.Fs.BatchForget(ctx, op)
-}
 func (fs FusePanicLogger) MkDir(ctx context.Context, op *fuseops.MkDirOp) (err error) {
 	defer LogPanic(&err)
 	return fs.Fs.MkDir(ctx, op)
