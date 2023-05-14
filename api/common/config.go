@@ -45,11 +45,14 @@ type FlagStorage struct {
 	Backend interface{}
 
 	// Tuning
-	Cheap        bool
-	ExplicitDir  bool
-	StatCacheTTL time.Duration
-	TypeCacheTTL time.Duration
-	HTTPTimeout  time.Duration
+	Cheap                  bool
+	ExplicitDir            bool
+	BlockReadCache         bool
+	BlockReadCacheSize     uint64
+	BlockReadCacheMemRatio float64
+	StatCacheTTL           time.Duration
+	TypeCacheTTL           time.Duration
+	HTTPTimeout            time.Duration
 
 	// Debugging
 	DebugFuse  bool

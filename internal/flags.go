@@ -222,6 +222,21 @@ func NewApp() (app *cli.App) {
 			},
 
 			cli.BoolFlag{
+				Name:  "block-read-cache",
+				Usage: "Enable block read cache, which aggressively reads ahead based on blocks",
+			},
+			cli.Uint64Flag{
+				Name:  "block-read-cache-size",
+				Usage: "Size of each block of block read cache, in bytes",
+				Value: 1024 * 1024 * 64,
+			},
+			cli.Float64Flag{
+				Name:  "block-read-cache-mem-ratio",
+				Usage: "Ratio of total RAM to be reserved for block read cache",
+				Value: 0.1,
+			},
+
+			cli.BoolFlag{
 				Name:  "no-implicit-dir",
 				Usage: "Assume all directory objects (\"dir/\") exist (default: off)",
 			},
@@ -276,7 +291,9 @@ func NewApp() (app *cli.App) {
 		flagCategories[f] = "aws"
 	}
 
-	for _, f := range []string{"cheap", "no-implicit-dir", "stat-cache-ttl", "type-cache-ttl", "http-timeout"} {
+	for _, f := range []string{"cheap", "block-read-cache",
+        "block-read-cache-size", "block-read-cache-mem-ratio", "no-implicit-dir",
+		"stat-cache-ttl", "type-cache-ttl", "http-timeout"} {
 		flagCategories[f] = "tuning"
 	}
 
@@ -328,11 +345,14 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		Gid:          uint32(c.Int("gid")),
 
 		// Tuning,
-		Cheap:        c.Bool("cheap"),
-		ExplicitDir:  c.Bool("no-implicit-dir"),
-		StatCacheTTL: c.Duration("stat-cache-ttl"),
-		TypeCacheTTL: c.Duration("type-cache-ttl"),
-		HTTPTimeout:  c.Duration("http-timeout"),
+		Cheap:                  c.Bool("cheap"),
+		BlockReadCache:         c.Bool("block-read-cache"),
+		BlockReadCacheSize:     c.Uint64("block-read-cache-size"),
+		BlockReadCacheMemRatio: c.Float64("block-read-cache-mem-ratio"),
+		ExplicitDir:            c.Bool("no-implicit-dir"),
+		StatCacheTTL:           c.Duration("stat-cache-ttl"),
+		TypeCacheTTL:           c.Duration("type-cache-ttl"),
+		HTTPTimeout:            c.Duration("http-timeout"),
 
 		// Common Backend Config
 		Endpoint:       c.String("endpoint"),
