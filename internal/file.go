@@ -34,8 +34,10 @@ type FileHandle struct {
 
 	mpuName   *string
 	dirty     bool
-	writeInit sync.Once
+	writeInit sync.Once // used for MPU init
 	mpuWG     sync.WaitGroup
+
+	writeCachePurgeInit sync.Once // purge the read cache of this file
 
 	mu              sync.Mutex
 	mpuId           *MultipartBlobCommitInput
@@ -48,14 +50,16 @@ type FileHandle struct {
 	lastWriteError error
 
 	// read
-	reader        io.ReadCloser
-	readBufOffset int64
+	reader           io.ReadCloser
+	readBufOffset    int64
+	isBlockCacheMode bool
 
 	// parallel read
-	buffers           []*S3ReadBuffer
+	buffers           []*S3ReadBuffer // prefetch buffers
 	existingReadahead int
 	seqReadAmount     uint64
-	numOOORead        uint64 // number of out of order read
+	numOOOPrefetch    uint64 // number of out of order read with prefetch
+	numOOOReadReq     uint64 // number of out of order read requests
 	// User space PID. All threads created by a process will have the same TGID,
 	// but different PIDs[1].
 	// This value can be nil if we fail to get TGID from PID[2].
@@ -229,6 +233,13 @@ func (fh *FileHandle) uploadCurrentBuf(parallel bool) (err error) {
 
 func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 	fh.inode.logFuse("WriteFile", offset, len(data))
+
+	fh.writeCachePurgeInit.Do(func() {
+		bc := fh.inode.fs.blockCache
+		if bc != nil {
+			go bc.RemoveCache(fh.inode)
+		}
+	})
 
 	fh.mu.Lock()
 	defer fh.mu.Unlock()
@@ -552,12 +563,13 @@ func (fh *FileHandle) readFileBlockCache(
 
 func (fh *FileHandle) readFile(offset int64, buf []byte) (bytesRead int, err error) {
 	fs := fh.inode.fs
-	if fs.blockCache != nil {
+
+	if fh.isBlockCacheMode {
 		bytesRead, err = fh.readFileBlockCache(offset, buf)
 		return
 	}
 
-	if fh.inode.fs.flags.DebugFuse {
+	if fs.flags.DebugFuse {
 		defer func() {
 			fh.inode.logFuse("< readFile", bytesRead, err)
 		}()
@@ -579,7 +591,8 @@ func (fh *FileHandle) readFile(offset int64, buf []byte) (bytesRead int, err err
 		fh.poolHandle = fs.bufferPool
 	}
 
-	if !fs.flags.Cheap && fh.seqReadAmount >= uint64(READAHEAD_CHUNK) && fh.numOOORead < 3 {
+	if !fs.flags.Cheap && fh.seqReadAmount >= uint64(READAHEAD_CHUNK) &&
+		fh.numOOOPrefetch < 3 {
 		if fh.reader != nil {
 			fh.inode.logFuse("cutover to the parallel algorithm")
 			fh.reader.Close()
@@ -602,6 +615,12 @@ func (fh *FileHandle) readFile(offset int64, buf []byte) (bytesRead int, err err
 	}
 
 	bytesRead, err = fh.readFromUpstream(offset, buf)
+
+	if fh.numOOOReadReq > 4 && fs.blockCache != nil {
+        log.Infof("enable block cache mode for file %s [%v] due to OOO read",
+			*fh.inode.FullName(), fh.inode.Id)
+		fh.isBlockCacheMode = true
+	}
 
 	return
 }
@@ -665,9 +684,11 @@ func (fh *FileHandle) readFromUpstream(
 		fh.reader.Close()
 		fh.reader = nil
 
+		fh.numOOOReadReq++
+
 		if fh.buffers != nil {
 			// we misdetected
-			fh.numOOORead++
+			fh.numOOOPrefetch++
 
 			for _, b := range fh.buffers {
 				b.buf.Close()

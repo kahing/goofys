@@ -46,6 +46,24 @@ func NewBlockCache(flags *FlagStorage) *BlockCache {
 	}
 }
 
+// Remove cache entries for a specific inode
+func (bc *BlockCache) RemoveCache(inode *Inode) {
+	var keys []cacheKey
+	var key cacheKey
+	bc.mu.Lock()
+	go bc.mu.Unlock()
+
+	for _, key = range bc.lru.Keys() {
+		if key.inode == inode.Id {
+			keys = append(keys, key)
+		}
+	}
+
+	for _, key = range keys {
+		bc.lru.Remove(key)
+	}
+}
+
 // Get a cache block. alignedOffset is the beginning offset of this cache block.
 // newAlloc indicates if this block is newly allocated. If it is true, the
 // write lock is acquired, and the caller should fill in the data; if it is
