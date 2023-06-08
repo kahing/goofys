@@ -7,4 +7,8 @@ FROM ubuntu:22.04
 COPY --from=builder /build/goofys /usr/local/bin
 COPY run.sh /
 RUN chmod +x /run.sh
-ENTRYPOINT ["/run.sh"]
+ENV TINI_VERSION v0.19.0
+ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini
+RUN chmod +x /tini
+ENTRYPOINT ["/tini", "-g", "--"]
+CMD ["/run.sh"]
