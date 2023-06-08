@@ -50,9 +50,11 @@ type FileHandle struct {
 	lastWriteError error
 
 	// read
-	reader           io.ReadCloser
-	readBufOffset    int64
-	isBlockCacheMode bool
+	reader        io.ReadCloser
+	readBufOffset int64
+
+	blockCacheLastOffset       int64
+	blockCacheReadAheadEnabled bool
 
 	// parallel read
 	buffers           []*S3ReadBuffer // prefetch buffers
@@ -521,7 +523,7 @@ func (fh *FileHandle) readFileBlockCache(
 	bytesRead = 0
 	err = nil
 
-	if uint64(offset) >= fh.inode.Attributes.Size {
+	if offset < 0 || uint64(offset) >= fh.inode.Attributes.Size {
 		// nothing to read
 		if fh.inode.Invalid {
 			err = fuse.ENOENT
@@ -534,40 +536,58 @@ func (fh *FileHandle) readFileBlockCache(
 	}
 
 	bc := fh.inode.fs.blockCache
-	cache, cacheOff, cacheNewAlloc := bc.GetOrAllocateWithLock(
-		fh.inode, uint64(offset))
+	cache, cacheOff := bc.Get(fh, uint64(offset))
+	if cache.Err != nil {
+		err = cache.Err
+		fuseLog.Errorf("readFileBlockCache (%s: %v(+%v)/%v): %v",
+			*fh.inode.FullName(), offset, len(buf), fh.inode.Attributes.Size,
+			err)
+		return
+	}
 
-	if cacheNewAlloc {
-		defer cache.mu.Unlock()
+	cachedData := cache.Data[offset-int64(cacheOff):]
+	bytesRead = MinInt(len(cachedData), len(buf))
+	assert(bytesRead > 0, "zero bytes read")
+	copy(buf[:bytesRead], cachedData[:bytesRead])
 
-		var curRead int
-		for bytesRead < len(cache.data) {
-			curRead, err = fh.readFromUpstream(int64(cacheOff)+int64(bytesRead),
-				cache.data[bytesRead:])
-			if err != nil {
-				cache.err = err
-				bc.Remove(fh.inode, uint64(offset))
-				return
+	if AbsInt64(offset-fh.blockCacheLastOffset) < int64(bc.blockSize)*2 {
+		fh.seqReadAmount += uint64(bytesRead)
+		if fh.seqReadAmount >= uint64(READAHEAD_CHUNK) {
+			if !fh.blockCacheReadAheadEnabled {
+				fh.blockCacheReadAheadEnabled = true
+				fuseLog.Infof("enable block cache read ahead for %s",
+					*fh.inode.FullName())
 			}
-			bytesRead += curRead
 		}
-		cache.err = nil
 	} else {
-		defer cache.mu.RUnlock()
+		fh.seqReadAmount = 0
+		if fh.blockCacheReadAheadEnabled {
+			fh.blockCacheReadAheadEnabled = false
+			fuseLog.Infof("disable block cache read ahead for %s",
+				*fh.inode.FullName())
+		}
+	}
+	fh.blockCacheLastOffset = offset + int64(bytesRead)
 
-		if cache.err != nil {
-			err = cache.err
+	if fh.blockCacheReadAheadEnabled {
+		fh.startBlockCacheReadAhead(uint64(offset))
+	}
+
+	return
+}
+
+func (fh *FileHandle) startBlockCacheReadAhead(offset uint64) {
+	CHUNK := uint64(READAHEAD_CHUNK)
+	offset = (offset + CHUNK - 1) / CHUNK * CHUNK
+	maxOffset := MinUInt64(
+		fh.inode.Attributes.Size, offset+uint64(MAX_READAHEAD))
+	bc := fh.inode.fs.blockCache
+	for offset+CHUNK <= maxOffset {
+		if !bc.StartReadAhead(fh, offset, CHUNK) {
 			return
 		}
+		offset += CHUNK
 	}
-
-	cachedData := cache.data[offset-int64(cacheOff):]
-	bytesRead = len(cachedData)
-	if bytesRead > len(buf) {
-		bytesRead = len(buf)
-	}
-	copy(buf[:bytesRead], cachedData[:bytesRead])
-	return
 }
 
 // close all readahead buffers and clear the buffer varaible
@@ -583,9 +603,8 @@ func (fh *FileHandle) closeAllBuffers() {
 func (fh *FileHandle) readFile(offset int64, buf []byte) (bytesRead int, err error) {
 	fs := fh.inode.fs
 
-	if fh.isBlockCacheMode {
-		bytesRead, err = fh.readFileBlockCache(offset, buf)
-		return
+	if fs.blockCache != nil {
+		return fh.readFileBlockCache(offset, buf)
 	}
 
 	if fs.flags.DebugFuse {
@@ -631,13 +650,6 @@ func (fh *FileHandle) readFile(offset int64, buf []byte) (bytesRead int, err err
 	}
 
 	bytesRead, err = fh.readFromUpstream(offset, buf)
-
-	if fh.numOOOReadReq > 4 && fs.blockCache != nil {
-		fuseLog.Infof("enable block cache mode for file %s [%v] due to OOO read",
-			*fh.inode.FullName(), fh.inode.Id)
-		fh.isBlockCacheMode = true
-	}
-
 	return
 }
 

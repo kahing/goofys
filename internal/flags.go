@@ -228,7 +228,7 @@ func NewApp() (app *cli.App) {
 			cli.Uint64Flag{
 				Name:  "block-read-cache-size",
 				Usage: "Size of each block of block read cache, in bytes",
-				Value: 1024 * 256,
+				Value: 1024 * 128,
 			},
 			cli.Float64Flag{
 				Name:  "block-read-cache-mem-ratio",

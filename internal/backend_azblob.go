@@ -805,7 +805,10 @@ func (b *AZBlob) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 		azblob.BlobHTTPHeaders{
 			ContentType: NilStr(param.ContentType),
 		},
-		nilMetadata(param.Metadata), azblob.BlobAccessConditions{}, azblob.AccessTierNone, azblob.BlobTagsMap{}, azblob.ClientProvidedKeyOptions{})
+		nilMetadata(param.Metadata), azblob.BlobAccessConditions{},
+		azblob.AccessTierNone, azblob.BlobTagsMap{},
+		azblob.ClientProvidedKeyOptions{},
+		azblob.ImmutabilityPolicyOptions{})
 	if err != nil {
 		return nil, mapAZBError(err)
 	}
@@ -872,7 +875,8 @@ func (b *AZBlob) MultipartBlobCommit(param *MultipartBlobCommitInput) (*Multipar
 
 	resp, err := blob.CommitBlockList(context.TODO(), parts,
 		azblob.BlobHTTPHeaders{}, nilMetadata(param.Metadata),
-		azblob.BlobAccessConditions{}, azblob.AccessTierNone, azblob.BlobTagsMap{}, azblob.ClientProvidedKeyOptions{})
+		azblob.BlobAccessConditions{}, azblob.AccessTierNone, azblob.BlobTagsMap{}, azblob.ClientProvidedKeyOptions{},
+		azblob.ImmutabilityPolicyOptions{})
 	if err != nil {
 		return nil, mapAZBError(err)
 	}
