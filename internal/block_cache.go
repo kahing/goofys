@@ -449,7 +449,7 @@ func (bc *BlockCache) ensureBenchmark(fh *FileHandle) {
 			thisTime := do()
 			totTime += thisTime
 			totTime2 += thisTime * thisTime
-			if nrun >= 2 {
+			if nrun >= 2 && totTime >= 0.1 {
 				n := float64(nrun)
 				mean := totTime / n
 				std = math.Sqrt(math.Max(
