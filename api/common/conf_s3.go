@@ -19,6 +19,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/client"
@@ -55,6 +56,7 @@ type S3Config struct {
 	Session     *session.Session
 
 	BucketOwner string
+	MaxRetries  int
 }
 
 var s3Session *session.Session
@@ -77,6 +79,10 @@ func (c *S3Config) ToAwsConfig(flags *FlagStorage) (*aws.Config, error) {
 		Transport: &defaultHTTPTransport,
 		Timeout:   flags.HTTPTimeout,
 	})
+	if c.MaxRetries != 0 {
+		awsConfig.MaxRetries = &c.MaxRetries
+	}
+
 	if flags.DebugS3 {
 		awsConfig.LogLevel = aws.LogLevel(aws.LogDebug | aws.LogDebugWithRequestErrors)
 	}
@@ -145,6 +151,7 @@ func (c stsConfigProvider) ClientConfig(serviceName string, cfgs ...*aws.Config)
 	}
 	if c.StsEndpoint != "" {
 		config.Endpoint = c.StsEndpoint
+		config.SigningRegion = os.Getenv("AWS_REGION")
 	}
 
 	return config

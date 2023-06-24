@@ -32,6 +32,11 @@ type FlagStorage struct {
 	MountPointArg     string
 	MountPointCreated string
 
+	// analog of `-o bg` option in nfs, initialize the mount point
+	// right away but let the work of actually contacting remote
+	// happen in the background
+	BgInit bool
+
 	Cache    []string
 	DirMode  os.FileMode
 	FileMode os.FileMode

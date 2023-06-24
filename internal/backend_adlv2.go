@@ -18,11 +18,13 @@ package internal
 import (
 	. "github.com/kahing/goofys/api/common"
 
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -53,6 +55,11 @@ type ADLv2 struct {
 const ADL2_CLIENT_REQUEST_ID = "X-Ms-Client-Request-Id"
 const ADL2_REQUEST_ID = "X-Ms-Request-Id"
 
+// intentionally invalid header name to track if a response has been
+// logged. It's an invalid header to make sure we don't accidentally
+// send this out in a request
+const ADL2_RESP_LOGGED = "X Databricks Logged"
+
 var adl2Log = GetLogger("adlv2")
 
 type ADLv2MultipartBlobCommitInput struct {
@@ -65,22 +72,72 @@ func IsADLv2Endpoint(endpoint string) bool {
 	return strings.HasPrefix(endpoint, "abfs://")
 }
 
+func adl2LogReq(level logrus.Level, r *http.Request, reqType string) {
+	requestId := r.Header.Get(ADL2_CLIENT_REQUEST_ID)
+
+	dump := strings.Builder{}
+	dump.WriteString(fmt.Sprintf("Request dump for %v %v: ", requestId, reqType))
+	// prevent dumping of body. Setting it to nil will result in
+	// an error dumping the request.
+	b := r.Body
+	r.Body = ioutil.NopCloser(bytes.NewReader([]byte("")))
+	// hide sensitive header
+	auth := r.Header.Get("Authorization")
+	if auth != "" {
+		r.Header.Set("Authorization", "<REDACTED>")
+	}
+	defer func() {
+		r.Body = b
+		if auth != "" {
+			r.Header.Set("Authorization", auth)
+		}
+	}()
+
+	// this would always fail with:
+	// Failed to log request: http: ContentLength=XXX with Body length 0
+	// because of how we replaced the body
+	_ = r.Write(&dump)
+
+	adl2Log.Log(level, dump.String())
+}
+
+func adl2LogRespOnce(level logrus.Level, r *http.Response, err string) {
+	logged := r.Header.Get(ADL2_RESP_LOGGED)
+	// don't log anything if this is being called twice,
+	// which could happen via ResponseInspector
+	if logged == "" {
+		r.Header.Add(ADL2_RESP_LOGGED, "true")
+		// if debug is enabled, we would have logged the request already
+		if !adl2Log.IsLevelEnabled(logrus.DebugLevel) {
+			adl2LogReq(level, r.Request, err)
+		}
+		requestId := r.Request.Header.Get(ADL2_CLIENT_REQUEST_ID)
+
+		dump := strings.Builder{}
+		dump.WriteString(fmt.Sprintf("Response dump for %v: ", requestId))
+		b := r.Body
+		r.Body = nil
+		// this would always fail with:
+		// Failed to log request: http: ContentLength=XXX with Body length 0
+		// because of how we replaced the body
+		_ = r.Write(&dump)
+		r.Body = b
+
+		adl2Log.Log(level, dump.String())
+		r.Header.Del(ADL2_REQUEST_ID)
+	}
+}
+
 func adl2LogResp(level logrus.Level, r *http.Response) {
 	if r == nil {
 		return
 	}
 
-	if adl2Log.IsLevelEnabled(level) {
-		requestId := r.Request.Header.Get(ADL2_CLIENT_REQUEST_ID)
-		respId := r.Header.Get(ADL2_REQUEST_ID)
-		// don't log anything if this is being called twice,
-		// which it is via ResponseInspector
-		if respId != "" {
-			adl2Log.Logf(level, "%v %v %v %v %v", r.Request.Method,
-				r.Request.URL.String(),
-				requestId, r.Status, respId)
-			r.Header.Del(ADL2_REQUEST_ID)
-		}
+	// always log if it's not an expected error
+	if r.StatusCode >= 400 && r.StatusCode != 404 && r.StatusCode != 403 {
+		adl2LogRespOnce(logrus.ErrorLevel, r, "error")
+	} else if adl2Log.IsLevelEnabled(level) {
+		adl2LogRespOnce(level, r, "")
 	}
 }
 
@@ -119,11 +176,11 @@ func NewADLv2(bucket string, flags *FlagStorage, config *ADLv2Config) (*ADLv2, e
 			if r.Header.Get("Content-Length") == "0" {
 				r.Body = http.NoBody
 			} else if r.Body == nil {
+				r.Header.Set("Content-Length", "0")
 				r.Body = http.NoBody
 			}
 
 			if adl2Log.IsLevelEnabled(logrus.DebugLevel) {
-				requestId := r.Header.Get(ADL2_CLIENT_REQUEST_ID)
 				op := r.Method
 				switch op {
 				case http.MethodPost:
@@ -140,13 +197,12 @@ func NewADLv2(bucket string, flags *FlagStorage, config *ADLv2Config) (*ADLv2, e
 						op += fmt.Sprintf("(%v)", r.ContentLength)
 					}
 				}
-				adl2Log.Debugf("%v %v %v", op,
-					r.URL.String(), requestId)
+				adl2LogReq(logrus.DebugLevel, r, op)
 			}
 
 			r, err := p.Prepare(r)
 			if err != nil {
-				adl2Log.Error(err)
+				adl2Log.Errorf("Prepare %v", err)
 			}
 			return r, err
 		})
@@ -157,7 +213,7 @@ func NewADLv2(bucket string, flags *FlagStorage, config *ADLv2Config) (*ADLv2, e
 			adl2LogResp(logrus.DebugLevel, r)
 			err := p.Respond(r)
 			if err != nil {
-				adl2Log.Error(err)
+				adl2Log.Errorf("Respond %v", err)
 			}
 			return err
 		})
@@ -168,6 +224,7 @@ func NewADLv2(bucket string, flags *FlagStorage, config *ADLv2Config) (*ADLv2, e
 	client.RequestInspector = LogRequest
 	client.ResponseInspector = LogResponse
 	client.Sender.(*http.Client).Transport = GetHTTPTransport()
+	client.Client.RetryDuration = config.RetryDuration
 
 	b := &ADLv2{
 		flags:  flags,
@@ -248,7 +305,6 @@ func adlv2ErrLogHeaders(errCode string, resp *http.Response) {
 }
 
 func mapADLv2Error(resp *http.Response, err error, rawError bool) error {
-
 	if resp == nil {
 		if err != nil {
 			if detailedError, ok := err.(autorest.DetailedError); ok {
@@ -279,9 +335,6 @@ func mapADLv2Error(resp *http.Response, err error, rawError bool) error {
 		} else {
 			switch resp.StatusCode {
 			case http.StatusBadRequest:
-				if !adl2Log.IsLevelEnabled(logrus.DebugLevel) {
-					adl2LogResp(logrus.ErrorLevel, resp)
-				}
 				adlErr, err := decodeADLv2Error(resp.Body)
 				if err == nil {
 					adlv2ErrLogHeaders(*adlErr.Error.Code, resp)
@@ -768,7 +821,7 @@ func (b *ADLv2) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBl
 		for {
 			select {
 			case <-commitData.RenewLeaseStop:
-				break
+				return
 			case <-time.After(30 * time.Second):
 				b.lease(adl2.Renew, param.Key, leaseId, 60, "")
 			}
@@ -1057,7 +1110,7 @@ func (client adl2PathClient) CreatePreparer(ctx context.Context, filesystem stri
 		preparer = autorest.DecoratePreparer(preparer,
 			autorest.WithHeader("x-ms-version", autorest.String(client.XMsVersion)))
 	}
-	return preparer.Prepare((client.defaultRequest()).WithContext(ctx))
+	return preparer.Prepare((&http.Request{}).WithContext(ctx))
 }
 
 // CreateSender sends the Create request. The method will close the
@@ -1161,7 +1214,7 @@ func (client adl2PathClient) DeletePreparer(ctx context.Context, filesystem stri
 		preparer = autorest.DecoratePreparer(preparer,
 			autorest.WithHeader("x-ms-version", autorest.String(client.XMsVersion)))
 	}
-	return preparer.Prepare((client.defaultRequest()).WithContext(ctx))
+	return preparer.Prepare((&http.Request{}).WithContext(ctx))
 }
 
 // DeleteSender sends the Delete request. The method will close the
@@ -1265,7 +1318,7 @@ func (client adl2PathClient) GetPropertiesPreparer(ctx context.Context, filesyst
 		preparer = autorest.DecoratePreparer(preparer,
 			autorest.WithHeader("x-ms-version", autorest.String(client.XMsVersion)))
 	}
-	return preparer.Prepare((client.defaultRequest()).WithContext(ctx))
+	return preparer.Prepare((&http.Request{}).WithContext(ctx))
 }
 
 // GetPropertiesSender sends the GetProperties request. The method will close the
@@ -1376,7 +1429,7 @@ func (client adl2PathClient) LeasePreparer(ctx context.Context, xMsLeaseAction a
 		preparer = autorest.DecoratePreparer(preparer,
 			autorest.WithHeader("x-ms-version", autorest.String(client.XMsVersion)))
 	}
-	return preparer.Prepare((client.defaultRequest()).WithContext(ctx))
+	return preparer.Prepare((&http.Request{}).WithContext(ctx))
 }
 
 // LeaseSender sends the Lease request. The method will close the
@@ -1468,7 +1521,7 @@ func (client adl2PathClient) ListPreparer(ctx context.Context, recursive bool, f
 		preparer = autorest.DecoratePreparer(preparer,
 			autorest.WithHeader("x-ms-version", autorest.String(client.XMsVersion)))
 	}
-	return preparer.Prepare((client.defaultRequest()).WithContext(ctx))
+	return preparer.Prepare((&http.Request{}).WithContext(ctx))
 }
 
 // ListSender sends the List request. The method will close the
@@ -1575,7 +1628,7 @@ func (client adl2PathClient) ReadPreparer(ctx context.Context, filesystem string
 		preparer = autorest.DecoratePreparer(preparer,
 			autorest.WithHeader("x-ms-version", autorest.String(client.XMsVersion)))
 	}
-	return preparer.Prepare((client.defaultRequest()).WithContext(ctx))
+	return preparer.Prepare((&http.Request{}).WithContext(ctx))
 }
 
 // ReadSender sends the Read request. The method will close the
@@ -1619,6 +1672,39 @@ func (client adl2PathClient) Update(ctx context.Context, action adl2.PathUpdateA
 	return
 }
 
+func withReadSeeker(seeker io.ReadSeeker, contentLength *int64) autorest.PrepareDecorator {
+	return func(p autorest.Preparer) autorest.Preparer {
+		return autorest.PreparerFunc(func(r *http.Request) (*http.Request, error) {
+			r, err := p.Prepare(r)
+			if err != nil {
+				return r, err
+			}
+
+			r.GetBody = func() (io.ReadCloser, error) {
+				_, err := seeker.Seek(0, io.SeekStart)
+				// we don't need to close this because
+				// goofys closes it for us, letting
+				// azure close this would cause
+				// problem on retry because closing it
+				// frees underlining buffer
+				return ioutil.NopCloser(seeker), err
+			}
+			if contentLength != nil {
+				r.ContentLength = *contentLength
+			} else {
+				// seek to the end to get the length
+				r.ContentLength, err = seeker.Seek(0, io.SeekEnd)
+				if err != nil {
+					return nil, err
+				}
+			}
+			// initialize body, this resets the buf to beginnning
+			r.Body, err = r.GetBody()
+			return r, err
+		})
+	}
+}
+
 // UpdatePreparer prepares the Update request.
 func (client adl2PathClient) UpdatePreparer(ctx context.Context, action adl2.PathUpdateAction, filesystem string, pathParameter string, position *int64, retainUncommittedData *bool, closeParameter *bool, contentLength *int64, contentMD5 string, xMsLeaseID string, xMsCacheControl string, xMsContentType string, xMsContentDisposition string, xMsContentEncoding string, xMsContentLanguage string, xMsContentMd5 string, xMsProperties string, xMsOwner string, xMsGroup string, xMsPermissions string, xMsACL string, ifMatch string, ifNoneMatch string, ifModifiedSince string, ifUnmodifiedSince string, requestBody io.ReadCloser, xMsClientRequestID string, timeout *int32, xMsDate string) (*http.Request, error) {
 	urlParameters := map[string]interface{}{
@@ -1657,8 +1743,18 @@ func (client adl2PathClient) UpdatePreparer(ctx context.Context, action adl2.Pat
 		autorest.WithPathParameters("/{filesystem}/{path}", pathParameters),
 		autorest.WithQueryParameters(queryParameters))
 	if requestBody != nil {
-		preparer = autorest.DecoratePreparer(preparer,
-			autorest.WithFile(requestBody))
+		var decorator autorest.PrepareDecorator
+
+		if seeker, ok := requestBody.(io.ReadSeeker); ok {
+			// internally goofys always uses seekable
+			// readers, so we can rewind on
+			// retry. autorest makes a copy of the buffer
+			// and this avoids that waste
+			decorator = withReadSeeker(seeker, contentLength)
+		} else {
+			decorator = autorest.WithFile(requestBody)
+		}
+		preparer = autorest.DecoratePreparer(preparer, decorator)
 	}
 	if contentLength != nil {
 		preparer = autorest.DecoratePreparer(preparer,
@@ -1744,7 +1840,7 @@ func (client adl2PathClient) UpdatePreparer(ctx context.Context, action adl2.Pat
 		preparer = autorest.DecoratePreparer(preparer,
 			autorest.WithHeader("x-ms-version", autorest.String(client.XMsVersion)))
 	}
-	return preparer.Prepare((client.defaultRequest()).WithContext(ctx))
+	return preparer.Prepare((&http.Request{}).WithContext(ctx))
 }
 
 // UpdateSender sends the Update request. The method will close the
@@ -1765,25 +1861,6 @@ func (client adl2PathClient) UpdateResponder(resp *http.Response) (result autore
 		autorest.ByClosing())
 	result.Response = resp
 	return
-}
-
-func (client adl2PathClient) defaultRequest() *http.Request {
-	r := &http.Request{}
-	r.GetBody = func() (io.ReadCloser, error) {
-		if r.Body == nil {
-			return http.NoBody, nil
-		} else if seeker, ok := r.Body.(io.ReadSeeker); ok {
-			// internally goofys always uses seekable
-			// readers, so we can rewind on
-			// retry. autorest makes a copy of the buffer
-			// and this avoids that waste
-			_, err := seeker.Seek(0, 0)
-			return &ReadSeekerCloser{seeker}, err
-		} else {
-			panic(fmt.Sprintf("Wrong type: %T", r.Body))
-		}
-	}
-	return r
 }
 
 type adl2PathList struct {

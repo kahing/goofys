@@ -212,6 +212,10 @@ func (t *GoofysTest) DeleteADLBlobs(cloud StorageBackend, items []string) error 
 func (s *GoofysTest) selectTestConfig(t *C, flags *FlagStorage) (conf S3Config) {
 	(&conf).Init()
 
+	// increase retries for flaky test, because sometimes we make
+	// parallel requests and the same stream of request can get
+	// unlucky and fail multiple times
+	conf.MaxRetries = 10
 	if hasEnv("AWS") {
 		if isTravis() {
 			conf.Region = "us-east-1"
@@ -519,6 +523,8 @@ func (s *GoofysTest) SetUpTest(t *C) {
 	} else if cloud == "azblob" {
 		config, err := AzureBlobConfig(os.Getenv("ENDPOINT"), "", "blob")
 		t.Assert(err, IsNil)
+		config.MaxRetries = 10
+		config.RetryDuration = 200 * time.Millisecond
 
 		if config.Endpoint == AzuriteEndpoint {
 			s.azurite = true
@@ -576,8 +582,9 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		t.Assert(err, IsNil)
 
 		config := ADLv1Config{
-			Endpoint:   os.Getenv("ENDPOINT"),
-			Authorizer: auth,
+			Endpoint:      os.Getenv("ENDPOINT"),
+			Authorizer:    auth,
+			RetryDuration: 200 * time.Millisecond,
 		}
 		config.Init()
 
@@ -606,8 +613,9 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		}
 
 		config := ADLv2Config{
-			Endpoint:   os.Getenv("ENDPOINT"),
-			Authorizer: auth,
+			Endpoint:      os.Getenv("ENDPOINT"),
+			Authorizer:    auth,
+			RetryDuration: 200 * time.Millisecond,
 		}
 
 		flags.Backend = &config
@@ -739,6 +747,40 @@ func (s *GoofysTest) TestLookUpInode(t *C) {
 	t.Assert(err, IsNil)
 
 	_, err = s.LookUpInode(t, "empty_dir")
+	t.Assert(err, IsNil)
+}
+
+func (s *GoofysTest) IsAzBlobWithHNS() bool {
+	azblob, isAzBlob := s.cloud.(*AZBlob)
+	if !isAzBlob {
+		return false
+	}
+	// If HNS, adding "nested/file" will create automatically
+	// a dir blob at "nested"
+	azblob.PutBlob(&PutBlobInput{Key: "nested/file"})
+	res, err := azblob.HeadBlob(&HeadBlobInput{Key: "nested"})
+	return err == nil && res.IsDirBlob
+}
+
+func (s *GoofysTest) TestDirBlobExistsWithoutDirMetadata(t *C) {
+	azblob, isAzBlob := s.cloud.(*AZBlob)
+	if !isAzBlob || s.IsAzBlobWithHNS() {
+		// This test is not relevant for hns because azure does not allow
+		// presence of "dir/" when HNS is on.
+		t.Skip("This test is only for azblob:noHNS")
+	}
+
+	// Microsoft uses "dir" blobs with metadata field hdi_isfolder to represent
+	// a directory. Test that we dont get confused when "dir/" exists as blob
+	for _, b := range []string{
+		"dir_blob_no_md/", "dir_blob_no_md/file"} {
+		_, err := azblob.putBlobRaw(&PutBlobInput{Key: b})
+		t.Assert(err, IsNil)
+	}
+	_, err := s.LookUpInode(t, "dir_blob_no_md")
+	t.Assert(err, IsNil)
+
+	_, err = s.LookUpInode(t, "dir_blob_no_md/file")
 	t.Assert(err, IsNil)
 }
 
@@ -1143,6 +1185,61 @@ func (s *GoofysTest) TestWriteLargeFile(t *C) {
 	s.testWriteFile(t, "testLargeFile3", int64(READAHEAD_CHUNK)+1, 128*1024)
 }
 
+// fake connection that fails 2/3 of the requests
+type FlakyConn struct {
+	net.Conn
+	fail bool
+}
+
+func (c *FlakyConn) Write(b []byte) (n int, err error) {
+	if c.fail {
+		// for s3 we need to fake an error that aws thinks is
+		// retryable, and if we directly return a
+		// syscall.Errno aws sdk would use Errno.Temporary
+		// which includes only a very small subset of errnos
+		return 0, syscall.EAGAIN
+	}
+	return c.Conn.Write(b)
+}
+
+type FlakyDialer struct {
+	StableContext func(ctx context.Context, network, addr string) (net.Conn, error)
+	fail          int
+}
+
+func (d *FlakyDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	conn, err := d.StableContext(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	d.fail += 1
+	return &FlakyConn{conn, d.fail%3 != 0}, err
+}
+
+func (s *GoofysTest) TestMultipartRetry(t *C) {
+	transport := GetHTTPTransport()
+
+	// force connections to re-open to get the new flaky ones
+	transport.CloseIdleConnections()
+	// close the mock connections after the test so other tests
+	// won't re-use them
+	defer transport.CloseIdleConnections()
+
+	oldContext := transport.DialContext
+	d := &FlakyDialer{transport.DialContext, 0}
+	transport.DialContext = d.DialContext
+	defer func() { transport.DialContext = oldContext }()
+
+	transport.DisableKeepAlives = true
+	defer func() { transport.DisableKeepAlives = false }()
+
+	// On adlv2 we also send lease renew requests in the
+	// background. Writing 10MB sends two 5MB requests. With 3
+	// requests and 2/3 failure rate, this guarantees that one of
+	// the upload would fail and we tested the retry path
+	s.testWriteFile(t, "testLargeFile", 10*1024*1024, 128*1024)
+}
+
 func (s *GoofysTest) TestWriteReallyLargeFile(t *C) {
 	if _, ok := s.cloud.(*S3Backend); ok && s.emulator {
 		t.Skip("seems to be OOM'ing S3proxy 1.8.0")
@@ -1417,7 +1514,7 @@ func (s *GoofysTest) TestBackendListPrefix(t *C) {
 	})
 	t.Assert(err, IsNil)
 	t.Assert(len(res.Prefixes), Equals, 0)
-	t.Assert(len(res.Items), Equals, 1)
+	t.Assert(res.Items, HasLen, 1)
 	t.Assert(*res.Items[0].Key, Equals, "file1")
 
 	res, err = s.cloud.ListBlobs(&ListBlobsInput{
@@ -1649,7 +1746,14 @@ func (s *GoofysTest) mount(t *C, mountPoint string) {
 	err := os.MkdirAll(mountPoint, 0700)
 	t.Assert(err, IsNil)
 
-	server := fuseutil.NewFileSystemServer(s.fs)
+	var fs InitFileSystem
+	fs = s.fs
+	if s.fs.flags.BgInit {
+		fs = &LazyInitFileSystem{
+			Fs: fs,
+		}
+	}
+	server := fuseutil.NewFileSystemServer(fs)
 
 	if isCatfs() {
 		s.fs.flags.MountOptions = make(map[string]string)
@@ -3190,6 +3294,43 @@ func (s *GoofysTest) TestIssue326(t *C) {
 		"file1", "file2", "folder#1#", "folder@name.something", "zero"})
 }
 
+// Test for this issue: https://github.com/kahing/goofys/issues/564
+func (s *GoofysTest) TestInvalidXMLIssue(t *C) {
+	if _, ok := s.cloud.Delegate().(*S3Backend); !ok {
+		t.Skip("only for S3")
+	}
+
+	dirName := "invalidXml"
+	// This is not an invalid xml but checking if url decoding was successful
+	dirNameWithValidXml := "folder1 !#$%&'<>*+,-.=?@[\\^~_\t"
+	// Testing directory name with invalid xml
+	dirNameWithInvalidXml := "invalid\b\v\a"
+
+	_, err := s.cloud.PutBlob(&PutBlobInput{
+		Key:  fmt.Sprintf("%s/%s", dirName, dirNameWithValidXml),
+		Body: bytes.NewReader([]byte("")),
+		Size: PUInt64(0),
+	})
+	t.Assert(err, IsNil)
+
+	path := fmt.Sprintf("%s/%s", dirName, dirNameWithInvalidXml)
+	_, err = s.cloud.PutBlob(&PutBlobInput{
+		Key:  path,
+		Body: bytes.NewReader([]byte("")),
+		Size: PUInt64(0),
+	})
+	t.Assert(err, IsNil)
+	// Delete the blob with invalid xml in its key as DeleteBlobs in tear down is not able to delete it
+	defer func() {
+		_, err := s.cloud.DeleteBlob(&DeleteBlobInput{Key: path})
+		t.Assert(err, IsNil)
+	}()
+
+	dir, err := s.LookUpInode(t, dirName)
+	t.Assert(err, IsNil)
+	s.assertEntries(t, dir, []string{dirNameWithValidXml, dirNameWithInvalidXml})
+}
+
 func (s *GoofysTest) TestSlurpFileAndDir(t *C) {
 	if _, ok := s.cloud.Delegate().(*S3Backend); !ok {
 		t.Skip("only for S3")
@@ -4277,4 +4418,74 @@ func (s *GoofysTest) TestReadMyOwnNewFileFuse(t *C) {
 	//buf, err := ioutil.ReadFile(filePath)
 	//t.Assert(err, IsNil)
 	//t.Assert(string(buf), Equals, "filex")
+}
+
+func (s *GoofysTest) TestBgSlowMount(t *C) {
+	start := time.Now()
+	s.fs.flags.BgInit = true
+
+	s.fs = newGoofys(context.Background(), s.fs.bucket, s.fs.flags,
+		func(bucket string, flags *FlagStorage) (StorageBackend, error) {
+			cloud, err := NewBackend(bucket, flags)
+			if err != nil {
+				return nil, err
+			}
+
+			time.Sleep(2 * time.Second)
+
+			return cloud, nil
+		})
+	now := time.Now()
+	// check that this takes less than 1 second even though we are
+	// sleeping for 2
+	t.Assert(now.Before(start.Add(1*time.Second)), Equals, true,
+		Commentf("start %v now %v", start, now))
+
+	// lookup still works via the lazy init wrapper
+	fs := &LazyInitFileSystem{
+		Fs: s.fs,
+	}
+
+	lookup := fuseops.LookUpInodeOp{
+		Parent: fuseops.RootInodeID,
+		Name:   "file1",
+	}
+
+	err := fs.LookUpInode(nil, &lookup)
+	t.Assert(err, IsNil)
+}
+
+func (s *GoofysTest) TestBgSlowMountPoint(t *C) {
+	start := time.Now()
+	s.fs.flags.BgInit = true
+
+	s.fs = newGoofys(context.Background(), s.fs.bucket, s.fs.flags,
+		func(bucket string, flags *FlagStorage) (StorageBackend, error) {
+			cloud, err := NewBackend(bucket, flags)
+			if err != nil {
+				return nil, err
+			}
+
+			time.Sleep(2 * time.Second)
+
+			return cloud, nil
+		})
+
+	mountPoint := "/tmp/mnt" + s.fs.bucket
+	defer s.umount(t, mountPoint)
+	s.runFuseTest(t, mountPoint, false, "/bin/mountpoint", mountPoint)
+
+	now := time.Now()
+	// check that this takes less than 1 second even though we are
+	// sleeping for 2
+	t.Assert(now.Before(start.Add(1*time.Second)), Equals, true,
+		Commentf("start %v now %v", start, now))
+
+	// double check that we eventually worked
+	file := "file1"
+	filePath := mountPoint + "/file1"
+
+	buf, err := ioutil.ReadFile(filePath)
+	t.Assert(err, IsNil)
+	t.Assert(string(buf), Equals, file)
 }

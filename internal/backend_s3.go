@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -34,6 +36,10 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 
 	"github.com/jacobsa/fuse"
+)
+
+const (
+	s3ListObjectsInputUrlEncodingType = "url"
 )
 
 type S3Backend struct {
@@ -52,6 +58,11 @@ type S3Backend struct {
 }
 
 func NewS3(bucket string, flags *FlagStorage, config *S3Config) (*S3Backend, error) {
+	if !config.RegionSet && os.Getenv("AWS_REGION") != "" {
+		config.RegionSet = true
+		config.Region = os.Getenv("AWS_REGION")
+	}
+
 	awsConfig, err := config.ToAwsConfig(flags)
 	if err != nil {
 		return nil, err
@@ -130,21 +141,54 @@ func (s *S3Backend) newS3() {
 	})
 }
 
-func (s *S3Backend) detectBucketLocationByHEAD() (err error, isAws bool) {
-	u := url.URL{
-		Scheme: "https",
-		Host:   "s3.amazonaws.com",
-		Path:   s.bucket,
+// s3 allowed more flexible bucket names at some point and now
+// requires more restrictive names that are always dns safe. This
+// function doesn't validate all of the bucket naming rules in
+// https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
+// but only those that impact whether we can use bucket name in DNS
+func isBucketNameDNSSafe(bucket string) bool {
+	// We dont allow dot: The linked aws documentation says that.
+	// > For best compatibility, we recommend that you avoid using dots (.) in bucket names,
+	// > except for buckets that are used only for static website hosting. If you include dots
+	// > in a bucket's name, you can't use virtual-host-style addressing over HTTPS, unless
+	// > you perform your own certificate validation. This is because the security certificates
+	// > used for virtual hosting of buckets don't work for buckets with dots in their names.
+	matched, err := regexp.MatchString("^[a-zA-Z0-9\\-]{3,63}$", bucket)
+	if err != nil {
+		s3Log.Errorf("cannot match %v: %v", bucket, err)
+		return false
 	}
+	return matched
+}
 
+func (s *S3Backend) detectBucketLocationByHEAD() (err error, isAws bool) {
+	var u url.URL
 	if s.awsConfig.Endpoint != nil {
+		// If the endpoint is set, just use it as host.
 		endpoint, err := url.Parse(*s.awsConfig.Endpoint)
 		if err != nil {
 			return err, false
 		}
-
-		u.Scheme = endpoint.Scheme
-		u.Host = endpoint.Host
+		u = url.URL {
+			Scheme: endpoint.Scheme,
+			Host:   endpoint.Host,
+			Path:   s.bucket,
+		}
+	} else if isBucketNameDNSSafe(s.bucket) {
+		// prefer using host-based bucket URL to detect region because
+		// in AWS PrivateLink, host-based bucket resolves to a usable
+		// IP whereas the address behind s3.amazonaws.com may be
+		// blocked
+		u = url.URL{
+			Scheme: "https",
+			Host:   s.bucket + ".s3.amazonaws.com",
+		}
+	} else {
+		u = url.URL{
+			Scheme: "https",
+			Host:   "s3.amazonaws.com",
+			Path:   s.bucket,
+		}
 	}
 
 	var req *http.Request
@@ -291,6 +335,7 @@ func (s *S3Backend) ListObjectsV2(params *s3.ListObjectsV2Input) (*s3.ListObject
 		if err != nil {
 			return nil, "", err
 		}
+
 		return resp, s.getRequestId(req), nil
 	} else {
 		v1 := s3.ListObjectsInput{
@@ -330,6 +375,36 @@ func (s *S3Backend) ListObjectsV2(params *s3.ListObjectsV2Input) (*s3.ListObject
 
 		return &v2Objs, "", nil
 	}
+}
+
+func urlDecodeListObjectsV2Output(output *s3.ListObjectsV2Output) error {
+	for _, commonPrefix := range output.CommonPrefixes {
+		if commonPrefix == nil || commonPrefix.Prefix == nil {
+			continue
+		}
+
+		if decodedPrefix, err := url.QueryUnescape(*commonPrefix.Prefix); err == nil {
+			commonPrefix.Prefix = &decodedPrefix
+		} else {
+			s3Log.Errorf("err decoding list object common prefix %v: %v", *commonPrefix.Prefix, err)
+			return err
+		}
+	}
+
+	for _, content := range output.Contents {
+		if content == nil || content.Key == nil {
+			continue
+		}
+
+		if decodedKey, err := url.QueryUnescape(*content.Key); err == nil {
+			content.Key = &decodedKey
+		} else {
+			s3Log.Errorf("err decoding list object content %v: %v", *content.Key, err)
+			return err
+		}
+	}
+
+	return nil
 }
 
 func metadataToLower(m map[string]*string) map[string]*string {
@@ -398,9 +473,15 @@ func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		MaxKeys:           maxKeys,
 		StartAfter:        param.StartAfter,
 		ContinuationToken: param.ContinuationToken,
+		// Use URL encoding so that keys with invalid xml characters can be listed
+		EncodingType: PString(s3ListObjectsInputUrlEncodingType),
 	})
 	if err != nil {
 		return nil, mapAwsError(err)
+	}
+
+	if err := urlDecodeListObjectsV2Output(resp); err != nil {
+		return nil, err
 	}
 
 	prefixes := make([]BlobPrefixOutput, 0)

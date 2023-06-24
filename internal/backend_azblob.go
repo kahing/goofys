@@ -148,6 +148,10 @@ func NewAZBlob(container string, config *AZBlobConfig) (*AZBlob, error) {
 		RequestLog: azblob.RequestLogOptions{
 			LogWarningIfTryOverThreshold: time.Duration(-1),
 		},
+		Retry: azblob.RetryOptions{
+			MaxTries:   config.MaxRetries,
+			RetryDelay: config.RetryDuration,
+		},
 		HTTPSender: newAzBlobHTTPClientFactory(),
 	}
 
@@ -470,14 +474,6 @@ func (b *AZBlob) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 	}, nil
 }
 
-func nilUint32(v *uint32) uint32 {
-	if v == nil {
-		return 0
-	} else {
-		return *v
-	}
-}
-
 func (b *AZBlob) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 	// azure blob does not support startAfter
 	if param.StartAfter != nil {
@@ -497,7 +493,7 @@ func (b *AZBlob) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 
 	options := azblob.ListBlobsSegmentOptions{
 		Prefix:     NilStr(param.Prefix),
-		MaxResults: int32(nilUint32(param.MaxKeys)),
+		MaxResults: int32(NilUint32(param.MaxKeys)),
 		Details: azblob.BlobListingDetails{
 			// blobfuse (following wasb) convention uses
 			// an empty blob with "hdi_isfolder" metadata
@@ -554,13 +550,16 @@ func (b *AZBlob) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		}
 	}
 
-	if len(blobItems) == 1 && len(blobItems[0].Name) <= len(options.Prefix) && strings.HasSuffix(options.Prefix, "/") {
+	if len(blobItems) == 1 && len(blobItems[0].Name) < len(options.Prefix) && strings.HasSuffix(options.Prefix, "/") {
 		// There is only 1 result and that one result does not have the desired prefix. This can
 		// happen if we ask for ListBlobs under /some/path/ and the result is List(/some/path). This
 		// means the prefix we are listing is a blob => So return empty response to indicate that
 		// this prefix should not be treated a directory by goofys.
 		// NOTE: This undesired behaviour happens only on azblob when hierarchial namespaces are
 		// enabled.
+		azbLog.Debugf(
+			"Only one non-prefix result found. Returning empty ListBlobsResult. options: %#v blobItems: %#v",
+			options, blobItems)
 		return &ListBlobsOutput{}, nil
 	}
 	var sortItems bool
@@ -775,25 +774,11 @@ func (b *AZBlob) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 	}, nil
 }
 
-func (b *AZBlob) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
+func (b *AZBlob) putBlobRaw(param *PutBlobInput) (*PutBlobOutput, error) {
 	c, err := b.refreshToken()
 	if err != nil {
 		return nil, err
 	}
-
-	if param.DirBlob && strings.HasSuffix(param.Key, "/") {
-		// turn this into an empty blob with "hdi_isfolder" metadata
-		param.Key = param.Key[:len(param.Key)-1]
-		if param.Metadata != nil {
-			param.Metadata[AzureDirBlobMetadataKey] = PString("true")
-		} else {
-			param.Metadata = map[string]*string{
-				AzureDirBlobMetadataKey: PString("true"),
-			}
-		}
-		return b.PutBlob(param)
-	}
-
 	body := param.Body
 	if body == nil {
 		body = bytes.NewReader([]byte(""))
@@ -814,6 +799,21 @@ func (b *AZBlob) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 		ETag:         PString(string(resp.ETag())),
 		LastModified: PTime(resp.LastModified()),
 	}, nil
+}
+
+func (b *AZBlob) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
+	if param.DirBlob && strings.HasSuffix(param.Key, "/") {
+		// turn this into an empty blob with "hdi_isfolder" metadata
+		param.Key = param.Key[:len(param.Key)-1]
+		if param.Metadata != nil {
+			param.Metadata[AzureDirBlobMetadataKey] = PString("true")
+		} else {
+			param.Metadata = map[string]*string{
+				AzureDirBlobMetadataKey: PString("true"),
+			}
+		}
+	}
+	return b.putBlobRaw(param)
 }
 
 func (b *AZBlob) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlobCommitInput, error) {

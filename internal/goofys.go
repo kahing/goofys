@@ -52,6 +52,8 @@ type Goofys struct {
 	fuseutil.NotImplementedFileSystem
 	bucket string
 
+	newRootBackend func(string, *FlagStorage) (StorageBackend, error)
+
 	flags *FlagStorage
 
 	umask uint32
@@ -173,42 +175,15 @@ func newGoofys(ctx context.Context, bucket string, flags *FlagStorage,
 	newBackend func(string, *FlagStorage) (StorageBackend, error)) *Goofys {
 	// Set up the basic struct.
 	fs := &Goofys{
-		bucket: bucket,
-		flags:  flags,
-		umask:  0122,
-	}
-
-	var prefix string
-	colon := strings.Index(bucket, ":")
-	if colon != -1 {
-		prefix = bucket[colon+1:]
-		prefix = strings.Trim(prefix, "/")
-		if prefix != "" {
-			prefix += "/"
-		}
-
-		fs.bucket = bucket[0:colon]
-		bucket = fs.bucket
+		newRootBackend: newBackend,
+		bucket:         bucket,
+		flags:          flags,
+		umask:          0122,
 	}
 
 	if flags.DebugS3 {
 		s3Log.Level = logrus.DebugLevel
 	}
-
-	cloud, err := newBackend(bucket, flags)
-	if err != nil {
-		log.Errorf("Unable to setup backend: %v", err)
-		return nil
-	}
-	_, fs.gcsS3 = cloud.Delegate().(*GCS3)
-
-	randomObjectName := prefix + (RandStringBytesMaskImprSrc(32))
-	err = cloud.Init(randomObjectName)
-	if err != nil {
-		log.Errorf("Unable to access '%v': %v", bucket, err)
-		return nil
-	}
-	go cloud.MultipartExpire(&MultipartExpireInput{})
 
 	now := time.Now()
 	fs.rootAttrs = InodeAttributes{
@@ -223,8 +198,6 @@ func newGoofys(ctx context.Context, bucket string, flags *FlagStorage,
 	root := NewInode(fs, nil, PString(""))
 	root.Id = fuseops.RootInodeID
 	root.ToDir()
-	root.dir.cloud = cloud
-	root.dir.mountPrefix = prefix
 	root.Attributes.Mtime = fs.rootAttrs.Mtime
 
 	fs.inodes[fuseops.RootInodeID] = root
@@ -238,7 +211,60 @@ func newGoofys(ctx context.Context, bucket string, flags *FlagStorage,
 	fs.replicators = Ticket{Total: 16}.Init()
 	fs.restorers = Ticket{Total: 20}.Init()
 
+	if !flags.BgInit {
+		err := fs.Init()
+		if err != nil {
+			log.Errorf("Unable to setup backend: %v", err)
+			return nil
+		}
+	} else {
+		log.Infof("-o bg, delaying initialization")
+	}
+
 	return fs
+}
+
+// performs all the non-local initializations (which can fail or take unbound amount of time)
+func (fs *Goofys) Init() error {
+	log.Infof("bucket %v", fs.bucket)
+
+	var prefix string
+	colon := strings.Index(fs.bucket, ":")
+	if colon != -1 {
+		prefix = fs.bucket[colon+1:]
+		prefix = strings.Trim(prefix, "/")
+		if prefix != "" {
+			prefix += "/"
+		}
+
+		fs.bucket = fs.bucket[0:colon]
+	}
+
+	cloud, err := fs.newRootBackend(fs.bucket, fs.flags)
+	if err != nil {
+		log.Errorf("Unable to setup backend: %v", err)
+		return err
+	}
+	_, fs.gcsS3 = cloud.Delegate().(*GCS3)
+
+	root := fs.inodes[fuseops.RootInodeID]
+	root.dir.mountPrefix = prefix
+	log.Infof("prefix %v", prefix)
+
+	randomObjectName := root.dir.mountPrefix + (RandStringBytesMaskImprSrc(32))
+	log.Infof("testing object %v", randomObjectName)
+
+	err = cloud.Init(randomObjectName)
+	if err != nil {
+		log.Errorf("Unable to access '%v': %v", fs.bucket, err)
+		return err
+	}
+
+	go cloud.MultipartExpire(&MultipartExpireInput{})
+
+	root.dir.cloud = cloud
+
+	return err
 }
 
 // from https://stackoverflow.com/questions/22892120/how-to-generate-a-random-string-of-a-fixed-length-in-golang
@@ -528,6 +554,8 @@ func mapHttpError(status int) error {
 		return syscall.ENOTSUP
 	case http.StatusConflict:
 		return syscall.EINTR
+	case 411: // Length Required
+		return syscall.EINVAL
 	case 429:
 		return syscall.EAGAIN
 	case 500:
