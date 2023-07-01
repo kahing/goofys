@@ -758,11 +758,11 @@ func (fs *Goofys) ForgetInode(
 		inode.Parent.mu.Lock()
 		defer inode.Parent.mu.Unlock()
 	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
 	stale := inode.DeRef(op.N)
 
 	if stale {
-		fs.mu.Lock()
-		defer fs.mu.Unlock()
 
 		delete(fs.inodes, op.Inode)
 		fs.forgotCnt += 1
