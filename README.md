@@ -82,6 +82,22 @@ $ sudo docker run -e BUCKET=$TESTBUCKET -e CACHE=false --rm --privileged --net=h
 
 See also: [cached benchmark result](https://github.com/kahing/goofys/blob/master/bench/cache/README.md) and [result on Azure](https://github.com/kahing/goofys/blob/master/bench/azure/README.md).
 
+# Native [catfs](https://github.com/kahing/catfs) cache support
+
+You can take advantage of [catfs](https://github.com/kahing/catfs) directly through goofys with the `--cache` flag 
+(`catfs` must be on the `$PATH` for this to work).
+
+When using the `--cache=...` flag, its value will be passed to `catfs` by replacing `:` with a literal space ` `.
+
+In practical terms, should you want to pass `-o allow_others --free 10% cache_dir` as parameters to the underlying catfs invocation,
+a fstab example would become:
+```
+goofys#bucket   [... other paramers...],--cache=-o:allow_others:--free:10%:cache_dir
+```
+
+Given that catfs is used as a wrapper, this is essential for things like non-root access when using caching feature (otherwise, while goofys
+would mount with `allow_other`, the catfs wrapper would not have it).
+
 # License
 
 Copyright (C) 2015 - 2019 Ka-Hing Cheung
