@@ -25,7 +25,7 @@ You may also need to install fuse too if you want to mount it on startup.
 * On macOS, install via [Homebrew](https://brew.sh/):
 
 ```ShellSession
-$ brew cask install osxfuse
+$ brew install --cask osxfuse
 $ brew install goofys
 ```
 
