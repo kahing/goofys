@@ -465,11 +465,17 @@ func (fs *Goofys) GetXattr(ctx context.Context,
 
 func (fs *Goofys) ListXattr(ctx context.Context,
 	op *fuseops.ListXattrOp) (err error) {
+	var xattrs []string
+
 	fs.mu.RLock()
 	inode := fs.getInodeOrDie(op.Inode)
 	fs.mu.RUnlock()
 
-	xattrs, err := inode.ListXattr()
+	// Do not try to get xattrs for the root inode
+	// Otherwise the path in the S3 request is empty, which is invalid
+	if inode.Id != 1 {
+		xattrs, err = inode.ListXattr()
+	}
 
 	ncopied := 0
 
