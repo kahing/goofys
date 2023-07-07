@@ -155,7 +155,7 @@ func (s *S3Backend) detectBucketLocationByHEAD() (err error, isAws bool) {
 		return
 	}
 
-	allowFails := 3
+	allowFails := s.config.MaxRetries
 	for i := 0; i < allowFails; i++ {
 		resp, err = http.DefaultTransport.RoundTrip(req)
 		if err != nil {
