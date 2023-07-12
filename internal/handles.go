@@ -427,7 +427,7 @@ func (inode *Inode) SetXattr(name string, value []byte, flags uint32) error {
 	inode.mu.Lock()
 	defer inode.mu.Unlock()
 
-	meta, name, err := inode.getXattrMap(name, true)
+	meta, name, err := inode.getXattrMap(name, false)
 	if err != nil {
 		return err
 	}
@@ -456,7 +456,7 @@ func (inode *Inode) RemoveXattr(name string) error {
 	inode.mu.Lock()
 	defer inode.mu.Unlock()
 
-	meta, name, err := inode.getXattrMap(name, true)
+	meta, name, err := inode.getXattrMap(name, false)
 	if err != nil {
 		return err
 	}

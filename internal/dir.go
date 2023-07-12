@@ -978,20 +978,24 @@ func (parent *Inode) isEmptyDir(fs *Goofys, name string) (isDir bool, err error)
 		Prefix:    &key,
 	})
 	if err != nil {
+		s3Log.Debugf("ListBlobs 1 in isEmptyDir, resp is %v, err is %v", resp, err)
 		return false, mapAwsError(err)
 	}
 
 	if len(resp.Prefixes) > 0 || len(resp.Items) > 1 {
 		err = fuse.ENOTEMPTY
 		isDir = true
+		s3Log.Debugf("ListBlobs 2 in isEmptyDir, resp is %v, err is %v", resp, err)
 		return
 	}
 
 	if len(resp.Items) == 1 {
 		isDir = true
+		s3Log.Debugf("ListBlobs 3 in isEmptyDir")
 
 		if *resp.Items[0].Key != key {
 			err = fuse.ENOTEMPTY
+			s3Log.Debugf("ListBlobs 4 in isEmptyDir")
 		}
 	}
 
@@ -1072,8 +1076,11 @@ func (parent *Inode) Rename(from string, newParent *Inode, to string) (err error
 
 	toFullName := appendChildName(toPath, to)
 
-	toIsDir, err = parent.isEmptyDir(fs, to)
-	if err != nil {
+	toIsDir, err = newParent.isEmptyDir(fs, to)
+	s3Log.Debugf("toFullName is %v, toPath is %v, to is %v", toFullName, toPath, to)
+	s3Log.Debugf("outter toIsDir is %v, err is %v", toIsDir, err)
+	if err != nil && err != fuse.ENOENT {
+		s3Log.Debugf("inner toIsDir is %v, err is %v", toIsDir, err)
 		return
 	}
 
@@ -1364,6 +1371,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 			inode.fillXattrFromHead(&resp)
 			return
 		case err = <-errObjectChan:
+			s3Log.Debugf("chan error is errObjectChan")
 			checking--
 			checkErr[0] = err
 			s3Log.Debugf("HEAD %v = %v", fullName, err)
@@ -1394,10 +1402,12 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 				checking--
 			}
 		case err = <-errDirChan:
+			s3Log.Debugf("chan error is errDirChan")
 			checking--
 			checkErr[2] = err
 			s3Log.Debugf("LIST %v/ = %v", fullName, err)
 		case err = <-errDirBlobChan:
+			s3Log.Debugf("chan error is errDirBlobChan")
 			checking--
 			checkErr[1] = err
 			s3Log.Debugf("HEAD %v/ = %v", fullName, err)
@@ -1407,6 +1417,7 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 			return
 		}
 
+		s3Log.Debugf("checking is %v", checking)
 		switch checking {
 		case 2:
 			if parent.fs.flags.Cheap {
@@ -1425,7 +1436,8 @@ func (parent *Inode) LookUpInodeMaybeDir(name string, fullName string) (inode *I
 		doneCase:
 			fallthrough
 		case 0:
-			for _, e := range checkErr {
+			for x, e := range checkErr {
+				s3Log.Debugf("checkErr x = %v e = %v", x, e)
 				if e != fuse.ENOENT {
 					err = e
 					return

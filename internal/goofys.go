@@ -596,6 +596,8 @@ func (fs *Goofys) LookUpInode(
 	var ok bool
 	defer func() { fuseLog.Debugf("<-- LookUpInode %v %v %v", op.Parent, op.Name, err) }()
 
+	fuseLog.Debugf("<-- do LookUpInode %v %v %v", op.Parent, op.Name)
+
 	fs.mu.RLock()
 	parent := fs.getInodeOrDie(op.Parent)
 	fs.mu.RUnlock()
@@ -628,6 +630,7 @@ func (fs *Goofys) LookUpInode(
 		var newInode *Inode
 
 		newInode, err = parent.LookUp(op.Name)
+		fuseLog.Debugf("<-- parent.LookUp return is %v %v", newInode, err)
 		if err == fuse.ENOENT && inode != nil && inode.isDir() {
 			// we may not be able to look up an implicit
 			// dir if all the children are removed, so we
@@ -1153,6 +1156,8 @@ func (fs *Goofys) Rename(
 		defer newParent.mu.Unlock()
 	}
 
+	s3Log.Debugf("op is %v, op.OldParent is %v, op.NewParent is %v, parent is %v, newParent is %v", op, op.OldParent, op.NewParent, parent, newParent)
+	s3Log.Debugf("op.OldName is %v, op.NewName is %v", op.OldName, op.NewName)
 	err = parent.Rename(op.OldName, newParent, op.NewName)
 	if err != nil {
 		if err == fuse.ENOENT {
