@@ -139,6 +139,18 @@ func NewApp() (app *cli.App) {
 				Usage: "GID owner of all inodes.",
 			},
 
+			cli.IntFlag{
+				Name:  "max-readahead",
+				Value: 400 * 1024 * 1024,
+				Usage: "max readahead size.",
+			},
+
+			cli.IntFlag{
+				Name:  "readahead-chunk",
+				Value: 20 * 1024 * 1024,
+				Usage: "readahead chunk size.",
+			},
+
 			/////////////////////////
 			// S3
 			/////////////////////////
@@ -342,6 +354,10 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		DebugFuse:  c.Bool("debug_fuse"),
 		DebugS3:    c.Bool("debug_s3"),
 		Foreground: c.Bool("f"),
+
+		// ReadAhead
+		MaxReadAhead:   uint32(c.Int("max-readahead")),
+		ReadAheadChunk: uint32(c.Int("readahead-chunk")),
 	}
 
 	// S3
