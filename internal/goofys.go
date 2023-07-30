@@ -751,8 +751,12 @@ func (fs *Goofys) ForgetInode(
 	op *fuseops.ForgetInodeOp) (err error) {
 
 	fs.mu.RLock()
-	inode := fs.getInodeOrDie(op.Inode)
+	inode := fs.inodes[op.Inode]
 	fs.mu.RUnlock()
+	if inode == nil {
+		log.Warnln("Unknown inode", op.Inode)
+		return
+	}
 
 	if inode.Parent != nil {
 		inode.Parent.mu.Lock()
