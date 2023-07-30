@@ -16,6 +16,9 @@
 package main
 
 import (
+	"io/ioutil"
+	"strconv"
+
 	goofys "github.com/kahing/goofys/api"
 	. "github.com/kahing/goofys/api/common"
 	. "github.com/kahing/goofys/internal"
@@ -221,6 +224,15 @@ func main() {
 				kill(os.Getppid(), syscall.SIGUSR1)
 			}
 			log.Println("File system has been successfully mounted.")
+
+			if flags.PidFile != "" {
+				// Write out a Pid file
+				err = ioutil.WriteFile(flags.PidFile, []byte(strconv.Itoa(os.Getpid())), 0644)
+				if err != nil {
+					log.Fatalf("Error writing pid file: %v", err)
+				}
+			}
+
 			// Let the user unmount with Ctrl-C
 			// (SIGINT). But if cache is on, catfs will
 			// receive the signal and we would detect that exiting
