@@ -24,7 +24,7 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/satori/go.uuid v1.2.1-0.20181028125025-b2ce2384e17b
 	github.com/sevlyar/go-daemon v0.1.5
-	github.com/shirou/gopsutil v0.0.0-20190731134726-d80c43f9c984
+	github.com/shirou/gopsutil v3.23.7
 	github.com/sirupsen/logrus v1.4.3-0.20190807103436-de736cf91b92
 	github.com/smartystreets/assertions v1.2.0 // indirect
 	github.com/urfave/cli v1.21.1-0.20190807111034-521735b7608a
