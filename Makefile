@@ -14,3 +14,6 @@ build:
 
 install:
 	go install -ldflags "-X main.Version=`git rev-parse HEAD`"
+
+docker-build:
+	docker build --build-arg VERSION=$$(git rev-parse HEAD) -t goofys:latest .
