@@ -216,7 +216,7 @@ func newGoofys(ctx context.Context, bucket string, flags *FlagStorage,
 		Mtime: now,
 	}
 
-	fs.bufferPool = BufferPool{}.Init()
+	fs.bufferPool = (&BufferPool{}).Init()
 
 	fs.nextInodeID = fuseops.RootInodeID + 1
 	fs.inodes = make(map[fuseops.InodeID]*Inode)

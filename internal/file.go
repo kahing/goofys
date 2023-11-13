@@ -303,7 +303,7 @@ type S3ReadBuffer struct {
 	buf    *Buffer
 }
 
-func (b S3ReadBuffer) Init(fh *FileHandle, offset uint64, size uint32) *S3ReadBuffer {
+func (b *S3ReadBuffer) Init(fh *FileHandle, offset uint64, size uint32) *S3ReadBuffer {
 	b.s3 = fh.cloud
 	b.offset = offset
 	b.startOffset = offset
@@ -316,7 +316,7 @@ func (b S3ReadBuffer) Init(fh *FileHandle, offset uint64, size uint32) *S3ReadBu
 	}
 
 	b.initBuffer(fh, offset, size)
-	return &b
+	return b
 }
 
 func (b *S3ReadBuffer) initBuffer(fh *FileHandle, offset uint64, size uint32) {
@@ -334,7 +334,7 @@ func (b *S3ReadBuffer) initBuffer(fh *FileHandle, offset uint64, size uint32) {
 	}
 
 	if b.buf == nil {
-		b.buf = Buffer{}.Init(b.mbuf, getFunc)
+		b.buf = (&Buffer{}).Init(b.mbuf, getFunc)
 	} else {
 		b.buf.ReInit(getFunc)
 	}
@@ -369,8 +369,6 @@ func (b *S3ReadBuffer) Read(offset uint64, p []byte) (n int, err error) {
 		return
 	} else {
 		panic(fmt.Sprintf("not the right buffer, expecting %v got %v, %v left", b.offset, offset, b.size))
-		err = errors.New(fmt.Sprintf("not the right buffer, expecting %v got %v", b.offset, offset))
-		return
 	}
 }
 
@@ -442,7 +440,7 @@ func (fh *FileHandle) readAhead(offset uint64, needAtLeast int) (err error) {
 		if size != 0 {
 			fh.inode.logFuse("readahead", off, size, existingReadahead)
 
-			readAheadBuf := S3ReadBuffer{}.Init(fh, off, size)
+			readAheadBuf := (&S3ReadBuffer{}).Init(fh, off, size)
 			if readAheadBuf != nil {
 				fh.buffers = append(fh.buffers, readAheadBuf)
 				existingReadahead += size

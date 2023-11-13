@@ -77,7 +77,7 @@ func pages(size uint64, pageSize int) int {
 	return int((size + uint64(pageSize) - 1) / uint64(pageSize))
 }
 
-func (pool BufferPool) Init() *BufferPool {
+func (pool *BufferPool) Init() *BufferPool {
 	pool.cond = sync.NewCond(&pool.mu)
 
 	pool.computedMaxbuffers = pool.maxBuffers
@@ -85,12 +85,12 @@ func (pool BufferPool) Init() *BufferPool {
 		return make([]byte, 0, BUF_SIZE)
 	}}
 
-	return &pool
+	return pool
 }
 
 // for testing
 func NewBufferPool(maxSizeGlobal uint64) *BufferPool {
-	pool := BufferPool{maxBuffers: maxSizeGlobal / BUF_SIZE}.Init()
+	pool := (&BufferPool{maxBuffers: maxSizeGlobal / BUF_SIZE}).Init()
 	return pool
 }
 
@@ -242,8 +242,6 @@ func (mb *MBuf) Seek(offset int64, whence int) (int64, error) {
 
 	log.Errorf("Seek %d %d", offset, whence)
 	panic(fuse.EINVAL)
-
-	return 0, fuse.EINVAL
 }
 
 func (mb *MBuf) Read(p []byte) (n int, err error) {
@@ -351,7 +349,7 @@ type Buffer struct {
 
 type ReaderProvider func() (io.ReadCloser, error)
 
-func (b Buffer) Init(buf *MBuf, r ReaderProvider) *Buffer {
+func (b *Buffer) Init(buf *MBuf, r ReaderProvider) *Buffer {
 	b.buf = buf
 	b.cond = sync.NewCond(&b.mu)
 
@@ -359,7 +357,7 @@ func (b Buffer) Init(buf *MBuf, r ReaderProvider) *Buffer {
 		b.readLoop(r)
 	}()
 
-	return &b
+	return b
 }
 
 func (b *Buffer) readLoop(r ReaderProvider) {

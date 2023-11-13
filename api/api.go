@@ -96,9 +96,6 @@ func Mount(
 				if config.Prefix != "" {
 					spec.Prefix = config.Prefix
 				}
-				if spec.Prefix != "" {
-					bucketName += ":" + spec.Prefix
-				}
 
 				flags.Backend = &ADLv2Config{
 					Endpoint:   config.Endpoint,
@@ -121,7 +118,7 @@ func Mount(
 		err = fmt.Errorf("Mount: initialization failed")
 		return
 	}
-	server := fuseutil.NewFileSystemServer(FusePanicLogger{fs})
+	server := fuseutil.NewFileSystemServer(FusePanicLogger{Fs: fs})
 
 	mfs, err = fuse.Mount(flags.MountPoint, server, mountCfg)
 	if err != nil {

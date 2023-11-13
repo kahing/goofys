@@ -101,7 +101,6 @@ type AzureAuthorizerConfig struct {
 }
 
 var azbLog = GetLogger("azblob")
-var adls1Log = GetLogger("adlv1")
 
 func sptTest(spt *adal.ServicePrincipalToken) (autorest.Authorizer, error) {
 	err := spt.EnsureFresh()
