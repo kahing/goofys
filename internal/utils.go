@@ -21,7 +21,7 @@ import (
 	"unicode"
 
 	"github.com/jacobsa/fuse"
-	"github.com/shirou/gopsutil/process"
+	"github.com/shirou/gopsutil/v3/process"
 )
 
 var TIME_MAX = time.Unix(1<<63-62135596801, 999999999)

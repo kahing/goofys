@@ -59,7 +59,7 @@ type FileHandle struct {
 	// User space PID. All threads created by a process will have the same TGID,
 	// but different PIDs[1].
 	// This value can be nil if we fail to get TGID from PID[2].
-	// [1] : https://godoc.org/github.com/shirou/gopsutil/process#Process.Tgid
+	// [1] : https://godoc.org/github.com/shirou/gopsutil/v3/process#Process.Tgid
 	// [2] : https://github.com/shirou/gopsutil#process-class
 	Tgid *int32
 
