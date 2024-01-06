@@ -26,7 +26,6 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
 	"context"
 
@@ -163,10 +162,6 @@ func main() {
 			err = fmt.Errorf("invalid arguments")
 			return
 		}
-		defer func() {
-			time.Sleep(time.Second)
-			flags.Cleanup()
-		}()
 
 		if !flags.Foreground {
 			var wg sync.WaitGroup
