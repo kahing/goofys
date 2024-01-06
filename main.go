@@ -37,17 +37,18 @@ import (
 )
 
 var log = GetLogger("main")
+var SIGRTMIN = 34
 
 func registerSIGINTHandler(fs *Goofys, flags *FlagStorage) {
 	// Register for SIGINT.
 	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM, syscall.SIGUSR1)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 
 	// Start a goroutine that will unmount when the signal is received.
 	go func() {
 		for {
 			s := <-signalChan
-			if s == syscall.SIGUSR1 {
+			if s == syscall.SIGHUP {
 				log.Infof("Received %v", s)
 				fs.SigUsr1()
 				continue
@@ -76,7 +77,7 @@ var waitedForSignal os.Signal
 
 func waitForSignal(wg *sync.WaitGroup) {
 	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGUSR1, syscall.SIGUSR2)
+	signal.Notify(signalChan, syscall.SIGHUP, syscall.SIGUSR2)
 
 	wg.Add(1)
 	go func() {
@@ -181,14 +182,14 @@ func main() {
 			if child != nil {
 				// attempt to wait for child to notify parent
 				wg.Wait()
-				if waitedForSignal == syscall.SIGUSR1 {
+				if waitedForSignal == syscall.SIGHUP {
 					return
 				} else {
 					return fuse.EINVAL
 				}
 			} else {
 				// kill our own waiting goroutine
-				kill(os.Getpid(), syscall.SIGUSR1)
+				kill(os.Getpid(), syscall.SIGHUP)
 				wg.Wait()
 				defer ctx.Release()
 			}
@@ -213,7 +214,7 @@ func main() {
 			// fatal also terminates itself
 		} else {
 			if !flags.Foreground {
-				kill(os.Getppid(), syscall.SIGUSR1)
+				kill(os.Getppid(), syscall.SIGHUP)
 			}
 			log.Println("File system has been successfully mounted.")
 			// Let the user unmount with Ctrl-C
