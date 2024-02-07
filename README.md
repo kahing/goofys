@@ -7,6 +7,9 @@
 
 # Overview
 
+Goofys-blkread is a fork of Goofys with a read cache that aggressively
+prefetches large data blocks. Enable this cache by `--block-read-cache`.
+
 Goofys allows you to mount an S3 bucket as a filey system.
 
 It's a Filey System instead of a File System because goofys strives
@@ -19,7 +22,7 @@ close-to-open.
 
 # Installation
 
-* On Linux, install via [pre-built binaries](https://github.com/kahing/goofys/releases/latest/download/goofys). 
+* On Linux, install via [pre-built binaries](https://github.com/kahing/goofys/releases/latest/download/goofys).
 You may also need to install fuse too if you want to mount it on startup.
 
 * On macOS, install via [Homebrew](https://brew.sh/):

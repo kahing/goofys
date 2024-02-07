@@ -3,3 +3,5 @@ goofys
 goofys.test
 xout
 s3proxy.jar
+/s3proxy.sh
+/mnt

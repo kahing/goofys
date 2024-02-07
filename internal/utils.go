@@ -26,6 +26,17 @@ import (
 
 var TIME_MAX = time.Unix(1<<63-62135596801, 999999999)
 
+func DivUpUint64(a, b uint64) uint64 {
+    return (a + b - 1) / b
+}
+
+func AbsInt64(x int64) int64 {
+    if x < 0 {
+        return -x
+    }
+    return x
+}
+
 func MaxInt(a, b int) int {
 	if a > b {
 		return a

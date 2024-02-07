@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -49,7 +50,16 @@ type S3Backend struct {
 	aws      bool
 	gcs      bool
 	v2Signer bool
+
+	// get stats
+	getStatsLock     *sync.Mutex
+	totalGetCnt      uint64
+	totalGetBytes    uint64
+	prevGetPrintCnt  uint64
+	prevGetPrintTime time.Time
 }
+
+const S3_PRICE_PER_1K_GET = 0.0004
 
 func NewS3(bucket string, flags *FlagStorage, config *S3Config) (*S3Backend, error) {
 	awsConfig, err := config.ToAwsConfig(flags)
@@ -57,10 +67,11 @@ func NewS3(bucket string, flags *FlagStorage, config *S3Config) (*S3Backend, err
 		return nil, err
 	}
 	s := &S3Backend{
-		bucket:    bucket,
-		awsConfig: awsConfig,
-		flags:     flags,
-		config:    config,
+		bucket:       bucket,
+		awsConfig:    awsConfig,
+		flags:        flags,
+		config:       config,
+		getStatsLock: &sync.Mutex{},
 		cap: Capabilities{
 			Name:             "s3",
 			MaxMultipartSize: 5 * 1024 * 1024 * 1024,
@@ -743,6 +754,7 @@ func (s *S3Backend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 	if err != nil {
 		return nil, mapAwsError(err)
 	}
+	s.updateGetStats(uint64(*resp.ContentLength))
 
 	return &GetBlobOutput{
 		HeadBlobOutput: HeadBlobOutput{
@@ -759,6 +771,33 @@ func (s *S3Backend) GetBlob(param *GetBlobInput) (*GetBlobOutput, error) {
 		Body:      resp.Body,
 		RequestId: s.getRequestId(req),
 	}, nil
+}
+
+func (s *S3Backend) updateGetStats(size uint64) {
+	getCnt := atomic.AddUint64(&s.totalGetCnt, 1)
+	getBytes := atomic.AddUint64(&s.totalGetBytes, size)
+
+	if getCnt < atomic.LoadUint64(&s.prevGetPrintCnt)+5000 {
+		return
+	}
+
+	curTime := time.Now()
+	s.getStatsLock.Lock()
+	if curTime.Sub(s.prevGetPrintTime).Seconds() >= 5 {
+		s.prevGetPrintTime = curTime
+		s.getStatsLock.Unlock()
+		atomic.StoreUint64(&s.prevGetPrintCnt, getCnt)
+
+		cost := float64(getCnt) / 1000 * S3_PRICE_PER_1K_GET
+		log.Infof("S3: GET stats: req=%v avg_size=%.3fMiB"+
+			" total_cost=$%.3f avg_cost=$%.3f/GiB",
+			getCnt,
+			float64(getBytes)/float64(getCnt*1024*1024),
+			cost,
+			cost/float64(getBytes)/1024/1024/1024)
+	} else {
+		s.getStatsLock.Unlock()
+	}
 }
 
 func getDate(resp *http.Response) *time.Time {
