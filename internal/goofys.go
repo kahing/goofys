@@ -764,6 +764,16 @@ func (fs *Goofys) ForgetInode(
 		fs.mu.Lock()
 		defer fs.mu.Unlock()
 
+		if inode.isDir() {
+			for _, child := range inode.dir.Children {
+				if *child.Name == "." || *child.Name == ".." {
+					continue
+				}
+				delete(fs.inodes, child.Id)
+				fs.forgotCnt += 1
+			}
+		}
+
 		delete(fs.inodes, op.Inode)
 		fs.forgotCnt += 1
 
