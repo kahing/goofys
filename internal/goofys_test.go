@@ -15,7 +15,7 @@
 package internal
 
 import (
-	. "github.com/kahing/goofys/api/common"
+	. "github.com/StatCan/goofys/api/common"
 
 	"bufio"
 	"bytes"
@@ -166,11 +166,11 @@ func (t *GoofysTest) deleteBlobsParallelly(cloud StorageBackend, blobs []string)
 // groupByDecresingDepths takes a slice of path strings and returns the paths as
 // groups where each group has the same `depth` - depth(a/b/c)=2, depth(a/b/)=1
 // The groups are returned in decreasing order of depths.
-// - Inp: [] Out: []
-// - Inp: ["a/b1/", "a/b/c1", "a/b2", "a/b/c2"]
-//   Out: [["a/b/c1", "a/b/c2"], ["a/b1/", "a/b2"]]
-// - Inp: ["a/b1/", "z/a/b/c1", "a/b2", "z/a/b/c2"]
-//   Out:	[["z/a/b/c1", "z/a/b/c2"], ["a/b1/", "a/b2"]
+//   - Inp: [] Out: []
+//   - Inp: ["a/b1/", "a/b/c1", "a/b2", "a/b/c2"]
+//     Out: [["a/b/c1", "a/b/c2"], ["a/b1/", "a/b2"]]
+//   - Inp: ["a/b1/", "z/a/b/c1", "a/b2", "z/a/b/c2"]
+//     Out:	[["z/a/b/c1", "z/a/b/c2"], ["a/b1/", "a/b2"]
 func groupByDecresingDepths(items []string) [][]string {
 	depthToGroup := map[int][]string{}
 	for _, item := range items {

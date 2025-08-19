@@ -15,7 +15,10 @@
 package internal
 
 import (
-	. "github.com/kahing/goofys/api/common"
+	"bytes"
+	"io"
+
+	. "github.com/StatCan/goofys/api/common"
 
 	"fmt"
 	"net/http"
@@ -62,8 +65,10 @@ func NewS3(bucket string, flags *FlagStorage, config *S3Config) (*S3Backend, err
 		flags:     flags,
 		config:    config,
 		cap: Capabilities{
-			Name:             "s3",
-			MaxMultipartSize: 5 * 1024 * 1024 * 1024,
+			Name: "s3-jose-test",
+			// MaxMultipartSize doesnt seem to be respected? or at least it goes to multipart right away.
+			MaxMultipartSize:    5 * 1024 * 1024 * 1024,
+			NoParallelMultipart: true,
 		},
 	}
 
@@ -285,6 +290,7 @@ func (s *S3Backend) Init(key string) error {
 }
 
 func (s *S3Backend) ListObjectsV2(params *s3.ListObjectsV2Input) (*s3.ListObjectsV2Output, string, error) {
+	s3Log.Debugf("ListObjectsV2: params %v, backend %v", params, s)
 	if s.aws {
 		req, resp := s.S3.ListObjectsV2Request(params)
 		err := req.Send()
@@ -311,7 +317,7 @@ func (s *S3Backend) ListObjectsV2(params *s3.ListObjectsV2Input) (*s3.ListObject
 		if err != nil {
 			return nil, "", err
 		}
-
+		s3Log.Debugf("ListObjectsV2: objs %v, err %v", objs, err)
 		count := int64(len(objs.Contents))
 		v2Objs := s3.ListObjectsV2Output{
 			CommonPrefixes:        objs.CommonPrefixes,
@@ -386,7 +392,7 @@ func (s *S3Backend) HeadBlob(param *HeadBlobInput) (*HeadBlobOutput, error) {
 
 func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 	var maxKeys *int64
-
+	s3Log.Debugf("ListBlobs")
 	if param.MaxKeys != nil {
 		maxKeys = aws.Int64(int64(*param.MaxKeys))
 	}
@@ -399,6 +405,7 @@ func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 		StartAfter:        param.StartAfter,
 		ContinuationToken: param.ContinuationToken,
 	})
+	s3Log.Debugf("ListBlobs: resp %v, reqid %v, err %v", resp, reqId, err)
 	if err != nil {
 		return nil, mapAwsError(err)
 	}
@@ -418,12 +425,18 @@ func (s *S3Backend) ListBlobs(param *ListBlobsInput) (*ListBlobsOutput, error) {
 			StorageClass: i.StorageClass,
 		})
 	}
-
+	s3Log.Debugf("ListBlobs: prefixes %v, items %v", prefixes, items)
+	isTruncatedFlag := false
+	if resp.IsTruncated != nil {
+		isTruncatedFlag = *resp.IsTruncated
+	} else {
+		s3Log.Debugf("ListBlobs: nil pointer catch")
+	}
 	return &ListBlobsOutput{
 		Prefixes:              prefixes,
 		Items:                 items,
 		NextContinuationToken: resp.NextContinuationToken,
-		IsTruncated:           *resp.IsTruncated,
+		IsTruncated:           isTruncatedFlag,
 		RequestId:             reqId,
 	}, nil
 }
@@ -507,7 +520,7 @@ func (s *S3Backend) mpuCopyPart(from string, to string, mpuId string, bytes stri
 	return
 }
 
-func sizeToParts(size int64) (int, int64) {
+func sizeToParts(size int64) (int, int64) { // this shouldnt matter, since this mpu shouldnt get called.
 	const MAX_S3_MPU_SIZE int64 = 5 * 1024 * 1024 * 1024 * 1024
 	if size > MAX_S3_MPU_SIZE {
 		panic(fmt.Sprintf("object size: %v exceeds maximum S3 MPU size: %v", size, MAX_S3_MPU_SIZE))
@@ -552,13 +565,15 @@ func (s *S3Backend) mpuCopyParts(size int64, from string, to string, mpuId strin
 	sem.V(MAX_CONCURRENCY)
 }
 
+// This shouldnt get reached, the only reference to `copyObjectMultip` was commented out (other than the test)
+// Assuming that this backend_s3.go is the one that is used.
 func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuId string,
 	srcEtag *string, metadata map[string]*string, storageClass *string) (requestId string, err error) {
-	nParts, partSize := sizeToParts(size)
+	nParts, partSize := sizeToParts(size) // should be unreachable, and partsize i dont need anything to do with
 	etags := make([]*string, nParts)
 
 	if mpuId == "" {
-		params := &s3.CreateMultipartUploadInput{
+		params := &s3.CreateMultipartUploadInput{ // should be unreachable, assuming this is the one that is used
 			Bucket:       &s.bucket,
 			Key:          &to,
 			StorageClass: storageClass,
@@ -581,7 +596,7 @@ func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuI
 			params.ACL = &s.config.ACL
 		}
 
-		resp, err := s.CreateMultipartUpload(params)
+		resp, err := s.CreateMultipartUpload(params) // should be unreachable, assuming this is the one that is used.
 		if err != nil {
 			return "", mapAwsError(err)
 		}
@@ -626,7 +641,64 @@ func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuI
 	return
 }
 
+// CopyBlobV2 that does not use CopyObject since netapp does not support it
+// https://docs.netapp.com/us-en/ontap/s3-multiprotocol/index.html#s3-actions-and-functionality-not-currently-supported-by-s3-nas-buckets
+
+func (s *S3Backend) CopyBlobV2(param *CopyBlobInput) (*CopyBlobOutput, error) {
+	s3Log.Debug("Entering CopyBlobV2. This is a temporary measure until CopyObject is supported by netapp s3 nas buckets")
+	if param.Size == nil || param.ETag == nil || (param.Metadata == nil || param.StorageClass == nil) {
+		params := &HeadBlobInput{Key: param.Source}
+		resp, err := s.HeadBlob(params)
+		if err != nil {
+			return nil, err
+		}
+		if param.Metadata == nil {
+			param.Metadata = resp.Metadata
+		}
+	}
+
+	// Use Get and PutBlob implementations over copy object
+	getParams := &GetBlobInput{
+		Key: param.Source,
+	}
+	getResp, err := s.GetBlob(getParams)
+	if err != nil {
+		return nil, err
+	}
+
+	// Ensure we close the body when done
+	defer getResp.Body.Close()
+
+	// Read the entire content into memory...Is there a better way to do this
+	content, err := io.ReadAll(getResp.Body)
+	if err != nil {
+		return nil, err
+	}
+	// Create a ReadSeeker from the content
+	contentReader := bytes.NewReader(content)
+
+	putParams := &PutBlobInput{
+		Key:         param.Destination,
+		Body:        contentReader,
+		ContentType: getResp.ContentType,
+		Metadata:    param.Metadata, // can this be getResp.Metadata over param.Metadata?
+		//param.Metadata,
+		// dont need size or dirblob
+	}
+
+	putResp, err := s.PutBlob(putParams)
+	if err != nil {
+		return nil, err
+	}
+	s3Log.Debug("Exiting CopyBlobV2")
+	return &CopyBlobOutput{putResp.RequestId}, nil
+}
+
 func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
+	// Change to use CopyBlobV2, done here because changing references to `CopyBlob` requires more change than I'd like
+	// When CopyObject is supported we just remove CopyBlobV2 and this return statement
+	return s.CopyBlobV2(param)
+
 	metadataDirective := s3.MetadataDirectiveCopy
 	if param.Metadata != nil {
 		metadataDirective = s3.MetadataDirectiveReplace
@@ -661,13 +733,15 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 
 	from := s.bucket + "/" + param.Source
 
-	if !s.gcs && *param.Size > COPY_LIMIT {
-		reqId, err := s.copyObjectMultipart(int64(*param.Size), from, param.Destination, "", param.ETag, param.Metadata, param.StorageClass)
-		if err != nil {
-			return nil, err
+	/*
+		if !s.gcs && *param.Size > COPY_LIMIT {
+			reqId, err := s.copyObjectMultipart(int64(*param.Size), from, param.Destination, "", param.ETag, param.Metadata, param.StorageClass)
+			if err != nil {
+				return nil, err
+			}
+			return &CopyBlobOutput{reqId}, nil
 		}
-		return &CopyBlobOutput{reqId}, nil
-	}
+	*/
 
 	params := &s3.CopyObjectInput{
 		Bucket:            &s.bucket,
@@ -818,7 +892,9 @@ func (s *S3Backend) PutBlob(param *PutBlobInput) (*PutBlobOutput, error) {
 	}, nil
 }
 
+// reached from file.go
 func (s *S3Backend) MultipartBlobBegin(param *MultipartBlobBeginInput) (*MultipartBlobCommitInput, error) {
+	// references API then
 	mpu := s3.CreateMultipartUploadInput{
 		Bucket:       &s.bucket,
 		Key:          &param.Key,
@@ -841,9 +917,10 @@ func (s *S3Backend) MultipartBlobBegin(param *MultipartBlobBeginInput) (*Multipa
 		mpu.ACL = &s.config.ACL
 	}
 
+	// again reference API
 	resp, err := s.CreateMultipartUpload(&mpu)
 	if err != nil {
-		s3Log.Errorf("CreateMultipartUpload %v = %v", param.Key, err)
+		s3Log.Errorf("Jose: CreateMultipartUpload %v = %v", param.Key, err) // this is the err i get?
 		return nil, mapAwsError(err)
 	}
 

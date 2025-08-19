@@ -11,6 +11,6 @@ To run the benchmark, configure EC2's instance role to be able to write to `$TES
 ```ShellSession
 $ export AWS_ACCESS_KEY_ID=AKID1234567890
 $ export AWS_SECRET_ACCESS_KEY=MY-SECRET-KEY
-$ sudo docker run -e BUCKET=$TESTBUCKET -e CACHE=true --rm --privileged --net=host -v /tmp/cache:/tmp/cache kahing/goofys-bench
+$ sudo docker run -e BUCKET=$TESTBUCKET -e CACHE=true --rm --privileged --net=host -v /tmp/cache:/tmp/cache StatCan/goofys-bench
 # result will be written to $TESTBUCKET
 ```

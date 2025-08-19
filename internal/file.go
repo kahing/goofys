@@ -83,13 +83,14 @@ func NewFileHandle(inode *Inode, opMetadata fuseops.OpContext) *FileHandle {
 	return fh
 }
 
-func (fh *FileHandle) initWrite() {
+func (fh *FileHandle) initWrite() { // ok how is this reached?
 	fh.writeInit.Do(func() {
 		fh.mpuWG.Add(1)
-		go fh.initMPU()
+		go fh.initMPU() // starts multipart?
 	})
 }
 
+// how is initMPU reached?
 func (fh *FileHandle) initMPU() {
 	defer func() {
 		fh.mpuWG.Done()
@@ -98,6 +99,7 @@ func (fh *FileHandle) initMPU() {
 	fs := fh.inode.fs
 	fh.mpuName = &fh.key
 
+	// how is this reached, could I just do a "PutBlob" instead here (no i dont think so, given other ex in this file)? What would break?
 	resp, err := fh.cloud.MultipartBlobBegin(&MultipartBlobBeginInput{
 		Key:         *fh.mpuName,
 		ContentType: fs.flags.GetMimeType(*fh.mpuName),
@@ -146,6 +148,40 @@ func (fh *FileHandle) mpuPartNoSpawn(buf *MBuf, part uint32, total int64, last b
 	return
 }
 
+// JOSE ATTEMPT
+// dont think we should try this at all, since it expects things to be split up
+func (fh *FileHandle) uploadSingle(buf *MBuf, part uint32, total int64, last bool) (err error) {
+	fs := fh.inode.fs
+
+	fs.replicators.Take(1, true)
+	defer fs.replicators.Return(1)
+
+	if part == 0 || part > 10000 {
+		return errors.New(fmt.Sprintf("invalid part number: %v", part))
+	}
+
+	//hmmm
+	mpu := MultipartBlobAddInput{
+		Commit:     fh.mpuId,
+		PartNumber: part,
+		Body:       buf,
+		Size:       uint64(buf.Len()),
+		Last:       last,
+		Offset:     uint64(total - int64(buf.Len())),
+	}
+
+	defer func() {
+		if mpu.Body != nil {
+			bufferLog.Debugf("Free %T", buf)
+			buf.Free()
+		}
+	}()
+
+	_, err = fh.cloud.MultipartBlobAdd(&mpu)
+
+	return
+}
+
 func (fh *FileHandle) mpuPart(buf *MBuf, part uint32, total int64) {
 	defer func() {
 		fh.mpuWG.Done()
@@ -169,9 +205,13 @@ func (fh *FileHandle) mpuPart(buf *MBuf, part uint32, total int64) {
 }
 
 func (fh *FileHandle) waitForCreateMPU() (err error) {
-	if fh.mpuId == nil {
+	// JOSE: does this need to be modified further??? Like when we upload sequentially does it need to still "wait"?
+	// no we dont want to even SPLIT it up into parts
+	if fh.mpuId == nil { // only enters here if mpuId = nil, else returns nothing.
+		// What will happen if we comment this if out?
+		// THe question is when does it really start the multipart upload? Like when is it assigned "CreaMultiPartUpload"
 		fh.mu.Unlock()
-		fh.initWrite()
+		fh.initWrite()  // this calls the MPU to start the createMultipUpload
 		fh.mpuWG.Wait() // wait for initMPU
 		fh.mu.Lock()
 
@@ -183,6 +223,7 @@ func (fh *FileHandle) waitForCreateMPU() (err error) {
 	return
 }
 
+// So this is actually used regardless in WriteFile under 'MBuf{}.Init(fh.poolHandle, fh.partSize(), true)'
 func (fh *FileHandle) partSize() uint64 {
 	var size uint64
 
@@ -200,28 +241,44 @@ func (fh *FileHandle) partSize() uint64 {
 	if maxPartSize != 0 {
 		size = MinUInt64(maxPartSize, size)
 	}
+	size = 5000 * 1024 * 1024
 	return size
 }
 
 func (fh *FileHandle) uploadCurrentBuf(parallel bool) (err error) {
-	err = fh.waitForCreateMPU()
-	if err != nil {
-		return
-	}
+	// since removing MPU, remove this call, this would mean that we don't encounter / follow the trail to backend_s3.go
+	// Where we eventually get to 'MultipartBlobBegin'
 
+	/*
+		err = fh.waitForCreateMPU() //calls the MPU upload
+		// this MPU is ALWAYS called, at least once it hits this func and then dies in subsequent calls
+		if err != nil {
+			return
+		}
+	*/
+
+	// the thing is we dont want to break it up, so I feel like we dont want these variable declarations at all.
 	fh.lastPartId++
 	part := fh.lastPartId
 	buf := fh.buf
 	fh.buf = nil
 
-	if parallel {
-		fh.mpuWG.Add(1)
-		go fh.mpuPart(buf, part, fh.nextWriteOffset)
-	} else {
-		err = fh.mpuPartNoSpawn(buf, part, fh.nextWriteOffset, false)
-		if fh.lastWriteError == nil {
-			fh.lastWriteError = err
-		}
+	/*
+		if parallel { // we dont want this if since we dont care about parallel
+			fh.mpuWG.Add(1)
+			go fh.mpuPart(buf, part, fh.nextWriteOffset)
+		} else {
+			err = fh.mpuPartNoSpawn(buf, part, fh.nextWriteOffset, false)
+			if fh.lastWriteError == nil {
+				fh.lastWriteError = err
+			}
+		} */
+	// We still want to upload though, so we will probably need to modify this mpuPartNoSpawn to at least not call a CreatMultiPUpload
+	//err = fh.mpuPartNoSpawn(buf, part, fh.nextWriteOffset, false)
+	err = fh.uploadSingle(buf, part, fh.nextWriteOffset, false) // attempt to change this uploadSingle I created
+	// i dont think we should even try modifying this, since this splits it up into multi parts
+	if fh.lastWriteError == nil {
+		fh.lastWriteError = err
 	}
 
 	return
@@ -242,7 +299,7 @@ func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 		return fh.lastWriteError
 	}
 
-	if offset != fh.nextWriteOffset {
+	if offset < fh.nextWriteOffset {
 		fh.inode.errFuse("WriteFile: only sequential writes supported", fh.nextWriteOffset, offset)
 		fh.lastWriteError = syscall.ENOTSUP
 		return fh.lastWriteError
@@ -264,16 +321,57 @@ func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 		fh.inode.mu.Unlock()
 	}
 
+	// fill the hole with zero
+	if offset > fh.nextWriteOffset {
+		toSkip := offset - fh.nextWriteOffset
+		n := 10240
+		data := make([]byte, n)
+
+		for {
+			if fh.buf == nil {
+				fh.buf = MBuf{}.Init(fh.poolHandle, fh.partSize(), true)
+			}
+
+			if toSkip < int64(n) {
+				n = int(toSkip)
+			}
+			nCopied, _ := fh.buf.Write(data[:n])
+			toSkip -= int64(nCopied)
+			fh.nextWriteOffset += int64(nCopied)
+
+			if fh.buf.Full() {
+				err = fh.uploadCurrentBuf(!fh.cloud.Capabilities().NoParallelMultipart)
+				if err != nil {
+					return
+				}
+			}
+
+			if toSkip == 0 {
+				break
+			}
+		}
+	}
+
 	for {
 		if fh.buf == nil {
 			fh.buf = MBuf{}.Init(fh.poolHandle, fh.partSize(), true)
+			// I need to modify fh.buf here(?), I feel like this sets buf size to be used later on in fh.buf.Full().
+			// but can i just make this infinite?
+			// note that in the Init, the partSize is related to something that requestsMultiple
 		}
 
 		nCopied, _ := fh.buf.Write(data)
 		fh.nextWriteOffset += int64(nCopied)
 
+		// JOSE: if i comment out this uploadCurrentBuf, which eventually calls multipart, what happens?
+		// like fh.buf.Full, will it just overflow? Maybe just need to `uploadCurrentBuff` but NOT go into multipart
+		// / modify that uploadCurrentBuff because we will alwyas need to upload the current thing, so this shouldnt be commented out
+		// may need to reach a state where the buffer is never full lol... or at least to some reasonable number so if people really need to
+		// they can use mc or whatever...
 		if fh.buf.Full() {
 			err = fh.uploadCurrentBuf(!fh.cloud.Capabilities().NoParallelMultipart)
+			// i feel like under no 'modifiable' circumstances would trying to change `uploadCurrBuff` work, because
+			// it splits the file. thing is what do i do once the buffer is full then?
 			if err != nil {
 				return
 			}
@@ -284,7 +382,7 @@ func (fh *FileHandle) WriteFile(offset int64, data []byte) (err error) {
 		}
 
 		data = data[nCopied:]
-	}
+	} // end for loop to upload
 
 	fh.inode.Attributes.Size = uint64(fh.nextWriteOffset)
 	fh.inode.Attributes.Mtime = time.Now()

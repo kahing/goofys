@@ -52,7 +52,7 @@ $ $GOPATH/bin/goofys adl://servicename.azuredatalakestore.net:prefix <mountpoint
 
 # Azure Data Lake Storage Gen2
 
-Configure your credentials the same way as [Azure Blob Storage](https://github.com/kahing/goofys/blob/master/README-azure.md#azure-blob-storage) above, and then:
+Configure your credentials the same way as [Azure Blob Storage](https://github.com/StatCan/goofys/blob/master/README-azure.md#azure-blob-storage) above, and then:
 
 ```ShellSession
 $ $GOPATH/bin/goofys abfs://container <mountpoint>

@@ -16,9 +16,12 @@
 package main
 
 import (
-	goofys "github.com/kahing/goofys/api"
-	. "github.com/kahing/goofys/api/common"
-	. "github.com/kahing/goofys/internal"
+	"io/ioutil"
+	"strconv"
+
+	goofys "github.com/StatCan/goofys/api"
+	. "github.com/StatCan/goofys/api/common"
+	. "github.com/StatCan/goofys/internal"
 
 	"fmt"
 	"os"
@@ -134,7 +137,8 @@ func massageArg0() {
 var Version = "use `make build' to fill version hash correctly"
 
 func main() {
-	VersionNumber = "0.24.0"
+	// Changing just to make sure when I push im not using regular goofys still
+	VersionNumber = "0.42.0"
 	VersionHash = Version
 
 	massagePath()
@@ -214,13 +218,25 @@ func main() {
 			if !flags.Foreground {
 				kill(os.Getppid(), syscall.SIGUSR2)
 			}
-			log.Fatalf("Mounting file system: %v", err)
+			// log.Fatalf("Mounting file system: %v", err)
 			// fatal also terminates itself
+			log.Printf("Mounting file system: %v", err)
+			return
 		} else {
 			if !flags.Foreground {
 				kill(os.Getppid(), syscall.SIGUSR1)
 			}
 			log.Println("File system has been successfully mounted.")
+
+			if flags.PidFile != "" {
+				// Write out a Pid file
+				err = ioutil.WriteFile(flags.PidFile, []byte(strconv.Itoa(os.Getpid())), 0644)
+				if err != nil {
+					//log.Fatalf("Error writing pid file: %v", err)
+					log.Printf("Error writing pid file: %v", err)
+				}
+			}
+
 			// Let the user unmount with Ctrl-C
 			// (SIGINT). But if cache is on, catfs will
 			// receive the signal and we would detect that exiting
@@ -241,8 +257,9 @@ func main() {
 	err := app.Run(MassageMountFlags(os.Args))
 	if err != nil {
 		if flags != nil && !flags.Foreground && child != nil {
-			log.Fatalln("Unable to mount file system, see syslog for details")
+			//log.Fatalln("Unable to mount file system, see syslog for details")
+			log.Println("Unable to mount file system, see syslog for details")
 		}
-		os.Exit(1)
+		//os.Exit(1)
 	}
 }

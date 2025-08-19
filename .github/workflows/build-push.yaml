@@ -1,0 +1,69 @@
+name: build-and-push
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    types:
+      - 'opened'
+      - 'synchronize'
+      - 'reopened'
+
+env:
+  REGISTRY_NAME: k8scc01covidacr
+  TRIVY_VERSION: "v0.43.1"
+  HADOLINT_VERSION: "2.12.0"
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+    steps:
+    - uses: actions/checkout@v4
+
+    # Push image to ACR
+    # Pushes if this is a push to master or an update to a PR that has auto-deploy label
+    - name: Test if we should push to ACR
+      id: should-i-push
+      if: |
+        github.event_name == 'push' ||
+        (
+          github.event_name == 'pull_request' &&
+          contains( github.event.pull_request.labels.*.name, 'auto-deploy')
+        )
+      run: echo "::set-output name=boolean::true"
+
+    # Connect to Azure Container registry (ACR)
+    - uses: azure/docker-login@v1
+      with:
+        login-server: ${{ env.REGISTRY_NAME }}.azurecr.io
+        username: ${{ secrets.REGISTRY_USERNAME }}
+        password: ${{ secrets.REGISTRY_PASSWORD }}
+
+    - name: Run Hadolint
+      run:  |
+        sudo curl -L https://github.com/hadolint/hadolint/releases/download/v${{ env.HADOLINT_VERSION }}/hadolint-Linux-x86_64 --output hadolint
+        sudo chmod +x hadolint
+        ./hadolint ./Dockerfile --no-fail
+    
+    - name: Build image locally
+      run: |
+        docker build -f Dockerfile -t localhost:5000/mfcp-proxy-goofys-multi-inc:${{ github.sha }} .
+        docker push localhost:5000/mfcp-proxy-goofys-multi-inc:${{ github.sha }}
+        docker image prune
+    
+    - name: Aqua Security Trivy image scan
+      run: |
+        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin ${{ env.TRIVY_VERSION }}
+        trivy image localhost:5000/mfcp-proxy-goofys-multi-inc:${{ github.sha }} --exit-code 1 --timeout=20m --security-checks vuln --severity CRITICAL
+
+    # Container build and push to a Azure Container registry (ACR)
+    - name: Push to ACR if necessary
+      if: steps.should-i-push.outputs.boolean == 'true'
+      run: |
+        docker pull localhost:5000/mfcp-proxy-goofys-multi-inc:${{ github.sha }}
+        docker tag localhost:5000/mfcp-proxy-goofys-multi-inc:${{ github.sha }} ${{ env.REGISTRY_NAME }}.azurecr.io/mfcp-proxy-goofys-multi-inc:${{ github.sha }}
+        docker push ${{ env.REGISTRY_NAME }}.azurecr.io/mfcp-proxy-goofys-multi-inc:${{ github.sha }}

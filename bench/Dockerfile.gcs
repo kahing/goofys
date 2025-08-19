@@ -1,7 +1,7 @@
 FROM golang:1.14 AS goofys-builder
 
 # install goofys
-WORKDIR $GOPATH/src/github.com/kahing/goofys
+WORKDIR $GOPATH/src/github.com/StatCan/goofys
 
 COPY . .
 
@@ -33,12 +33,12 @@ RUN pip install numpy
 ENV PATH=$PATH:/root/go/bin
 
 # copy go binaries
-COPY --from=goofys-builder /go/src/github.com/kahing/goofys/goofys /root/go/bin/goofys
+COPY --from=goofys-builder /go/src/github.com/StatCan/goofys/goofys /root/go/bin/goofys
 COPY --from=goofys-builder /go/bin/gcsfuse /root/go/bin/gcsfuse
 
-WORKDIR /root/go/src/github.com/kahing/goofys
+WORKDIR /root/go/src/github.com/StatCan/goofys
 
 # copy bench scripts
 COPY bench bench
 
-ENTRYPOINT ["/root/go/src/github.com/kahing/goofys/bench/run_bench.sh"]
+ENTRYPOINT ["/root/go/src/github.com/StatCan/goofys/bench/run_bench.sh"]

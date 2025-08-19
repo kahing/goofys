@@ -1,8 +1,8 @@
 package goofys
 
 import (
-	. "github.com/kahing/goofys/api/common"
-	"github.com/kahing/goofys/internal"
+	. "github.com/StatCan/goofys/api/common"
+	"github.com/StatCan/goofys/internal"
 
 	"context"
 	"fmt"

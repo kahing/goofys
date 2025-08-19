@@ -1,7 +1,7 @@
 <img src="doc/goofys.png" height="32" width="32" align="middle" /> Goofys is a high-performance, POSIX-ish [Amazon S3](https://aws.amazon.com/s3/) file system written in Go
 
-[![Build Status](https://travis-ci.org/kahing/goofys.svg?branch=master)](https://travis-ci.org/kahing/goofys)
-[![Github All Releases](https://img.shields.io/github/downloads/kahing/goofys/total.svg)](https://github.com/kahing/goofys/releases/)
+[![Build Status](https://travis-ci.org/StatCan/goofys.svg?branch=master)](https://travis-ci.org/StatCan/goofys)
+[![Github All Releases](https://img.shields.io/github/downloads/StatCan/goofys/total.svg)](https://github.com/StatCan/goofys/releases/)
 [![Twitter Follow](https://img.shields.io/twitter/follow/s3goofys.svg?style=social&label=Follow)](https://twitter.com/s3goofys)
 [![Stack Overflow Questions](https://img.shields.io/stackexchange/stackoverflow/t/goofys?label=Stack%20Overflow%20questions)](https://stackoverflow.com/search?q=%5Bgoofys%5D+is%3Aquestion)
 
@@ -14,12 +14,12 @@ for performance first and POSIX second. Particularly things that are
 difficult to support on S3 or would translate into more than one
 round-trip would either fail (random writes) or faked (no per-file
 permission). Goofys does not have an on disk data cache (checkout
-[catfs](https://github.com/kahing/catfs)), and consistency model is
+[catfs](https://github.com/StatCan/catfs)), and consistency model is
 close-to-open.
 
 # Installation
 
-* On Linux, install via [pre-built binaries](https://github.com/kahing/goofys/releases/latest/download/goofys). 
+* On Linux, install via [pre-built binaries](https://github.com/StatCan/goofys/releases/latest/download/goofys). 
 You may also need to install fuse too if you want to mount it on startup.
 
 * On macOS, install via [Homebrew](https://brew.sh/):
@@ -33,8 +33,8 @@ $ brew install goofys
 
 ```ShellSession
 $ export GOPATH=$HOME/work
-$ go get github.com/kahing/goofys
-$ go install github.com/kahing/goofys
+$ go get github.com/StatCan/goofys
+$ go install github.com/StatCan/goofys
 ```
 
 # Usage
@@ -59,16 +59,16 @@ configured for `root`, and can add this to `/etc/fstab`:
 goofys#bucket   /mnt/mountpoint        fuse     _netdev,allow_other,--file-mode=0666,--dir-mode=0777    0       0
 ```
 
-See also: [Instruction for Azure Blob Storage, Azure Data Lake Gen1, and Azure Data Lake Gen2](https://github.com/kahing/goofys/blob/master/README-azure.md).
+See also: [Instruction for Azure Blob Storage, Azure Data Lake Gen1, and Azure Data Lake Gen2](https://github.com/StatCan/goofys/blob/master/README-azure.md).
 
-Got more questions? Check out [questions other people asked](https://github.com/kahing/goofys/issues?utf8=%E2%9C%93&q=is%3Aissue%20label%3Aquestion%20)
+Got more questions? Check out [questions other people asked](https://github.com/StatCan/goofys/issues?utf8=%E2%9C%93&q=is%3Aissue%20label%3Aquestion%20)
 
 # Benchmark
 
 Using `--stat-cache-ttl 1s --type-cache-ttl 1s` for goofys
 `-ostat_cache_expire=1` for s3fs to simulate cold runs. Detail for the
 benchmark can be found in
-[bench.sh](https://github.com/kahing/goofys/blob/master/bench/bench.sh). [Raw data](https://github.com/kahing/goofys/blob/master/bench/)
+[bench.sh](https://github.com/StatCan/goofys/blob/master/bench/bench.sh). [Raw data](https://github.com/StatCan/goofys/blob/master/bench/)
 is available as well. The test was run on an EC2 m5.4xlarge in us-west-2a
 connected to a bucket in us-west-2. Units are seconds.
 
@@ -76,11 +76,11 @@ connected to a bucket in us-west-2. Units are seconds.
 
 To run the benchmark, configure EC2's instance role to be able to write to `$TESTBUCKET`, and then do:
 ```ShellSession
-$ sudo docker run -e BUCKET=$TESTBUCKET -e CACHE=false --rm --privileged --net=host -v /tmp/cache:/tmp/cache kahing/goofys-bench
+$ sudo docker run -e BUCKET=$TESTBUCKET -e CACHE=false --rm --privileged --net=host -v /tmp/cache:/tmp/cache StatCan/goofys-bench
 # result will be written to $TESTBUCKET
 ```
 
-See also: [cached benchmark result](https://github.com/kahing/goofys/blob/master/bench/cache/README.md) and [result on Azure](https://github.com/kahing/goofys/blob/master/bench/azure/README.md).
+See also: [cached benchmark result](https://github.com/StatCan/goofys/blob/master/bench/cache/README.md) and [result on Azure](https://github.com/StatCan/goofys/blob/master/bench/azure/README.md).
 
 # License
 
@@ -123,12 +123,17 @@ Additionally, goofys also works with the following non-S3 object stores:
 * Azure Data Lake Gen1
 * Azure Data Lake Gen2
 
+## Integration with [meta-fuse-csi-plugin](https://github.com/pfnet-research/meta-fuse-csi-plugin/tree/main)
+
+This repository also contains files from the the meta-fuse-csi-plugin repository with more information being found [here](https://github.com/StatCan/aaw/blob/master/docs/dev/features/netapp-mounting/overview.md#integration-with-netapp). The initial commit to add them is [here](https://github.com/StatCan/goofys/commit/9db676b41fd4546c06d7fd1df6afbac44d29bde5) with subsequent commits refining the process.
+The purpose of this was to [simplify the process described here](https://github.com/StatCan/aaw/blob/master/docs/dev/features/netapp-mounting/overview.md#deployment-checklist).
+
 # References
 
   * Data is stored on [Amazon S3](https://aws.amazon.com/s3/)
   * [Amazon SDK for Go](https://github.com/aws/aws-sdk-go)
   * Other related fuse filesystems
-    * [catfs](https://github.com/kahing/catfs): caching layer that can be used with goofys
+    * [catfs](https://github.com/StatCan/catfs): caching layer that can be used with goofys
     * [s3fs](https://github.com/s3fs-fuse/s3fs-fuse): another popular filesystem for S3
     * [gcsfuse](https://github.com/googlecloudplatform/gcsfuse):
       filesystem for
